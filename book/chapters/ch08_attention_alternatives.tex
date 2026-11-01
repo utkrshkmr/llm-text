@@ -614,6 +614,34 @@ recurrent model must have stored the pair in its fixed-size state.}
 \label{fig:attnalt:mqar}
 \end{figure}
 
+We ran this probe with \code{labs/lab08\_attnalt/recall.py}: two-layer \code{HybridLM}s with $d=64$, a
+64-token vocabulary, 8 key--value pairs and 4 queries per sequence, trained for 2{,}500 steps (one seed,
+measured on CPU in this environment). \Cref{tab:attnalt:mqar} shows the result. The pure attention model
+switches from guessing to perfect recall abruptly at around 1{,}000 steps, which is the familiar signature of an
+induction-style circuit forming. The two pure recurrent models never get far above chance in the same budget, and a
+single attention layer on top of a linear layer is enough to recover recall almost completely.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}llr@{}}
+\toprule
+Pattern & Layers & Recall accuracy\\
+\midrule
+\texttt{AA} & softmax, softmax & 1.000\\
+\texttt{LA} & gated linear, softmax & 0.998\\
+\texttt{MM} & Mamba, Mamba & 0.176\\
+\texttt{LL} & gated linear, gated linear & 0.126\\
+\midrule
+chance & & 0.031\\
+\bottomrule
+\end{tabular}
+\caption{Associative recall after 2{,}500 steps (8 pairs, 4 queries, $d=64$; one seed; CPU). Recurrent states
+of this size cannot hold the pairs well enough; one attention layer fixes it. Larger states and longer training
+help the recurrent models, so treat this as a qualitative illustration, not a ranking.}
+\label{tab:attnalt:mqar}
+\end{table}
+
+
 \begin{systemslens}[Training recurrent layers on long sequences across GPUs]
 For softmax attention, context parallelism shards the sequence and circulates KV blocks around a ring
 (\cref{ch:distributed}). Recurrent layers have a simpler but more \emph{sequential} structure: device $r$ needs
@@ -1036,13 +1064,14 @@ so equivalences can be checked to $10^{-10}$.
   attention should grow linearly with $T$ while the linear and SSM steps stay flat; find the crossover length.
   (On a busy CPU the numbers are noisy; look for the trend over a wide range of $T$.)
 \item Reproduce \cref{fig:attnalt:cache} with \code{decode\_cache\_bytes} for a model of your choice.
-\item Train a two-layer model on the copy lines of \code{llmsys.ablate.make\_corpus} with (a) softmax
-  attention, (b) gated linear attention, (c) a 1:1 hybrid. Compare the loss on the copied segment only.
+\item Run \code{recall.py} for the patterns \code{AA}, \code{LL}, \code{MM} and \code{LA} at 8 and 16 pairs
+  (reproducing \cref{tab:attnalt:mqar}), then increase $d$ for the recurrent models until they solve 8 pairs.
+  How does the required state size scale with the number of pairs?
 \end{itemize}
 
 \labsection{Deliverables}
-Passing tests; a decode-time plot; a cache-memory plot; a paragraph explaining the copy-task results in terms
-of state capacity.
+Passing tests; a decode-time plot; a cache-memory plot; a recall table with a paragraph explaining it in
+terms of state capacity.
 
 \labsection{Stretch goals}
 Implement the Blelloch (work-efficient) scan; implement a chunked delta rule using the WY representation and

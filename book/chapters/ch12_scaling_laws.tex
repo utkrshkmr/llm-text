@@ -171,10 +171,10 @@ class RunConfig:
 \end{lstlisting}
 
 \begin{napkinmath}[How much of a small model is embedding?]
-A model with $L=9$, $d=448$, $\dff=1280$ and $V=32{,}000$ has
-$N_{\text{ne}} = 9(4\cdot448^2 + 3\cdot448\cdot1280) \approx 23.7$M, but its untied input
-and output embeddings hold $2\cdot32{,}000\cdot448\approx 28.7$M. More than half the weights
-are embeddings, and the LM head alone adds $14.3$M to the FLOP count, about $60\%$ of the
+A model with $L=8$, $d=512$, $\dff=1408$ and $V=32{,}000$ has
+$N_{\text{ne}} = 8(4\cdot512^2 + 3\cdot512\cdot1408) \approx 25.7$M, but its untied input
+and output embeddings hold $2\cdot32{,}000\cdot512\approx 32.8$M. More than half the weights
+are embeddings, and the LM head alone adds $16.4$M to the FLOP count, about $64\%$ of the
 non-embedding work. If you fit a law with total parameters at this scale and use it to
 extrapolate to a 1B model, where embeddings are a few percent of the weights, your $N$ axis
 changes meaning along the way. Pick one definition (non-embedding is the usual choice), use it
@@ -595,8 +595,8 @@ a WSD stable phase gives a loss at several data sizes from one run.}
 \begin{napkinmath}[What branching saves]
 Suppose you want losses for one model at token counts $D, 2D, 4D, 8D$. With cosine you need
 four runs: $15D$ tokens. With WSD and decays of 10\% of each length, you need one $8D$ run plus
-decays of $0.1D+0.2D+0.4D+0.8D=1.5D$, so $9.5D$ tokens in total, a 37\% saving. With eight
-log-spaced durations the saving approaches 45\%, and the stable run doubles as the
+decays of $0.1D+0.2D+0.4D+0.8D=1.5D$, so $9.5D$ tokens in total, a 37\% saving. With many
+log-spaced durations the saving approaches 40\%, and the stable run doubles as the
 method-1 curve. The cost is infrastructure: you must checkpoint the full optimizer state at
 every branch point, restore it exactly, and track which branch produced which loss, which is
 exactly the bookkeeping of \cref{sec:pretrain:save} and \cref{sec:scalinglaws:running}.
@@ -1042,7 +1042,8 @@ $\eta\propto1/n$ rule, and explain why the same argument gives a different rule 
 \begin{exercise}[Inference-aware optimum]
 Minimise $\hat L(N,D)$ subject to $6ND + 2ND_{\text{inf}} = C_{\text{total}}$ for fixed
 $D_{\text{inf}}$. Show that the optimal $N$ is smaller than the Chinchilla optimum, and compute
-the tokens-per-parameter ratio for the synthetic truth when $D_{\text{inf}} = 10D$.
+the optimal $N$ and tokens-per-parameter ratio for the default synthetic truth
+(\code{GroundTruth()}) at $C_{\text{total}}=10^{21}$ and $D_{\text{inf}}=10^{11}$.
 \end{exercise}
 
 \begin{exercise}[Reservation policy]

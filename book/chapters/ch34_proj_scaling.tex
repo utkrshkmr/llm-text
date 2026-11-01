@@ -39,7 +39,7 @@ service; here you design the study yourself.
 \node[box=labpurple!15, minimum width=2.6cm] (r) at (0,-1.7) {write-up\\+ score};
 \draw[arr] (w) -- (s); \draw[arr] (s) -- (c); \draw[arr] (c) -- (g); \draw[arr] (g) -- (f);
 \draw[arr] (f) -- (v); \draw[arr] (v) -- (x); \draw[arr] (x) -- (r);
-\draw[arr, dashed] (f.north) to[out=110,in=70] node[above, font=\scriptsize] {refine grid} (g.north east);
+\draw[arr, dashed] (f.east) to[out=20,in=-20] node[right, font=\scriptsize] {refine grid} (g.east);
 \end{tikzpicture}
 \caption{The project at a glance. Part A trains your fitting code on a fixed dataset; Part B is the
 budgeted study. The dashed arrow is the most important one: a study that cannot revise its grid
@@ -60,6 +60,27 @@ By the end of the project you should be able to:
       analysis that is regenerated from that ledger (\cref{sec:scalinglaws:running});
 \item turn a fit into a concrete, finishable configuration and an honest prediction.
 \end{itemize}
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Need} & \textbf{Key relation} & \textbf{Where}\\
+\midrule
+Parameters & $N_{\text{ne}} = L(4d^2+3d\dff)$ & \cref{eq:scalinglaws:12ld2}\\
+Compute & $C/D \approx 6(N_{\text{ne}}+Vd)+6LTd$ & \cref{eq:scalinglaws:fpt}\\
+Wall-clock & $t = t_0 + C/(P\cdot\mathrm{MFU})$ & \cref{sec:scalinglaws:accounting}\\
+IsoFLOP optimum & bracketed min or parabola vertex in $\log N$ & \cref{sec:scalinglaws:method2}\\
+Surface & $E + A N^{-\alpha} + B D^{-\beta}$, Huber on $\log L$ & \cref{eq:scalinglaws:chin}\\
+Allocation & $N_{\text{opt}} = G (C/6)^{\beta/(\alpha+\beta)}$ & \cref{eq:scalinglaws:closed}\\
+LR transfer & basin vertex per size; $\text{lr}^*(N) = kN^{a}$ & \cref{sec:scalinglaws:lr}\\
+Batch & $(S/S_{\min}-1)(E/E_{\min}-1)=1$ & \cref{eq:scalinglaws:critbatch}\\
+Uncertainty & bootstrap within budgets; error $\times10^{k\,\delta a}$ & \cref{sec:scalinglaws:uncertainty}\\
+\bottomrule
+\end{tabularx}
+\caption{The relations this project relies on, with pointers to where they are derived.}
+\label{tab:proj3:cheat}
+\end{table}
 
 % ======================================================================
 \section{Setup}\label{sec:proj3:setup}
@@ -82,25 +103,27 @@ about 12 real minutes if you keep the workers busy; use a larger value while you
 
 \begin{figure}[t]
 \centering
+\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
   comp/.style={draw, rounded corners=2pt, minimum height=0.9cm, align=center, font=\footnotesize, fill=#1},
   comp/.default=fcompute!15,
   arr/.style={-{Stealth[length=2mm]}, thick},
-  lab/.style={font=\scriptsize, midway}]
-\node[comp=keygreen!15, minimum width=2.6cm] (nb) at (0,0) {your study\\scripts / notebook};
-\node[comp=keygreen!15, minimum width=2.2cm] (lg) at (0,-1.7) {\code{Ledger}\\ledger.jsonl};
-\node[comp, minimum width=2.2cm] (cl) at (3.4,0) {\code{HTTPClient}};
-\node[comp=napkin!20, minimum width=2.8cm] (api) at (7.0,0) {training service\\(HTTP, budget)};
-\node[comp=napkin!20, minimum width=1.7cm] (q) at (7.0,-1.7) {FIFO queue};
-\node[comp=labpurple!15, minimum width=1.4cm] (w1) at (9.6,-1.0) {worker};
-\node[comp=labpurple!15, minimum width=1.4cm] (w2) at (9.6,-2.0) {worker};
-\node[comp=black!8, minimum width=2.4cm] (gt) at (7.0,-3.3) {hidden loss surface\\+ runtime model};
-\draw[arr] (nb) -- node[lab, above] {submit/poll} (cl);
+  lab/.style={font=\scriptsize}]
+\node[comp=keygreen!15, minimum width=2.8cm] (nb) at (0,0) {your study\\scripts / notebook};
+\node[comp=keygreen!15, minimum width=2.8cm] (lg) at (0,-2.2) {\code{Ledger}\\ledger.jsonl};
+\node[comp, minimum width=2.4cm] (cl) at (4.4,0) {\code{HTTPClient}};
+\node[comp=napkin!20, minimum width=3.0cm] (api) at (8.8,0) {training service\\(HTTP, budget)};
+\node[comp=napkin!20, minimum width=2.0cm] (q) at (8.8,-2.2) {FIFO queue};
+\node[comp=labpurple!15, minimum width=1.5cm] (w1) at (11.9,-1.6) {worker};
+\node[comp=labpurple!15, minimum width=1.5cm] (w2) at (11.9,-2.8) {worker};
+\node[comp=black!8, minimum width=3.2cm] (gt) at (8.8,-4.2) {hidden loss surface\\+ runtime model};
+\draw[arr] (nb) -- node[lab, above] {submit / poll} (cl);
 \draw[arr] (cl) -- node[lab, above] {X-API-Key} (api);
-\draw[arr, <->] (nb) -- node[lab, left] {append / replay} (lg);
+\draw[arr, <->] (nb) -- node[lab, right] {append / replay} (lg);
 \draw[arr] (api) -- (q); \draw[arr] (q) -- (w1); \draw[arr] (q) -- (w2);
-\draw[arr, dashed] (w1) |- (gt); \draw[arr, dashed] (w2) |- (gt);
-\end{tikzpicture}
+\draw[arr, dashed] (w1.east) -- ++(0.4,0) |- (gt.east);
+\draw[arr, dashed] (w2.east) -- ++(0.4,0);
+\end{tikzpicture}}
 \caption{The moving parts. Only the left column is yours to write; the ledger and client in the
 repository are a starting point you are free to replace.}
 \label{fig:proj3:arch}
@@ -152,7 +175,7 @@ about the service's internals, in particular not its runtime model, which you mu
 \node[note, anchor=west] at (10.35,0.9) {charged actual time;\\all losses};
 \node[note, anchor=west] at (10.35,-0.3) {charged reservation;\\partial losses};
 \node[note, anchor=west] at (10.35,-1.5) {charged until detected;\\losses end in NaN};
-\node[note, anchor=west] at (3.95,-1.6) {nothing charged};
+\node[note, anchor=west] at (4.2,-1.6) {nothing charged};
 \end{tikzpicture}
 \caption{The life of a run and what each outcome costs. Your client and ledger must handle every
 arrow, including the rejections, which should never be retried blindly.}
@@ -190,6 +213,31 @@ you which stage is fragile.
 \code{make\_warmup\_data.py} writes 45 finished runs (five IsoFLOP budgets from $10^{17}$ to
 $10^{19}$ FLOPs, nine sizes each) drawn from a hidden surface. Each record has
 \code{n\_params}, \code{tokens}, \code{flops} and \code{loss}.
+
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[xmode=log, width=0.7\linewidth, height=5.2cm, xlabel={\code{n\_params}},
+  ylabel={\code{loss}}, label style={font=\small}, tick label style={font=\scriptsize},
+  legend style={font=\scriptsize, draw=none, at={(1.02,0.5)}, anchor=west}]
+\addplot[thick, mark=*, mark size=1.2pt, sysblue] coordinates {(1.029e+07,3.2100) (1.574e+07,3.1597) (2.408e+07,3.1099) (3.684e+07,3.0570) (5.636e+07,3.0307) (8.622e+07,3.0597) (1.319e+08,3.0890) (2.018e+08,3.1283) (3.087e+08,3.2298)};
+\addlegendentry{$10^{17}$}
+\addplot[thick, mark=*, mark size=1.2pt, keygreen] coordinates {(2.326e+07,2.9407) (3.559e+07,2.9190) (5.445e+07,2.8630) (8.33e+07,2.8634) (1.274e+08,2.8643) (1.949e+08,2.8888) (2.982e+08,2.9369) (4.562e+08,2.9874) (6.98e+08,3.0625)};
+\addlegendentry{$3\times10^{17}$}
+\addplot[thick, mark=*, mark size=1.2pt, napkin] coordinates {(4.798e+07,2.7547) (7.34e+07,2.7302) (1.123e+08,2.6921) (1.718e+08,2.7085) (2.628e+08,2.7257) (4.02e+08,2.7450) (6.15e+08,2.7764) (9.408e+08,2.8481) (1.439e+09,2.9206)};
+\addlegendentry{$10^{18}$}
+\addplot[thick, mark=*, mark size=1.2pt, labpurple] coordinates {(2.821e+07,2.7665) (4.316e+07,2.7004) (6.602e+07,2.6424) (1.01e+08,2.6107) (1.545e+08,2.5985) (2.364e+08,2.5882) (3.616e+08,2.5766) (5.532e+08,2.6027) (8.463e+08,2.6461)};
+\addlegendentry{$3\times10^{18}$}
+\addplot[thick, mark=*, mark size=1.2pt, warnred] coordinates {(7.88e+07,2.5464) (1.205e+08,2.5029) (1.844e+08,2.4894) (2.821e+08,2.4796) (4.316e+08,2.4809) (6.603e+08,2.4915) (1.01e+09,2.5043) (1.545e+09,2.5118) (2.364e+09,2.5531)};
+\addlegendentry{$10^{19}$}
+\end{axis}
+\end{tikzpicture}
+\caption{The raw warm-up data for the example seed 0 shipped in \code{data/} (one line per FLOP
+budget, in FLOPs). This is all you get: no fits, no truth. Generate your own seed for the
+project; seed 0 is only for checking that your loading and plotting code works.}
+\label{fig:proj3:raw}
+\end{figure}
 
 \begin{enumerate}
 \item[A1.] \textbf{IsoFLOP allocation.} Find each budget's optimum and fit power laws
@@ -375,6 +423,31 @@ Write-up & Reproducible, with decisions justified & 10\%\\
 spread you get from re-running your pipeline on a few other truth seeds.}
 \label{tab:proj3:rubric}
 \end{table}
+
+% ======================================================================
+\section{Questions that come up}\label{sec:proj3:faq}
+
+\paragraph{The service restarted and my budget is back to 12 hours. Can I keep going?} The
+service keeps its state in memory, so a restart resets it. That is a property of the stand-in,
+not of the task: treat the budget recorded in \emph{your} ledger as the binding one, and report
+any restart in the write-up. (A production service persists its job table; making
+\code{training\_service.py} do so with SQLite is a good extension.)
+
+\paragraph{What time scale should I use?} The time scale changes only how long you wait, never
+what anything costs. Debug at \code{--time-scale 1e6}; run the real attempt at a pace that lets
+you watch the queue (\code{60}--\code{600}).
+
+\paragraph{Can I use grouped-query attention or tied embeddings?} The service accepts both
+fields. It prices attention as full multi-head attention, so GQA neither helps nor hurts here; tied
+embeddings change the parameter count your accounting must use.
+
+\paragraph{Should the final run reuse a configuration I already trained?} Only if it is the
+best predicted choice. The service scores the final configuration from its hidden surface, not by
+looking up an earlier run, and duplicates of fitting runs are rejected anyway.
+
+\paragraph{How noisy are the losses?} Measure it: repeat one small configuration with different
+\code{model\_seed} values. The noise level sets how much a single run can be trusted and how
+many sizes per budget you need.
 
 % ======================================================================
 \section{Strategy discussion}\label{sec:proj3:strategy}

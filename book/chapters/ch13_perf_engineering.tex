@@ -61,7 +61,8 @@ published peak:
 $ python projects/a2/env_check.py --json > results/env.json
 $ python projects/a2/env_check.py
 torch: 2.x.y+cu12z   cuda: 12.z   triton: 3.y   nccl: 2.y.z
-gpu[0]: {'name': 'NVIDIA H100 80GB HBM3', 'mem_GiB': 79.1, 'sms': 132, 'cc': '9.0'}
+gpu[0]: {'name': 'NVIDIA H100 80GB HBM3', 'mem_GiB': 79.1, 'sms': 132,
+         'cc': '9.0'}
 matmul_check: {'bf16_TFLOPs': ..., 'fraction_of_peak': ...}
 nsys: /usr/local/bin/nsys   ncu: /usr/local/bin/ncu
 \end{lstlisting}
@@ -83,10 +84,13 @@ results get into papers.
 
 \begin{lstlisting}[style=shell,caption={A sweep from grid to LaTeX table.},label={lst:perf:sweep}]
 $ cat grid.json
-{"cfg": ["gpt-small", "gpt-medium"], "T": [256, 512, 1024], "dtype": ["fp32", "bf16"]}
+{"cfg": ["gpt-small", "gpt-medium"], "T": [256, 512, 1024],
+ "dtype": ["fp32", "bf16"]}
 $ python projects/a2/sweep.py --grid grid.json --out runs.jsonl -- \
-    python labs/lab13_perf/bench.py model --cfg {cfg} --T {T} --dtype {dtype} --jsonl /dev/stdout
-$ python projects/a2/tables.py runs.jsonl --rows cfg T --cols dtype --value ms_mean --latex \
+    python labs/lab13_perf/bench.py model --cfg {cfg} --T {T} \
+    --dtype {dtype} --jsonl /dev/stdout
+$ python projects/a2/tables.py runs.jsonl --rows cfg T --cols dtype \
+    --value ms_mean --latex \
     > report/step_time.tex
 \end{lstlisting}
 
@@ -198,8 +202,9 @@ nsys profile -o step_bf16 \
   --trace=cuda,nvtx,osrt,cublas,cudnn \
   --pytorch=functions-trace,autograd-shapes-nvtx \
   --capture-range=nvtx --nvtx-capture=measure --capture-range-end=stop \
-  python labs/lab13_perf/bench.py model --cfg gpt-medium --T 512 --dtype bf16 --nvtx
-nsys stats --report cuda_gpu_kern_sum step_bf16.nsys-rep     # kernel summary as text
+  python labs/lab13_perf/bench.py model --cfg gpt-medium --T 512 \
+         --dtype bf16 --nvtx
+nsys stats --report cuda_gpu_kern_sum step_bf16.nsys-rep  # kernel summary
 \end{lstlisting}
 
 The flags are worth understanding rather than copying. \code{--trace} chooses which APIs to
@@ -242,7 +247,8 @@ def annotate_modules(model, types=()):
                     mod.register_forward_hook(lambda m, a, o: nvtx.range_pop()),
                     mod.register_full_backward_pre_hook(
                         lambda m, g, l=name: nvtx.range_push("bwd:" + l)),
-                    mod.register_full_backward_hook(lambda m, gi, go: nvtx.range_pop())]
+                    mod.register_full_backward_hook(
+                        lambda m, gi, go: nvtx.range_pop())]
     return handles
 
 # inside an attention implementation:
@@ -452,7 +458,7 @@ Measure it with \cref{sec:perf:memory}'s tools instead of assuming it.
 \end{pitfall}
 
 \begin{lstlisting}[caption={Precision switches worth knowing.},label={lst:perf:ampknobs}]
-torch.backends.cuda.matmul.allow_tf32 = True     # fp32 GEMMs on tensor cores (10-bit mantissa)
+torch.backends.cuda.matmul.allow_tf32 = True     # fp32 GEMMs on tensor cores (TF32)
 torch.set_float32_matmul_precision("high")        # same, newer spelling
 with torch.autocast("cuda", dtype=torch.bfloat16):
     loss = loss_fn(model(x), y)                   # matmuls bf16, reductions fp32
@@ -561,17 +567,20 @@ saves \code{weight.T}, a view whose \code{\_base} is the parameter).
 \begin{lstlisting}[caption={Accounting for residuals with saved-tensor hooks (abridged from \texttt{llmsys/perf.py}).},label={lst:perf:tracker}]
 class SavedTensorTracker:
     def _pack(self, t):
-        if isinstance(t, nn.Parameter) or isinstance(getattr(t, "_base", None), nn.Parameter):
+        base = getattr(t, "_base", None)
+        if isinstance(t, nn.Parameter) or isinstance(base, nn.Parameter):
             return t                                     # resident anyway
         st = t.untyped_storage()
         key = (st.data_ptr(), st.nbytes())               # count each storage once
         nbytes = 0 if key in self._seen else st.nbytes()
         self._seen.add(key)
-        self.entries.append(dict(shape=tuple(t.shape), dtype=t.dtype, bytes=nbytes,
-                                 grad_fn=type(t.grad_fn).__name__ if t.grad_fn else None))
+        gf = type(t.grad_fn).__name__ if t.grad_fn else None
+        self.entries.append(dict(shape=tuple(t.shape), dtype=t.dtype,
+                                 bytes=nbytes, grad_fn=gf))
         return t
     def __enter__(self):
-        self._h = torch.autograd.graph.saved_tensors_hooks(self._pack, lambda t: t)
+        hooks = torch.autograd.graph.saved_tensors_hooks
+        self._h = hooks(self._pack, lambda t: t)
         self._h.__enter__(); return self
 
 with SavedTensorTracker() as tr:
@@ -654,7 +663,8 @@ def checkpoint_segments(blocks, x, segment):
             return h
         return f
     for lo in range(0, len(blocks), segment):
-        x = checkpoint(run(lo, min(lo + segment, len(blocks))), x, use_reentrant=False)
+        hi = min(lo + segment, len(blocks))
+        x = checkpoint(run(lo, hi), x, use_reentrant=False)
     return x
 \end{lstlisting}
 
@@ -757,9 +767,9 @@ lowers the graph to Triton kernels on GPU (C++/OpenMP on CPU), fusing chains of 
 reduction ops and calling cuBLAS or generated templates for matmuls.
 
 \begin{lstlisting}[style=shell,caption={Seeing what the compiler did.},label={lst:perf:compilelogs}]
-TORCH_LOGS="graph_breaks,recompiles" python train.py   # why graphs split / recompile
-TORCH_LOGS="output_code" python train.py               # the generated Triton kernels
-TORCH_COMPILE_DEBUG=1 python train.py                  # full dump under torch_compile_debug/
+TORCH_LOGS="graph_breaks,recompiles" python train.py  # why graphs split/recompile
+TORCH_LOGS="output_code" python train.py              # generated Triton kernels
+TORCH_COMPILE_DEBUG=1 python train.py                 # full dump to a debug dir
 \end{lstlisting}
 
 Five practical rules follow from that architecture. \textbf{Avoid graph breaks} in hot code:
@@ -849,9 +859,9 @@ $P_{ij}=\exp(S_{ij}-L_i)$.
 \node[anchor=west, keygreen!50!black] at (8.2,-5.5) {forward / dQ program $i=5$: stage 1 (blue), stage 2 (orange)};
 \draw[very thick, warnred] (2,0) rectangle (3,-8);
 \node[anchor=west, warnred] at (8.2,-1.5) {dK/dV program $j=2$: rows $i\ge2$};
-\fill[sysblue!35] (8.4,-6.6) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-6.3) {full tile: no comparisons};
-\fill[napkin!50] (8.4,-7.4) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-7.1) {diagonal tile: mask};
-\fill[black!7] (8.4,-8.2) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-7.9) {never loaded};
+\fill[sysblue!35] (8.4,-6.9) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-6.6) {full tile: no comparisons};
+\fill[napkin!50] (8.4,-7.7) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-7.4) {diagonal tile: mask};
+\fill[black!7] (8.4,-8.5) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-8.2) {never loaded};
 \end{tikzpicture}
 \caption{Work decomposition for causal attention with equal tile sizes. A forward (or dQ) program
 owns a row of tiles and processes them in two stages: fully visible tiles without any masking
@@ -878,71 +888,70 @@ Triton, porting the loads to descriptors is the first step towards TMA-based pip
 
 \subsection{The forward kernel}
 
-\begin{lstlisting}[caption={FA2 forward: the inner loop over key tiles (\texttt{flash2\_triton.py}).},label={lst:perf:fa2inner}]
+\begin{lstlisting}[caption={FA2 forward: the inner loop over key tiles (\texttt{flash2\_triton.py}, reflowed).},label={lst:perf:fa2inner}]
 @triton.jit
-def _fa2_fwd_inner(acc, l_i, m_i, q, k_base, v_base, stride_kt, stride_vt, start, end,
-                   offs_m, offs_d, shift, S, scale,
+def _fa2_fwd_inner(acc, l_i, m_i, q, k_base, v_base, stride_kt, stride_vt,
+                   start, end, offs_m, offs_d, shift, S, scale,
                    BLOCK_N: tl.constexpr, MASK_CAUSAL: tl.constexpr):
     for n0 in range(start, end, BLOCK_N):
         offs_n = n0 + tl.arange(0, BLOCK_N)
-        kv_mask = offs_n[:, None] < S                      # ragged last key tile
+        kv_mask = offs_n[:, None] < S                 # ragged last key tile
         k = tl.load(k_base + offs_n[:, None] * stride_kt + offs_d[None, :],
                     mask=kv_mask, other=0.0)
         v = tl.load(v_base + offs_n[:, None] * stride_vt + offs_d[None, :],
                     mask=kv_mask, other=0.0)
-        s = tl.dot(q, tl.trans(k)) * scale                 # fp32 scores tile
+        s = tl.dot(q, tl.trans(k)) * scale            # fp32 scores tile
         keep = offs_n[None, :] < S
-        if MASK_CAUSAL:                                    # compiled in only for stage 2
+        if MASK_CAUSAL:                               # stage 2 only
             keep = keep & (offs_n[None, :] <= offs_m[:, None] + shift)
         s = tl.where(keep, s, float("-inf"))
         m_new = tl.maximum(m_i, tl.max(s, axis=1))
         p = tl.exp(s - m_new[:, None])
-        alpha = tl.exp(m_i - m_new)                        # rescale old statistics
+        alpha = tl.exp(m_i - m_new)                   # rescale old stats
         l_i = l_i * alpha + tl.sum(p, axis=1)
         acc = acc * alpha[:, None]
-        acc = tl.dot(p.to(v.dtype), v, acc=acc)            # bf16 inputs, fp32 accumulator
+        acc = tl.dot(p.to(v.dtype), v, acc=acc)       # fp32 accumulator
         m_i = m_new
     return acc, l_i, m_i
 \end{lstlisting}
 
-\begin{lstlisting}[caption={FA2 forward: one program per (query tile, batch$\times$head).},label={lst:perf:fa2fwd}]
+\begin{lstlisting}[caption={FA2 forward: one program per (query tile, batch$\times$head), reflowed.},label={lst:perf:fa2fwd}]
 @triton.jit
 def _fa2_fwd_kernel(Q, K, V, O, L, stride_qh, stride_qt, stride_kh, stride_kt,
-                    stride_vh, stride_vt, stride_oh, stride_ot, stride_lh, T, S, scale,
-                    D: tl.constexpr, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
-                    CAUSAL: tl.constexpr):
+                    stride_vh, stride_vt, stride_oh, stride_ot, stride_lh,
+                    T, S, scale, D: tl.constexpr, BLOCK_M: tl.constexpr,
+                    BLOCK_N: tl.constexpr, CAUSAL: tl.constexpr):
     pid_m, bh = tl.program_id(0), tl.program_id(1)
     offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     offs_d = tl.arange(0, D)
     q_mask = offs_m[:, None] < T
-    q = tl.load(Q + bh * stride_qh + offs_m[:, None] * stride_qt + offs_d[None, :],
-                mask=q_mask, other=0.0)
-    k_base, v_base = K + bh * stride_kh, V + bh * stride_vh
+    q = tl.load(Q + bh * stride_qh + offs_m[:, None] * stride_qt
+                + offs_d[None, :], mask=q_mask, other=0.0)
+    kb, vb = K + bh * stride_kh, V + bh * stride_vh
     m_i = tl.full((BLOCK_M,), float("-inf"), dtype=tl.float32)
     l_i = tl.zeros((BLOCK_M,), dtype=tl.float32)
     acc = tl.zeros((BLOCK_M, D), dtype=tl.float32)
-    shift = S - T                         # queries are the last T of S positions
+    shift = S - T                  # queries are the last T of S positions
+    args = (offs_m, offs_d, shift, S, scale, BLOCK_N)   # (spelled out in file)
     if CAUSAL:
-        full_end = tl.minimum(tl.maximum((pid_m * BLOCK_M + shift + 1)
-                                         // BLOCK_N * BLOCK_N, 0), S)
-        acc, l_i, m_i = _fa2_fwd_inner(acc, l_i, m_i, q, k_base, v_base, stride_kt,
-                                       stride_vt, 0, full_end, offs_m, offs_d, shift,
-                                       S, scale, BLOCK_N, False)          # stage 1
-        diag_end = tl.minimum((pid_m + 1) * BLOCK_M + shift, S)
-        acc, l_i, m_i = _fa2_fwd_inner(acc, l_i, m_i, q, k_base, v_base, stride_kt,
-                                       stride_vt, full_end, diag_end, offs_m, offs_d,
-                                       shift, S, scale, BLOCK_N, True)    # stage 2
+        full = (pid_m * BLOCK_M + shift + 1) // BLOCK_N * BLOCK_N
+        full = tl.minimum(tl.maximum(full, 0), S)
+        diag = tl.minimum((pid_m + 1) * BLOCK_M + shift, S)
+        acc, l_i, m_i = _fa2_fwd_inner(acc, l_i, m_i, q, kb, vb, stride_kt,
+                                       stride_vt, 0, full, *args, False)
+        acc, l_i, m_i = _fa2_fwd_inner(acc, l_i, m_i, q, kb, vb, stride_kt,
+                                       stride_vt, full, diag, *args, True)
     else:
-        acc, l_i, m_i = _fa2_fwd_inner(acc, l_i, m_i, q, k_base, v_base, stride_kt,
-                                       stride_vt, 0, S, offs_m, offs_d, shift, S,
-                                       scale, BLOCK_N, False)
-    acc = acc / l_i[:, None]                                       # normalise once
+        acc, l_i, m_i = _fa2_fwd_inner(acc, l_i, m_i, q, kb, vb, stride_kt,
+                                       stride_vt, 0, S, *args, False)
+    acc = acc / l_i[:, None]                              # normalise once
     tl.store(O + bh * stride_oh + offs_m[:, None] * stride_ot + offs_d[None, :],
              acc.to(O.dtype.element_ty), mask=q_mask)
     tl.store(L + bh * stride_lh + offs_m, m_i + tl.log(l_i), mask=offs_m < T)
 \end{lstlisting}
 
-Three details deserve attention. \textbf{The two stages} (\cref{fig:perf:tiles}) share one inner
+(The listing condenses the repeated arguments into \code{args}; Triton requires them spelled
+out, as in the file.) Three details deserve attention. \textbf{The two stages} (\cref{fig:perf:tiles}) share one inner
 function; \code{MASK\_CAUSAL} is a \code{constexpr}, so Triton compiles two specialised copies and
 the stage-1 copy contains no comparison at all. Tiles above the diagonal are never loaded, which
 halves the work for causal attention. \textbf{Masking with $-\infty$} is safe here because every
@@ -978,21 +987,20 @@ bits). The clean solution recomputes $\mat{P}$ twice and splits the work:
   streams the visible key tiles, and accumulates $\mat{dQ}_i$.
 \end{enumerate}
 
-\begin{lstlisting}[caption={The dK/dV kernel's loop over query tiles.},label={lst:perf:dkdv}]
+\begin{lstlisting}[caption={The dK/dV kernel's loop over query tiles (reflowed).},label={lst:perf:dkdv}]
+    row = lambda X, offs: X + base + offs[:, None] * stride_t + offs_d[None, :]
     start_m = 0
-    if CAUSAL:   # query tiles entirely above this key tile cannot see it
+    if CAUSAL:          # query tiles entirely above this key tile cannot see it
         start_m = tl.maximum(pid_n * BLOCK_N - shift, 0) // BLOCK_M * BLOCK_M
     for m0 in range(start_m, T, BLOCK_M):
         offs_m = m0 + tl.arange(0, BLOCK_M)
-        q_mask = offs_m[:, None] < T
-        q = tl.load(Q + base + offs_m[:, None] * stride_t + offs_d[None, :], mask=q_mask,
-                    other=0.0)
-        do = tl.load(DO + base + offs_m[:, None] * stride_t + offs_d[None, :], mask=q_mask,
-                     other=0.0)
-        lse = tl.load(L + bh * stride_lh + offs_m, mask=offs_m < T, other=0.0)
-        delta = tl.load(Delta + bh * stride_lh + offs_m, mask=offs_m < T, other=0.0)
+        rmask = offs_m < T
+        q = tl.load(row(Q, offs_m), mask=rmask[:, None], other=0.0)
+        do = tl.load(row(DO, offs_m), mask=rmask[:, None], other=0.0)
+        lse = tl.load(L + bh * stride_lh + offs_m, mask=rmask, other=0.0)
+        delta = tl.load(Delta + bh * stride_lh + offs_m, mask=rmask, other=0.0)
         s = tl.dot(q, tl.trans(k)) * scale
-        keep = (offs_m[:, None] < T) & (offs_n[None, :] < S)
+        keep = rmask[:, None] & (offs_n[None, :] < S)
         if CAUSAL:
             keep = keep & (offs_n[None, :] <= offs_m[:, None] + shift)
         p = tl.where(keep, tl.exp(s - lse[:, None]), 0.0)   # P rebuilt from L
@@ -1003,12 +1011,13 @@ bits). The clean solution recomputes $\mat{P}$ twice and splits the work:
     # after the loop: store dk * scale and dv for this key tile
 \end{lstlisting}
 
+(\code{row} is shorthand for the pointer grid of a tile of rows; the file writes it out.)
 The dQ kernel is the transpose of this pattern: loop over key tiles up to the diagonal, rebuild
 $\mat{P}$, form $\mat{dS}$ and accumulate $\mat{dS}\mat{K}_j$. Counting GEMMs per visited tile:
 the forward does two ($\mat{Q}\mat{K}^\top$, $\mat{P}\mat{V}$); the dK/dV kernel four ($\mat{S}$,
 $\mat{dV}$, $\mat{dP}$, $\mat{dK}$) and the dQ kernel three ($\mat{S}$, $\mat{dP}$, $\mat{dQ}$), so the
-backward costs $3.5\times$ the forward in matmul FLOPs, against $2.5\times$ for a backward that stores
-$\mat{P}$. Those extra FLOPs are the price of never touching HBM with a $T\times T$ tensor, and on
+backward costs $3.5\times$ the forward in matmul FLOPs, against $2\times$ for a backward that reads a
+stored $\mat{P}$ and $2.5\times$ for a single-kernel backward that recomputes $\mat{S}$ once. Those extra FLOPs are the price of never touching HBM with a $T\times T$ tensor, and on
 memory-bound hardware they are cheap. (FlashAttention-2's reference implementation instead
 fuses everything into one kernel and accumulates $\mat{dQ}$ with atomics; both designs are in use.)
 
@@ -1112,7 +1121,7 @@ step. Start with a baseline profile; keep the list of changes and their measured
 
 \begin{lstlisting}[caption={Chunked LM head plus cross-entropy: peak logits memory is one chunk.},label={lst:perf:chunkce}]
 def chunked_lm_loss(hidden, weight, targets, chunk=4096):
-    """hidden: (N, d) final hidden states, weight: (V, d), targets: (N,). Mean CE."""
+    """hidden (N, d), weight (V, d), targets (N,) -> mean cross-entropy."""
     total = hidden.new_zeros((), dtype=torch.float32)
     for s in range(0, hidden.shape[0], chunk):
         h, t = hidden[s:s + chunk], targets[s:s + chunk]
@@ -1225,7 +1234,7 @@ forward and backward kernels.
 cd code
 LAB_IMPL=starter  python -m pytest -q labs/lab13_perf    # your implementation
 LAB_IMPL=solution python -m pytest -q labs/lab13_perf    # reference
-./run_all_tests.sh                                       # all labs, one process each
+./run_all_tests.sh                                     # every lab, own process
 \end{lstlisting}
 On a CPU-only machine the Triton tests run through the interpreter; the test file sets
 \code{TRITON\_INTERPRET=1} before anything imports triton.
