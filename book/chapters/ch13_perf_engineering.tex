@@ -513,16 +513,17 @@ print(torch.cuda.max_memory_allocated() / 2**30, "GiB peak")
   xlabel={time within one training step (schematic)}, ylabel={allocated memory},
   xtick=\empty, ytick=\empty, axis lines=left, clip=false]
 \addplot[fill=fdata!25, draw=none] coordinates {(0,0)(100,0)(100,30)(0,30)} \closedcycle;
-\node[font=\scriptsize] at (axis cs:12,15) {params + Adam state};
+\node[font=\scriptsize] at (axis cs:20,15) {parameters + optimizer state};
 \addplot[fill=fmemory!35, draw=napkin, thick] coordinates
   {(0,30)(5,32)(10,38)(15,44)(20,50)(25,56)(30,62)(35,68)(40,74)(45,80)(48,92)(50,94)
    (55,88)(60,82)(65,76)(70,70)(75,64)(80,58)(85,52)(88,48)(90,48)(92,52)(95,52)(97,48)(100,48)}
    |- (axis cs:0,30);
-\node[font=\scriptsize, align=center] at (axis cs:28,48) {forward: saved\\activations pile up};
-\node[font=\scriptsize, align=center] at (axis cs:68,84) {backward: residuals freed,\\gradients allocated};
-\node[font=\scriptsize] at (axis cs:49,100) {logits + loss};
-\node[font=\scriptsize, align=center] at (axis cs:93,60) {optimizer\\temporaries};
-\draw[dashed] (axis cs:0,48)--(axis cs:100,48) node[right,font=\scriptsize] {+ grads};
+\node[font=\scriptsize, align=center, anchor=south east] at (axis cs:30,64) {forward: saved\\activations pile up};
+\node[font=\scriptsize, align=center, anchor=south west] at (axis cs:68,80) {backward: residuals freed,\\gradients allocated};
+\node[font=\scriptsize, anchor=south] at (axis cs:49,96) {logits + loss};
+\node[font=\scriptsize, align=center, anchor=north] at (axis cs:84,46) {optimizer\\temporaries};
+\draw[dashed] (axis cs:0,48)--(axis cs:100,48);
+\node[font=\scriptsize, anchor=north west] at (axis cs:1,47) {+ gradients (after backward)};
 \end{axis}
 \end{tikzpicture}
 \caption{The shape of the active-memory timeline for one training step (a schematic, not a
@@ -583,15 +584,15 @@ residual list below (top rows), measured in this environment. Byte counts are de
 unlike timings these numbers are exact on any machine.
 
 \begin{lstlisting}[style=plain]
-  6.00 MiB  (2, 12, 256, 256)   float32  SoftmaxBackward0    <- attention probabilities
-  6.00 MiB  (24, 256, 256)      float32  ViewBackward0       <- a second copy of them (!)
-  6.00 MiB  (2, 256, 3072)      float32  UnsafeViewBackward0 <- MLP up-projection output
-  6.00 MiB  (2, 256, 3072)      float32  TanhBackward0       <- GELU internals, x4 ...
-  6.00 MiB  (2, 256, 3072)      float32  AddBackward0
-  6.00 MiB  (2, 256, 3072)      float32  MulBackward0
-  1.50 MiB  (2, 256, 768)       float32  None                <- block input
-  ...
-  total 60.1 MiB = 40 x (B*T*d*4 bytes)
+6.00 MiB (2, 12, 256, 256) SoftmaxBackward0     # attention probabilities
+6.00 MiB (24, 256, 256)    ViewBackward0        # a second copy of them (!)
+6.00 MiB (2, 256, 3072)    UnsafeViewBackward0  # MLP up-projection output
+6.00 MiB (2, 256, 3072)    TanhBackward0        # GELU internals ...
+6.00 MiB (2, 256, 3072)    AddBackward0         # ...
+6.00 MiB (2, 256, 3072)    MulBackward0         # ...
+1.50 MiB (2, 256, 768)     None                 # block input
+...
+total 60.1 MiB = 40 x (B*T*d*4 bytes)
 \end{lstlisting}
 
 Two lessons are visible. First, the tanh-approximated GELU written as a formula
@@ -681,7 +682,7 @@ choice of $k$ is purely about memory.
 \begin{tikzpicture}
 \begin{axis}[width=0.9\linewidth, height=5.2cm, xlabel={blocks per checkpointed group $k$},
   ylabel={MiB}, xmode=log, log basis x=2, xtick={1,2,3,4,6,12}, xticklabels={1,2,3,4,6,12},
-  ymin=0, legend style={font=\scriptsize, at={(0.02,0.98)}, anchor=north west}, grid=major,
+  ymin=0, ymax=760, legend style={font=\scriptsize, at={(0.02,0.98)}, anchor=north west}, grid=major,
   grid style={black!10}]
 \addplot[mark=*, thick, color=sysblue] coordinates {(1,18)(2,9)(3,6)(4,4.5)(6,3)(12,1.5)};
 \addlegendentry{checkpoints kept ($\tfrac{L}{k}a$)}
@@ -690,7 +691,7 @@ choice of $k$ is purely about memory.
 \addplot[mark=triangle*, very thick, color=warnred] coordinates {(1,66.3)(2,106)(3,151)(4,198)(6,293)(12,581)};
 \addlegendentry{estimated peak}
 \addplot[dashed, color=black!60, domain=1:12] {579};
-\node[font=\scriptsize, anchor=south east] at (axis cs:12,579) {no checkpointing: 579 MiB};
+\node[font=\scriptsize, anchor=south east] at (axis cs:12,600) {no checkpointing: 579 MiB};
 \end{axis}
 \end{tikzpicture}
 \caption{One-level checkpointing of a 12-block GPT-2-small stack ($B=2$, $T=256$, fp32, SDPA),
@@ -715,11 +716,14 @@ per-op policy:
 \begin{lstlisting}[caption={Selective activation checkpointing: keep matmul outputs, recompute the rest.},label={lst:perf:sac}]
 from torch.utils.checkpoint import (checkpoint, CheckpointPolicy,
                                     create_selective_checkpoint_contexts)
-SAVE = {torch.ops.aten.mm.default, torch.ops.aten.addmm.default, torch.ops.aten.bmm.default,
-        torch.ops.aten._scaled_dot_product_flash_attention.default}
+aten = torch.ops.aten
+SAVE = {aten.mm.default, aten.addmm.default, aten.bmm.default,
+        aten._scaled_dot_product_flash_attention.default}
 
 def policy(ctx, op, *args, **kwargs):
-    return CheckpointPolicy.MUST_SAVE if op in SAVE else CheckpointPolicy.PREFER_RECOMPUTE
+    if op in SAVE:
+        return CheckpointPolicy.MUST_SAVE
+    return CheckpointPolicy.PREFER_RECOMPUTE
 
 y = checkpoint(block, x, use_reentrant=False,
                context_fn=lambda: create_selective_checkpoint_contexts(policy))
@@ -845,11 +849,9 @@ $P_{ij}=\exp(S_{ij}-L_i)$.
 \node[anchor=west, keygreen!50!black] at (8.2,-5.5) {forward / dQ program $i=5$: stage 1 (blue), stage 2 (orange)};
 \draw[very thick, warnred] (2,0) rectangle (3,-8);
 \node[anchor=west, warnred] at (8.2,-1.5) {dK/dV program $j=2$: rows $i\ge2$};
-\begin{scope}[xshift=0cm, yshift=-9.4cm]
-\fill[sysblue!35] (0,0) rectangle (0.8,0.6); \node[anchor=west] at (1,0.3) {full tile: no index comparisons};
-\fill[napkin!50] (9.5,0) rectangle (10.3,0.6); \node[anchor=west] at (10.5,0.3) {diagonal tile: mask};
-\fill[black!7] (19,0) rectangle (19.8,0.6); \node[anchor=west] at (20,0.3) {never loaded};
-\end{scope}
+\fill[sysblue!35] (8.4,-6.6) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-6.3) {full tile: no comparisons};
+\fill[napkin!50] (8.4,-7.4) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-7.1) {diagonal tile: mask};
+\fill[black!7] (8.4,-8.2) rectangle ++(0.8,0.6); \node[anchor=west] at (9.4,-7.9) {never loaded};
 \end{tikzpicture}
 \caption{Work decomposition for causal attention with equal tile sizes. A forward (or dQ) program
 owns a row of tiles and processes them in two stages: fully visible tiles without any masking

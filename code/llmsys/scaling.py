@@ -408,12 +408,21 @@ class GroundTruth:
 
     @classmethod
     def sample(cls, seed: int) -> "GroundTruth":
-        """A randomly perturbed truth, so a study cannot be won by reading these constants."""
+        """A randomly perturbed truth, so a study cannot be won by reading these constants.
+
+        Exponents, E and A are drawn at random; B is then solved so that the compute-optimal
+        ratio at 1e19 FLOPs lies between 10 and 60 tokens per parameter (a realistic range).
+        """
         r = np.random.default_rng(seed)
         u = lambda lo, hi: float(r.uniform(lo, hi))
-        return cls(E=u(1.6, 2.0), A=u(300, 700), alpha=u(0.30, 0.40), B=u(300, 800),
-                   beta=u(0.25, 0.35), lr_ref=u(1.5e-3, 6e-3), lr_exp=u(-0.40, -0.20),
-                   bcrit_ref=u(5e5, 2e6), aspect_opt=u(48, 128))
+        alpha, beta, A = u(0.30, 0.40), u(0.25, 0.35), u(300, 700)
+        ratio = math.exp(u(math.log(10), math.log(60)))
+        a, b = beta / (alpha + beta), alpha / (alpha + beta)
+        x = 1e19 / 6
+        g = math.sqrt(x ** (b - a) / ratio)              # D/N = x^(b-a) / G^2
+        B = alpha * A / (beta * g ** (alpha + beta))      # G = (alpha A / (beta B))^(1/(a+b))
+        return cls(E=u(1.6, 2.0), A=A, alpha=alpha, B=B, beta=beta, lr_ref=u(1.5e-3, 6e-3),
+                   lr_exp=u(-0.40, -0.20), bcrit_ref=u(5e5, 2e6), aspect_opt=u(48, 128))
 
     def lr_star(self, n: float) -> float:
         return self.lr_ref * (n / 1e8) ** self.lr_exp
