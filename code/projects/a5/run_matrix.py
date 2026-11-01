@@ -9,7 +9,7 @@ grid.json example::
      "fixed": {"lr": 1e-5, "group_size": 8},
      "vary": {"variant": ["a", "b"], "seed": [0, 1, 2, 3]}}
 
-Feed commands.txt to whatever launcher you use (a shell loop, Slurm array, or a Modal
+Feed commands.txt to whatever launcher you use (a shell loop, Slurm array, or a cloud job
 entry point that maps over the list). The tool never runs anything itself.
 """
 from __future__ import annotations
