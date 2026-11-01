@@ -659,6 +659,30 @@ workflow that keeps them correct is the same one used throughout this chapter:
 \item \textbf{Only then integrate} the mixer into a model, a training loop and a serving path.
 \end{enumerate}
 
+\begin{lstlisting}[caption={The equivalence-test pattern used for every mixer in this chapter (from Lab 8).},label={lst:attnalt:test}]
+@pytest.mark.parametrize("gamma", [None, per_head_decay, per_step_gates])
+def test_three_forms_agree(gamma):
+    q, k, v = random_qkv(dtype=torch.float64)            # float64: compare to 1e-10
+    ref = linear_attention_quadratic(q, k, v, gamma)      # slow, obviously correct
+    rec, _ = linear_attention_recurrent(q, k, v, gamma)   # decode path
+    assert torch.allclose(ref, rec, atol=1e-10)
+    for chunk in (1, 4, 7, 64):                           # include ragged last chunks
+        assert torch.allclose(ref, linear_attention_chunked(q, k, v, gamma, chunk=chunk),
+                              atol=1e-10)
+
+def test_step_matches_forward():
+    layer = LinearAttention(16, 2).eval()
+    x = torch.randn(2, 20, 16)
+    full, state, outs = layer(x), None, []
+    for t in range(x.shape[1]):                           # one token at a time
+        y, state = layer.step(x[:, t:t + 1], state)
+        outs.append(y)
+    assert torch.allclose(torch.cat(outs, 1), full, atol=1e-5)
+\end{lstlisting}
+Two details are easy to miss. Test in float64 so that a tolerance of $10^{-10}$ separates bugs from rounding,
+and include chunk sizes that do not divide $T$, because ragged last chunks are where index arithmetic breaks.
+
+
 \code{HybridLM} in \code{llmsys/linear\_attn.py} is a small but complete example of step 4. A pattern string
 such as \code{"LLLA"} chooses the mixer for each layer: gated linear attention (L), Mamba (M) or softmax
 attention with RoPE and a KV cache (A). Each layer is a pre-norm residual block with an MLP. The same
@@ -716,7 +740,39 @@ To train it, use any loop from \cref{ch:pretrain} or \code{llmsys.ablate.train\_
 \code{forward} at increasing $T$ for patterns \code{"AAAA"}, \code{"LLLA"} and \code{"LLLL"}: the
 quadratic term appears only in proportion to the number of A layers. To serve it, the engine of
 \cref{ch:serving} needs a second kind of cache slot, as discussed in the Systems Lens above. Lab~8's
-stretch goals walk through each of these steps.
+stretch goals walk through each of these steps. \Cref{fig:attnalt:flops} shows what the profile should look like analytically.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.78\linewidth, height=5.4cm, xmode=log, ymode=log, log basis x=2,
+  xlabel={position $T$ in the sequence}, ylabel={mixer MACs per token per layer},
+  xmin=256, xmax=1048576, grid=both, grid style={black!8}, legend pos=north west,
+  legend style={font=\scriptsize}, tick label style={font=\scriptsize}]
+% d = 4096, dh = 128, C = 64 ; softmax ~ 2 T d ; linear ~ C d + 2 d dh
+\addplot[warnred, thick, domain=256:1048576, samples=30] {2*x*4096}; \addlegendentry{softmax attention}
+\addplot[sysblue, thick, domain=256:1048576, samples=30] {0.25*2*x*4096 + 0.75*(64*4096 + 2*4096*128)}; \addlegendentry{hybrid, 1 in 4 layers softmax}
+\addplot[keygreen, thick, domain=256:1048576, samples=30] {64*4096 + 2*4096*128}; \addlegendentry{chunked linear ($C=64$)}
+\addplot[black!50, densely dotted, domain=256:1048576, samples=2] {3*4096*12288}; \addlegendentry{SwiGLU MLP (for scale)}
+\end{axis}
+\end{tikzpicture}
+\caption{Analytic per-token cost of the sequence mixer for a $d=4096$, $\dhead=128$ layer, averaged over a
+causal prefix of length $T$, with the MLP's fixed cost for comparison. Softmax attention overtakes the MLP
+near $T=18$k tokens; a 1:3 hybrid pushes that point four times further out; a pure linear mixer stays
+constant and small.}
+\label{fig:attnalt:flops}
+\end{figure}
+
+\begin{deepdive}[Test-time training and learned memories]
+The delta rule is one step of SGD on a regression loss whose ``weights'' are the state. Generalising that
+view gives \emph{test-time training} layers, in which the state is the parameters of a small model (linear or
+an MLP) trained online, as the sequence is read, by an inner optimiser with its own learning rate,
+momentum or weight decay. Recent proposals in this family (TTT layers; Titans, with a neural long-term
+memory) differ in the inner model and update rule, and they inherit the systems questions of this chapter: how
+to chunk the inner updates so that tensor cores do the work, and how large a state each sequence must carry
+at decode time.
+\end{deepdive}
+
 
 % =====================================================================
 \section{Multi-head latent attention, revisited}\label{sec:attnalt:mla}
@@ -786,18 +842,18 @@ Qwen3-30B-A3B & 128 & 8 & 0 & see \cref{sec:modern:moe}\\
 \begin{tikzpicture}[
   ex/.style={draw, rounded corners=1pt, minimum height=0.55cm, font=\tiny, inner sep=1pt},
   arr/.style={-{Stealth[length=1.4mm]}, thick}]
-\node[font=\small\bfseries] at (1.9,1.4) {coarse: 8 experts, top-2};
+\node[font=\scriptsize\bfseries, align=center] at (1.75,0.95) {coarse:\\8 experts, top-2};
 \foreach \i in {0,...,7} {
   \pgfmathsetmacro{\c}{(\i==2 || \i==5) ? 45 : 8}
   \node[ex, minimum width=0.42cm, fill=sysblue!\c] (a\i) at (\i*0.5,0) {};
 }
 \node[font=\scriptsize] at (1.9,-0.65) {each expert: $d_\text{ff}$ wide};
-\begin{scope}[xshift=5.6cm]
-\node[font=\small\bfseries] at (2.3,1.4) {fine-grained + shared: 32 routed, top-8, 1 shared};
+\begin{scope}[xshift=6.3cm]
+\node[font=\scriptsize\bfseries, align=center] at (2.3,0.95) {fine-grained + shared:\\32 routed, top-8, 1 shared};
 \node[ex, minimum width=0.42cm, fill=keygreen!45] at (-0.6,0) {S};
 \foreach \i in {0,...,31} {
   \pgfmathsetmacro{\c}{(\i==1 || \i==4 || \i==9 || \i==13 || \i==18 || \i==22 || \i==27 || \i==30) ? 45 : 8}
-  \node[ex, minimum width=0.11cm, fill=sysblue!\c] at (\i*0.15,0) {};
+  \node[ex, inner sep=0pt, minimum width=0.11cm, fill=sysblue!\c] at (\i*0.15,0) {};
 }
 \node[font=\scriptsize] at (2.3,-0.65) {each routed expert: $d_\text{ff}/4$ wide};
 \end{scope}

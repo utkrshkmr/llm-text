@@ -122,8 +122,8 @@ def run_study(api: SyntheticTrainingAPI, target_seconds: float,
               lr_grid: Sequence[float] = (1e-3, 2e-3, 4e-3, 8e-3, 1.6e-2),
               lr_tokens_per_param: float = 20.0,
               budgets: Sequence[float] = (1e16, 3e16, 1e17, 3e17),
-              sizes_per_budget: int = 6) -> Dict:
-    """End-to-end: LR sweep -> lr*(N) law -> IsoFLOP grid -> parametric fit -> choice."""
+              sizes_per_budget: int = 6, verify_fraction: float = 0.8) -> Dict:
+    """End-to-end: LR sweep -> lr*(N) law -> IsoFLOP grid -> fits -> verification -> choice."""
     hw = api.hw
     # --- stage 1: learning-rate sweep at small scale
     plan = []
@@ -166,8 +166,24 @@ def run_study(api: SyntheticTrainingAPI, target_seconds: float,
     fit = fit_chinchilla([r.params for r in iso_runs], [r.tokens for r in iso_runs],
                          [r.loss for r in iso_runs])
 
-    # --- stage 4: choose and submit
+    # --- stage 4: a verification run at the largest scale we can still afford
+    residual = 0.0
+    verify_seconds = verify_fraction * api.budget()["remaining_seconds"] / 1.3
+    if verify_seconds > 600:
+        vcfg, vpred = choose_final_config(fit, lr_law, verify_seconds, hw)
+        try:
+            vid = api.submit(vcfg, max_runtime_seconds=1.3 * hw.runtime(vcfg))
+            api.wait()
+            v = api.get(vid)
+            if v["status"] == "completed":
+                residual = v["val_losses"][-1] - vpred      # how far off is the fit here?
+        except S.APIError:
+            pass
+
+    # --- stage 5: choose and submit (loss prediction corrected by the verification residual)
     cfg, pred = choose_final_config(fit, lr_law, target_seconds, hw)
+    pred += residual
     api.submit_final(cfg, pred)
     return {"lr_law": lr_law, "optima": optima, "allocation": alloc, "fit": fit,
-            "final_config": cfg, "predicted_loss": pred, "budget": api.budget()}
+            "final_config": cfg, "predicted_loss": pred, "verification_residual": residual,
+            "budget": api.budget()}

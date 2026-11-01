@@ -1,0 +1,49 @@
+Glorot, X., Bengio, Y. (2010). Understanding the Difficulty of Training Deep Feedforward Neural Networks. AISTATS.
+He, K., Zhang, X., Ren, S., Sun, J. (2015). Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification. ICCV.
+Xiong, R., Yang, Y., He, D., et al. (2020). On Layer Normalization in the Transformer Architecture. ICML.
+Zhang, B., Sennrich, R. (2019). Root Mean Square Layer Normalization. NeurIPS.
+Ivanov, A., Dryden, N., Ben-Nun, T., Li, S., Hoefler, T. (2021). Data Movement Is All You Need: A Case Study on Optimizing Transformers. MLSys.
+Shazeer, N. (2020). GLU Variants Improve Transformer. arXiv:2002.05202.
+Narang, S., Chung, H. W., Tay, Y., et al. (2021). Do Transformer Modifications Transfer Across Implementations and Applications? EMNLP.
+So, D. R., Manke, W., Liu, H., et al. (2021). Primer: Searching for Efficient Transformers for Language Modeling. NeurIPS.
+Press, O., Smith, N. A., Lewis, M. (2022). Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation. ICLR.
+Su, J., Lu, Y., Pan, S., et al. (2021). RoFormer: Enhanced Transformer with Rotary Position Embedding. arXiv:2104.09864.
+Kazemnejad, A., Padhi, I., Natesan Ramamurthy, K., Das, P., Reddy, S. (2023). The Impact of Positional Encoding on Length Generalization in Transformers. NeurIPS.
+Raffel, C., Shazeer, N., Roberts, A., et al. (2020). Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer. JMLR.
+Kaplan, J., McCandlish, S., Henighan, T., et al. (2020). Scaling Laws for Neural Language Models. arXiv:2001.08361.
+Chowdhery, A., Narang, S., Devlin, J., et al. (2022). PaLM: Scaling Language Modeling with Pathways. arXiv:2204.02311.
+Dehghani, M., Djolonga, J., Mustafa, B., et al. (2023). Scaling Vision Transformers to 22 Billion Parameters. ICML.
+Gemma Team (2024). Gemma 2: Improving Open Language Models at a Practical Size. arXiv:2408.00118.
+Team OLMo, Walsh, P., Soldaini, L., et al. (2024). 2 OLMo 2 Furious. arXiv:2501.00656.
+Touvron, H., Martin, L., Stone, K., et al. (2023). Llama 2: Open Foundation and Fine-Tuned Chat Models. arXiv:2307.09288.
+Andriushchenko, M., D'Angelo, F., Varre, A., Flammarion, N. (2023). Why Do We Need Weight Decay in Modern Deep Learning? arXiv:2310.04415.
+Yang, G., Hu, E. J., Babuschkin, I., et al. (2021). Tensor Programs V: Tuning Large Neural Networks via Zero-Shot Hyperparameter Transfer. NeurIPS.
+Rogozhnikov, A. (2022). Einops: Clear and Reliable Tensor Manipulations with Einstein-like Notation. ICLR.
+Katharopoulos, A., Vyas, A., Pappas, N., Fleuret, F. (2020). Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention. ICML.
+Choromanski, K., Likhosherstov, V., Dohan, D., et al. (2021). Rethinking Attention with Performers. ICLR.
+Sun, Y., Dong, L., Huang, S., et al. (2023). Retentive Network: A Successor to Transformer for Large Language Models. arXiv:2307.08621.
+Yang, S., Wang, B., Shen, Y., Panda, R., Kim, Y. (2024). Gated Linear Attention Transformers with Hardware-Efficient Training. ICML.
+Schlag, I., Irie, K., Schmidhuber, J. (2021). Linear Transformers Are Secretly Fast Weight Programmers. ICML.
+Yang, S., Wang, B., Zhang, Y., Shen, Y., Kim, Y. (2024). Parallelizing Linear Transformers with the Delta Rule over Sequence Length. NeurIPS.
+Yang, S., Kautz, J., Hatamizadeh, A. (2025). Gated Delta Networks: Improving Mamba2 with Delta Rule. ICLR.
+Gu, A., Goel, K., Re, C. (2022). Efficiently Modeling Long Sequences with Structured State Spaces. ICLR.
+Gu, A., Dao, T. (2023). Mamba: Linear-Time Sequence Modeling with Selective State Spaces. arXiv:2312.00752.
+Dao, T., Gu, A. (2024). Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality. ICML.
+Blelloch, G. E. (1990). Prefix Sums and Their Applications. Technical Report CMU-CS-90-190.
+Arora, S., Eyuboglu, S., Timalsina, A., et al. (2023). Zoology: Measuring and Improving Recall in Efficient Language Models. arXiv:2312.04927.
+Arora, S., Eyuboglu, S., Zhang, M., et al. (2024). Simple Linear Attention Language Models Balance the Recall-Throughput Tradeoff. ICML.
+Lieber, O., Lenz, B., Bata, H., et al. (2024). Jamba: A Hybrid Transformer-Mamba Language Model. arXiv:2403.19887.
+MiniMax (2025). MiniMax-01: Scaling Foundation Models with Lightning Attention. arXiv:2501.08313.
+NVIDIA (2025). Nemotron-H: A Family of Accurate and Efficient Hybrid Mamba-Transformer Models. arXiv:2504.03624.
+Xiao, G., Tian, Y., Chen, B., Han, S., Lewis, M. (2024). Efficient Streaming Language Models with Attention Sinks. ICLR.
+Child, R., Gray, S., Radford, A., Sutskever, I. (2019). Generating Long Sequences with Sparse Transformers. arXiv:1904.10509.
+Beltagy, I., Peters, M. E., Cohan, A. (2020). Longformer: The Long-Document Transformer. arXiv:2004.05150.
+DeepSeek-AI (2024). DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model. arXiv:2405.04434.
+DeepSeek-AI (2024). DeepSeek-V3 Technical Report. arXiv:2412.19437.
+Dai, D., Deng, C., Zhao, C., et al. (2024). DeepSeekMoE: Towards Ultimate Expert Specialization in Mixture-of-Experts Language Models. ACL.
+Fedus, W., Zoph, B., Shazeer, N. (2022). Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity. JMLR.
+Zoph, B., Bello, I., Kumar, S., et al. (2022). ST-MoE: Designing Stable and Transferable Sparse Expert Models. arXiv:2202.08906.
+Jiang, A. Q., Sablayrolles, A., Roux, A., et al. (2024). Mixtral of Experts. arXiv:2401.04088.
+Muennighoff, N., Soldaini, L., Groeneveld, D., et al. (2024). OLMoE: Open Mixture-of-Experts Language Models. arXiv:2409.02060.
+Gale, T., Narayanan, D., Young, C., Zaharia, M. (2023). MegaBlocks: Efficient Sparse Training with Mixture-of-Experts. MLSys.
+Komatsuzaki, A., Puigcerver, J., Lee-Thorp, J., et al. (2023). Sparse Upcycling: Training Mixture-of-Experts from Dense Checkpoints. ICLR.

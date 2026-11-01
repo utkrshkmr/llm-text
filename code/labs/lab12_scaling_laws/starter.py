@@ -116,10 +116,12 @@ def run_study(api: SyntheticTrainingAPI, target_seconds: float,
               lr_grid: Sequence[float] = (1e-3, 2e-3, 4e-3, 8e-3, 1.6e-2),
               lr_tokens_per_param: float = 20.0,
               budgets: Sequence[float] = (1e16, 3e16, 1e17, 3e17),
-              sizes_per_budget: int = 6) -> Dict:
+              sizes_per_budget: int = 6, verify_fraction: float = 0.8) -> Dict:
     """The whole study against ``api``: LR sweep at small sizes -> lr*(N) law -> IsoFLOP grid
-    (``llmsys.scaling.plan_isoflop_grid`` / ``execute_plan``) -> fits -> ``choose_final_config``
-    -> ``api.submit_final``. Return a dict with keys lr_law, optima, allocation, fit,
-    final_config, predicted_loss, budget. Never exceed the API budget.
+    (``llmsys.scaling.plan_isoflop_grid`` / ``execute_plan``) -> fits -> one verification run
+    using ``verify_fraction`` of the remaining budget (correct the loss prediction by its
+    residual) -> ``choose_final_config`` -> ``api.submit_final``. Return a dict with keys lr_law,
+    optima, allocation, fit, final_config, predicted_loss, verification_residual, budget.
+    Never exceed the API budget.
     """
     raise NotImplementedError("TODO Task 10: the end-to-end study")

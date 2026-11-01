@@ -57,27 +57,27 @@ allowed. Check the handout for the exact list.
 \centering
 \resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
-  comp/.style={draw, rounded corners=3pt, minimum height=0.9cm, align=center, font=\small, line width=0.6pt, text width=2.6cm},
+  comp/.style={draw, rounded corners=3pt, minimum height=0.9cm, align=center, font=\small, line width=0.6pt, text width=3.3cm},
   ref/.style={font=\scriptsize, text=srcgray, align=center},
   arr/.style={-{Stealth[length=2mm]}, line width=0.6pt}]
 \node[comp, fill=fdata!18, draw=keygreen] (tok) at (0,0) {BPE trainer +\\tokenizer};
 \node[ref, below=1pt of tok] {Ch.~3, Lab~3; \S\ref{sec:proj1:bpe}};
-\node[comp, fill=fdata!18, draw=keygreen] (ids) at (0,-2.2) {uint16 token\\files};
+\node[comp, fill=fdata!18, draw=keygreen] (ids) at (0,-2.9) {uint16 token\\files};
 \node[ref, below=1pt of ids] {Ch.~3, Ch.~9};
-\node[comp, fill=fcompute!18, draw=sysblue] (mods) at (4.2,0) {Linear, Embedding,\\RMSNorm, SwiGLU};
+\node[comp, fill=fcompute!18, draw=sysblue] (mods) at (4.6,0) {Linear, Embedding,\\RMSNorm, SwiGLU};
 \node[ref, below=1pt of mods] {Ch.~6, Ch.~7};
-\node[comp, fill=fcompute!18, draw=sysblue] (attn) at (4.2,-2.2) {RoPE, softmax,\\causal MHA};
+\node[comp, fill=fcompute!18, draw=sysblue] (attn) at (4.6,-2.9) {RoPE, softmax,\\causal MHA};
 \node[ref, below=1pt of attn] {Ch.~4, Ch.~6};
-\node[comp, fill=fcompute!18, draw=sysblue] (lm) at (8.4,-1.1) {pre-norm block\\$\to$ Transformer LM};
+\node[comp, fill=fcompute!18, draw=sysblue] (lm) at (9.2,-1.45) {pre-norm block\\$\to$ Transformer LM};
 \node[ref, below=1pt of lm] {Ch.~5, Ch.~6};
-\node[comp, fill=fmemory!20, draw=napkin] (opt) at (12.6,0) {cross-entropy, AdamW,\\schedule, clipping};
+\node[comp, fill=fmemory!20, draw=napkin] (opt) at (13.8,0) {cross-entropy, AdamW,\\schedule, clipping};
 \node[ref, below=1pt of opt] {Ch.~9, Ch.~10};
-\node[comp, fill=fmemory!20, draw=napkin] (loop) at (12.6,-2.2) {loader, checkpoints,\\training script};
+\node[comp, fill=fmemory!20, draw=napkin] (loop) at (13.8,-2.9) {loader, checkpoints,\\training script};
 \node[ref, below=1pt of loop] {Ch.~9, Lab~9};
-\node[comp, fill=fcomm!16, draw=labpurple] (exp) at (16.8,-1.1) {experiments,\\ablations,\\leaderboard};
+\node[comp, fill=fcomm!16, draw=labpurple] (exp) at (18.4,-1.45) {experiments,\\ablations,\\leaderboard};
 \node[ref, below=1pt of exp] {Ch.~7, Ch.~9, \S\ref{sec:proj1:experiments}};
 \draw[arr] (tok)--(ids); \draw[arr] (mods)--(lm); \draw[arr] (attn)--(lm);
-\draw[arr] (lm)--(opt); \draw[arr] (lm)--(loop); \draw[arr] (ids.east) to[out=-15,in=200] (loop.west);
+\draw[arr] (lm)--(opt); \draw[arr] (lm)--(loop); \draw[arr, black!60] ([yshift=-0.42cm]ids.south) -- ++(0,-0.35) -| node[pos=0.25,below,font=\scriptsize]{token ids feed the loader} ([yshift=-0.42cm]loop.south);
 \draw[arr] (opt)--(exp); \draw[arr] (loop)--(exp);
 \end{tikzpicture}}
 \caption{The components of Assignment~1, in dependency order, with the chapters that teach the
@@ -96,11 +96,12 @@ version, \texttt{einops}, \texttt{einx}, \texttt{jaxtyping}, \texttt{regex}, \te
 (used by the tests as a reference tokenizer), \texttt{wandb}, \texttt{pytest} and a few tools.
 
 \begin{lstlisting}[style=shell]
-git clone https://github.com/stanford-cs336/assignment1-basics && cd assignment1-basics
-pip install uv            # or the standalone installer
-uv run pytest             # first run creates .venv; every test fails with NotImplementedError
-uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-python <book>/code/projects/a1/check_env.py     # machine facts + tips (Chapter 32 tools)
+git clone https://github.com/stanford-cs336/assignment1-basics
+cd assignment1-basics
+pip install uv             # or the standalone installer
+uv run pytest              # creates .venv; all tests fail: NotImplementedError
+uv run python -c "import torch; print(torch.__version__)"
+python <book>/code/projects/a1/check_env.py     # machine facts and tips
 \end{lstlisting}
 
 \paragraph{How your code meets the tests.} You write all your code in the package directory
@@ -114,18 +115,19 @@ designs.
 
 \begin{figure}[t]
 \centering
+\resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
-  b/.style={draw, rounded corners=2pt, minimum height=0.85cm, align=center, font=\small, text width=3.4cm, line width=0.6pt},
+  b/.style={draw, rounded corners=2pt, minimum height=0.85cm, align=center, font=\small, text width=3.1cm, line width=0.6pt},
   arr/.style={-{Stealth[length=2mm]}, line width=0.6pt}]
 \node[b, fill=black!5] (t) at (0,0) {\texttt{tests/test\_model.py}\\(do not edit)};
-\node[b, fill=fmemory!20, draw=napkin] (a) at (5,0) {\texttt{tests/adapters.py}\\glue only};
-\node[b, fill=fcompute!18, draw=sysblue] (p) at (10,0) {\texttt{cs336\_basics/}\\your modules};
+\node[b, fill=fmemory!20, draw=napkin] (a) at (4.6,0) {\texttt{tests/adapters.py}\\glue only};
+\node[b, fill=fcompute!18, draw=sysblue] (p) at (9.2,0) {\texttt{cs336\_basics/}\\your modules};
 \node[b, fill=black!5] (s) at (0,-1.9) {\texttt{tests/\_snapshots/*.npz}\\\texttt{tests/fixtures/}};
 \draw[arr] (t) -- node[above,font=\scriptsize]{calls \code{run\_*}} (a);
 \draw[arr] (a) -- node[above,font=\scriptsize]{builds, loads, calls} (p);
 \draw[arr, dashed] (s) -- node[left,font=\scriptsize]{reference outputs} (t);
-\draw[arr, dashed] (p.south) |- node[pos=0.75,below,font=\scriptsize]{outputs compared to snapshots / tiktoken} (s.east);
-\end{tikzpicture}
+\draw[arr, dashed] (p.south) |- node[pos=0.72,below,font=\scriptsize]{compared with snapshots / \texttt{tiktoken}} (s.east);
+\end{tikzpicture}}
 \caption{The adapter pattern used throughout CS336. The tests reach your code only through thin
 adapter functions. Numerical tests compare against stored reference outputs (snapshots), and the
 tokenizer tests compare against \texttt{tiktoken}'s GPT-2 tokenizer.}
@@ -173,8 +175,8 @@ hardware substitutions.
 \Cref{tab:proj1:map} lists every problem in the handout, what it asks for in a phrase, and where
 this book develops the needed ideas. ``W'' marks written answers, ``C'' code, ``E'' experiments.
 
-{\small
-\begin{longtable}{@{}p{0.27\linewidth}p{0.06\linewidth}p{0.30\linewidth}p{0.29\linewidth}@{}}
+{\footnotesize
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.23\linewidth}p{0.05\linewidth}>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}p{0.27\linewidth}@{}}
 \caption{Assignment~1 problems mapped to the book.}\label{tab:proj1:map}\\
 \toprule
 \textbf{Problem} & & \textbf{What it asks (paraphrased)} & \textbf{Where the book helps}\\
@@ -185,32 +187,32 @@ this book develops the needed ideas. ``W'' marks written answers, ``C'' code, ``
 \multicolumn{4}{@{}l}{\emph{Tokenization (handout \S2)}}\\
 \code{unicode1}, \code{unicode2} & W & reason about code points, the NUL character, UTF-8 vs UTF-16/32, invalid byte sequences & \cref{sec:text:wild}; \cref{sec:proj1:unicode}\\
 \code{train\_bpe} & C & byte-level BPE trainer with special tokens as hard boundaries, deterministic tie-breaking, fast enough for a timed test & \cref{sec:text:bpe}, Lab~3; \cref{sec:proj1:bpe}\\
-\code{train\_bpe\_tinystories}, \code{train\_bpe\_expts\_owt} & E/W & train 10K and 32K vocabularies; time, memory, profile, longest token & \cref{sec:proj1:bpe} (parallelism, profiling); \cref{sec:text:pipeline}\\
+\code{train\_bpe\_\allowbreak tinystories}, \code{train\_bpe\_\allowbreak expts\_owt} & E/W & train 10K and 32K vocabularies; time, memory, profile, longest token & \cref{sec:proj1:bpe} (parallelism, profiling); \cref{sec:text:pipeline}\\
 \code{tokenizer} & C & encoder/decoder class with special tokens, file loading and lazy \code{encode\_iterable} & \cref{sec:text:bpe,sec:text:special}; \cref{sec:proj1:stream}\\
-\code{tokenizer\_experiments} & E/W & compression ratios, cross-domain behaviour, throughput, why \code{uint16} & \cref{sec:text:pipeline}, \cref{sec:optim:data}; \cref{sec:proj1:stream}\\
+\code{tokenizer\_\allowbreak experiments} & E/W & compression ratios, cross-domain behaviour, throughput, why \code{uint16} & \cref{sec:text:pipeline}, \cref{sec:optim:data}; \cref{sec:proj1:stream}\\
 \multicolumn{4}{@{}l}{\emph{Architecture (handout \S3)}}\\
 \code{linear}, \code{embedding} & C & bias-free linear and embedding modules with truncated-normal init & \cref{sec:archdesign:einsum,sec:archdesign:init}; \cref{sec:text:tokemb}\\
 \code{rmsnorm} & C & RMSNorm with fp32 upcast & \cref{sec:modern:rmsnorm}\\
-\code{positionwise\_feedforward} & C & SwiGLU FFN, $\dff\approx\tfrac83 d$ rounded to a multiple of 64 & \cref{sec:modern:swiglu}, \cref{sec:archdesign:mlp}\\
+\code{positionwise\_\allowbreak feedforward} & C & SwiGLU FFN, $\dff\approx\tfrac83 d$ rounded to a multiple of 64 & \cref{sec:modern:swiglu}, \cref{sec:archdesign:mlp}\\
 \code{rope} & C & RoPE module with precomputed cos/sin buffers and explicit token positions & \cref{sec:modern:rope}, \cref{sec:archdesign:pos}; \cref{sec:proj1:conventions}\\
-\code{softmax}, \code{scaled\_dot\_product\_attention} & C & stable softmax; attention with optional boolean mask and arbitrary batch dims & \cref{sec:attention:simple,sec:attention:causal}, \cref{sec:optim:loss}\\
-\code{multihead\_self\_attention} & C & causal MHA with RoPE on $Q,K$, three projections & \cref{sec:attention:mha}, \cref{sec:modern:gqa}\\
-\code{transformer\_block}, \code{transformer\_lm} & C & pre-norm block and full LM & \cref{sec:gpt:block}, \cref{sec:modern:block,sec:modern:model}\\
-\code{transformer\_accounting} & W & parameter count, matmul FLOPs and their breakdown for several model sizes and context lengths & \cref{sec:gpt:accounting}, Lab~1, \cref{sec:optim:account}\\
+\code{softmax}, \code{scaled\_dot\_\allowbreak product\_\allowbreak attention} & C & stable softmax; attention with optional boolean mask and arbitrary batch dims & \cref{sec:attention:simple,sec:attention:causal}, \cref{sec:optim:loss}\\
+\code{multihead\_self\_\allowbreak attention} & C & causal MHA with RoPE on $Q,K$, three projections & \cref{sec:attention:mha}, \cref{sec:modern:gqa}\\
+\code{transformer\_\allowbreak block}, \code{transformer\_lm} & C & pre-norm block and full LM & \cref{sec:gpt:block}, \cref{sec:modern:block,sec:modern:model}\\
+\code{transformer\_\allowbreak accounting} & W & parameter count, matmul FLOPs and their breakdown for several model sizes and context lengths & \cref{sec:gpt:accounting}, Lab~1, \cref{sec:optim:account}\\
 \multicolumn{4}{@{}l}{\emph{Training (handout \S4--5)}}\\
 \code{cross\_entropy} & C & stable cross-entropy averaged over batch dimensions & \cref{sec:pretrain:loss}, \cref{sec:optim:loss}\\
-\code{learning\_rate\_tuning} & E/W & toy SGD at several learning rates & \cref{sec:optim:api} (pitfall box)\\
+\code{learning\_rate\_\allowbreak tuning} & E/W & toy SGD at several learning rates & \cref{sec:optim:api} (pitfall box)\\
 \code{adamw} & C & AdamW as an \code{Optimizer} subclass & \cref{sec:optim:api,sec:optim:adam}, Lab~9\\
-\code{adamw\_accounting} & W & peak memory decomposition, max batch size, FLOPs of a step, training time at given MFU & \cref{sec:optim:account,sec:optim:cost}, \cref{sec:pretrain:memory}\\
-\code{learning\_rate\_schedule}, \code{gradient\_clipping} & C & warmup + cosine; global-norm clipping & \cref{sec:optim:sched,sec:optim:clip}\\
+\code{adamw\_\allowbreak accounting} & W & peak memory decomposition, max batch size, FLOPs of a step, training time at given MFU & \cref{sec:optim:account,sec:optim:cost}, \cref{sec:pretrain:memory}\\
+\code{learning\_rate\_\allowbreak schedule}, \code{gradient\_\allowbreak clipping} & C & warmup + cosine; global-norm clipping & \cref{sec:optim:sched,sec:optim:clip}\\
 \code{data\_loading}, \code{checkpointing} & C & random batches from a token array; save/load model + optimizer + iteration & \cref{sec:optim:data,sec:optim:ckpt}\\
-\code{training\_together} & C & configurable training script with memmap data, checkpoints, logging & \cref{sec:optim:loop,sec:optim:explog}, \cref{sec:pretrain:trainfn}\\
+\code{training\_\allowbreak together} & C & configurable training script with memmap data, checkpoints, logging & \cref{sec:optim:loop,sec:optim:explog}, \cref{sec:pretrain:trainfn}\\
 \code{decoding} & C & sampling with temperature and top-$p$ until EOT or a length limit & \cref{sec:pretrain:decoding}, \cref{sec:scaling:topp}\\
 \multicolumn{4}{@{}l}{\emph{Experiments (handout \S7)}}\\
 \code{experiment\_log} & C/W & tracking infrastructure (step and wall clock) and a log of what you tried & \cref{sec:optim:explog}; \cref{sec:proj1:experiments}\\
-\code{learning\_rate}, \code{batch\_size\_experiment} & E & LR sweep incl.\ a divergent run; batch-size sweep with re-tuned LRs & \cref{sec:optim:debug}, \cref{ch:scalinglaws}; \cref{sec:proj1:experiments}\\
+\code{learning\_rate}, \code{batch\_size\_\allowbreak experiment} & E & LR sweep incl.\ a divergent run; batch-size sweep with re-tuned LRs & \cref{sec:optim:debug}, \cref{ch:scalinglaws}; \cref{sec:proj1:experiments}\\
 \code{generate} & E/W & sample text, comment on fluency & \cref{sec:pretrain:decoding}\\
-\code{layer\_norm\_ablation}, \code{pre\_norm\_ablation}, \code{no\_pos\_emb}, \code{swiglu\_ablation} & E & remove norms; post-norm; NoPE; SiLU vs SwiGLU at matched parameters & \cref{sec:archdesign:norm,sec:archdesign:pos,sec:archdesign:mlp,sec:archdesign:ablate}, Lab~7\\
+\code{layer\_norm\_\allowbreak ablation}, \code{pre\_norm\_\allowbreak ablation}, \code{no\_pos\_emb}, \code{swiglu\_ablation} & E & remove norms; post-norm; NoPE; SiLU vs SwiGLU at matched parameters & \cref{sec:archdesign:norm,sec:archdesign:pos,sec:archdesign:mlp,sec:archdesign:ablate}, Lab~7\\
 \code{main\_experiment} & E/W & same recipe on OpenWebText; interpret the loss gap & \cref{sec:proj1:owt}, \cref{ch:data}\\
 \code{leaderboard} & E & best validation loss within a fixed wall-clock budget & \cref{sec:proj1:leaderboard}\\
 \bottomrule
@@ -295,7 +297,7 @@ boundaries, and you may use it as is. Then:
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[x=0.75cm, y=0.6cm]
+\begin{tikzpicture}[x=0.68cm, y=0.6cm]
 \fill[fdata!12] (0,0) rectangle (20,1);
 \foreach \x in {2.3,5.1,7.7,9.2,12.6,14.1,16.9,18.4} {\fill[warnred!50] (\x,0) rectangle +(0.25,1);}
 \draw[black!50] (0,0) rectangle (20,1);
@@ -307,7 +309,7 @@ boundaries, and you may use it as is. Then:
 \draw[decorate, decoration={brace, amplitude=3pt, mirror}] (5.1,-1.8)--(12.6,-1.8) node[midway,below=3pt,font=\scriptsize]{worker 1};
 \draw[decorate, decoration={brace, amplitude=3pt, mirror}] (12.6,-1.8)--(16.9,-1.8) node[midway,below=3pt,font=\scriptsize]{worker 2};
 \draw[decorate, decoration={brace, amplitude=3pt, mirror}] (16.9,-1.8)--(20,-1.8) node[midway,below=3pt,font=\scriptsize]{worker 3};
-\node[font=\scriptsize, warnred, anchor=west] at (20.2,0.5) {\texttt{<|endoftext|>}};
+\node[font=\scriptsize, warnred, anchor=south west] at (0,1.1) {red: \texttt{<|endoftext|>}};
 \end{tikzpicture}
 \caption{Parallel pre-tokenisation. Evenly spaced guesses $b_i$ are moved to the next document
 separator, so no pre-token or merge can straddle two workers. Chunks have unequal sizes; use more
@@ -502,9 +504,9 @@ axes to explore. We give directions, not a recipe:
         larger learning rates (\cref{sec:archdesign:stability}). The community ``speedrun''
         efforts for small GPT-style models document many such ideas; treat each one as a hypothesis
         to ablate.
-  \item \textbf{Respect the clock.} Enforce the limit in your script (\texttt{wallclock.py} in
-        \texttt{code/projects/a1/} stops training with time left for the final evaluation), and
-        report the wall-clock axis the handout asks for.
+  \item \textbf{Respect the clock.} Enforce the limit in your script, stopping with time left
+        for the final evaluation (\ident{code/projects/a1/wallclock.py} does this), and report
+        the wall-clock axis the handout asks for.
 \end{itemize}
 Be aware that tricks that win a 45-minute contest do not necessarily help at larger scale; the
 scaling-law project (\cref{ch:proj3}) is the antidote.

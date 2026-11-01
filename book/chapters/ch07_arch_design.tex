@@ -85,12 +85,11 @@ S_{b,h,q,k} = \sum_d Q_{b,h,q,d}\,K_{b,h,k,d}
 \node[keep] (k1) at (0,-1.1) {b}; \node[keep] (k2) at (0.8,-1.1) {h}; \node[keep] (k3) at (1.6,-1.1) {k}; \node[sum] (k4) at (2.4,-1.1) {d};
 \node[lbl, anchor=east] at (6.0,-0.55) {$\mat{S}$};
 \node[keep] (s1) at (6.5,-0.55) {b}; \node[keep] (s2) at (7.3,-0.55) {h}; \node[keep] (s3) at (8.1,-0.55) {q}; \node[keep] (s4) at (8.9,-0.55) {k};
-\draw[-{Stealth}, keygreen, thick] (q3.north) to[out=30,in=150] (s3.north);
-\draw[-{Stealth}, keygreen, thick] (k3.south) to[out=-30,in=-150] (s4.south);
-\draw[-{Stealth}, keygreen, thick, dashed] (q2.north) to[out=40,in=140] (s2.north);
-\node[font=\scriptsize, text=warnred, align=center] at (2.4,-2.0) {d: in both inputs, not in the output\\$\Rightarrow$ summed (contracted)};
-\node[font=\scriptsize, text=keygreen, align=center] at (4.6,1.25) {b, h in both inputs and the output $\Rightarrow$ batched};
-\node[font=\scriptsize, text=keygreen, align=center] at (7.7,-1.75) {q, k from one input each\\$\Rightarrow$ rows and columns};
+\draw[-{Stealth}, keygreen, thick] (q3.north) -- ++(0,0.45) -| (s3.north);
+\draw[-{Stealth}, keygreen, thick] (k3.south) -- ++(0,-0.45) -| (s4.south);
+\node[font=\scriptsize, text=warnred, align=left, anchor=west] at (2.95,-0.55) {d: in both inputs,\\not in the output\\$\Rightarrow$ summed};
+\node[font=\scriptsize, text=keygreen, align=left, anchor=south west] at (-0.4,0.75) {b, h: in both inputs and the output $\Rightarrow$ batch axes};
+\node[font=\scriptsize, text=keygreen, align=left, anchor=west] at (9.4,-0.55) {q, k: one input each\\$\Rightarrow$ rows, columns};
 \end{tikzpicture}
 \caption{Reading \texttt{"bhqd,bhkd->bhqk"}. Axes shared by both inputs and kept in the output
 (b, h) become batch dimensions of a batched GEMM; the axis that disappears (d) is the GEMM's
@@ -309,7 +308,7 @@ block, and whether there is one at all.
 \node[nrm] (n1) at (0,2.6) {$N$};
 \draw[arr] (p1) -- (n1);
 \draw[arr] (n1) -- (0,3.55);
-\node[font=\scriptsize, text=warnred, align=center] at (-1.05,2.6) {norm on\\residual};
+\node[font=\scriptsize, text=warnred, align=right, anchor=east] at (-0.55,2.6) {norm on\\residual};
 \end{scope}
 % pre-norm
 \begin{scope}[xshift=4.0cm]
@@ -602,6 +601,18 @@ $151{,}936\times1024$ embedding is 156M of its roughly 600M parameters.
 Most recent models use no dropout and weight decay of about 0.1. Andriushchenko et al.~(2023) argue that
 weight decay in LLM training acts mainly on optimisation dynamics, through its interaction with the
 learning-rate schedule, rather than as a regulariser. \Cref{ch:optim} implements decoupled weight decay.
+In code, ``weight decay on matrices only'' means two parameter groups. Norm gains, biases and (often)
+embeddings are excluded, because shrinking a norm gain toward zero or a bias toward zero is not a sensible prior:
+
+\begin{lstlisting}[caption={Parameter groups for decoupled weight decay.},label={lst:archdesign:wd}]
+decay    = [p for n, p in model.named_parameters() if p.dim() >= 2]   # weight matrices
+no_decay = [p for n, p in model.named_parameters() if p.dim() < 2]    # gains, biases
+opt = torch.optim.AdamW([{"params": decay, "weight_decay": 0.1},
+                         {"params": no_decay, "weight_decay": 0.0}],
+                        lr=3e-4, betas=(0.9, 0.95))
+\end{lstlisting}
+
+
 
 \begin{napkinmath}[Pad your shapes]
 Tensor-core GEMMs work in tiles; on an H100 bf16 kernels are happiest when the matrix dimensions are
@@ -697,6 +708,40 @@ input, their weights can be concatenated into one $(3d + 2d_\text{ff})\times d$ 
 utilisation at small batch sizes and lets tensor parallelism overlap one all-reduce for both branches.
 GPT-J, GPT-NeoX and PaLM used parallel blocks, and PaLM reported about 15\% faster training at large
 scale with a small quality cost at smaller sizes. Most recent models have returned to serial blocks.
+
+\paragraph{One block, every option.} \Cref{lst:archdesign:block} shows how the ablation model implements
+all four placements and the parallel form in one class. Keeping every variant behind a configuration
+field, rather than in a separate file per experiment, is what makes a sweep a one-line change and keeps
+the variants from silently diverging in unrelated details such as initialisation.
+
+\begin{lstlisting}[caption={The configurable block of \texttt{llmsys/ablate.py}.},label={lst:archdesign:block}]
+class Block(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        out_std = init_std(cfg.d_model, cfg.d_model, cfg.init)
+        if cfg.depth_scaled_init:
+            out_std /= math.sqrt(2 * cfg.n_layers)       # GPT-2 style residual scaling
+        self.cfg = cfg
+        self.attn, self.mlp = Attention(cfg, out_std), MLP(cfg, out_std)
+        mk = lambda: make_norm(cfg.norm, cfg.d_model, cfg.bias)   # rms | layer | none
+        self.n1, self.n2 = mk(), mk()
+        if cfg.norm_position == "sandwich":
+            self.n1b, self.n2b = mk(), mk()
+
+    def forward(self, x, rope=None, alibi=None):
+        c = self.cfg
+        if c.parallel_block:                              # x + attn(N(x)) + mlp(N(x))
+            h = self.n1(x)
+            return x + self.attn(h, rope, alibi) + self.mlp(h)
+        if c.norm_position == "pre":                      # x + f(N(x))
+            x = x + self.attn(self.n1(x), rope, alibi)
+            return x + self.mlp(self.n2(x))
+        if c.norm_position == "post":                     # N(x + f(x))
+            x = self.n1(x + self.attn(x, rope, alibi))
+            return self.n2(x + self.mlp(x))
+        x = x + self.n1b(self.attn(self.n1(x), rope, alibi))   # sandwich
+        return x + self.n2b(self.mlp(self.n2(x)))
+\end{lstlisting}
 
 \paragraph{Biases.} Dropping all bias vectors removes parameters that the optimiser must still track
 in fp32 (master weights plus two Adam moments), removes elementwise kernels or epilogues, and has been
@@ -849,7 +894,102 @@ Writing this estimate down \emph{before} launching is what stops a sweep from qu
 \end{napkinmath}
 
 \subsection{A worked sweep}
-%ABLATION-RESULTS%
+We ran the standard variants on the synthetic corpus of \code{make\_corpus} with a 4-layer, $d=64$ model
+(about 234k parameters), context 64, batch 16, 250 steps at learning rate $3\times10^{-3}$, with three
+seeds for the baseline and the two clearest losers and one seed elsewhere. Everything ran on a shared CPU in
+this environment, so the absolute numbers are tiny-scale and only the comparisons matter.
+\Cref{fig:archdesign:curves} shows validation curves, \cref{tab:archdesign:results} the final losses and
+\cref{fig:archdesign:lrsweep} a learning-rate sweep for three norm settings.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.86\linewidth, height=6cm, xlabel={step}, ylabel={validation loss (nats/byte)},
+  xmin=0, xmax=250, ymin=0.8, ymax=2.6, grid=both, grid style={black!8},
+  legend pos=north east, legend style={font=\scriptsize}, tick label style={font=\scriptsize}]
+\addplot[sysblue, very thick] coordinates {(20,3.1532) (40,1.8490) (60,1.3142) (80,1.1246) (100,1.0679) (120,0.8599) (140,0.8398) (160,0.7826) (180,0.7701) (200,0.8086) (220,0.6945) (240,0.7964) (250,0.9282)};
+\addlegendentry{baseline}
+\addplot[keygreen, thick, dashed] coordinates {(20,2.9174) (40,1.7111) (60,1.2556) (80,1.0585) (100,1.0067) (120,0.8418) (140,0.8038) (160,0.7759) (180,0.7692) (200,0.8078) (220,0.6855) (240,0.7940) (250,0.9273)};
+\addlegendentry{post-norm}
+\addplot[warnred, thick] coordinates {(20,4.5476) (40,3.2192) (60,2.4821) (80,2.0424) (100,1.7698) (120,1.5115) (140,1.3368) (160,1.1801) (180,1.0871) (200,1.0827) (220,0.9160) (240,0.9979) (250,1.1597)};
+\addlegendentry{no norm}
+\addplot[napkin, thick] coordinates {(20,3.1202) (40,2.0100) (60,1.7977) (80,1.7203) (100,1.6509) (120,1.4942) (140,1.4670) (160,1.3379) (180,1.2501) (200,1.2720) (220,1.1033) (240,1.1985) (250,1.3165)};
+\addlegendentry{NoPE}
+\addplot[labpurple, thick, dotted] coordinates {(20,3.4091) (40,2.1242) (60,1.8583) (80,1.6632) (100,1.4944) (120,1.2075) (140,1.0814) (160,0.9375) (180,0.9284) (200,0.9185) (220,0.7844) (240,0.8885) (250,1.0279)};
+\addlegendentry{learned abs.\ pos.}
+\addplot[black!60, thick, dashdotted] coordinates {(20,3.0847) (40,1.9246) (60,1.5030) (80,1.2758) (100,1.1713) (120,0.9629) (140,0.8898) (160,0.8333) (180,0.8326) (200,0.8527) (220,0.7273) (240,0.8264) (250,0.9510)};
+\addlegendentry{SiLU MLP ($4d$)}
+\end{axis}
+\end{tikzpicture}
+\caption{Validation loss during training for six architecture variants (seed 0; 4 layers, $d=64$, byte-level
+synthetic corpus; measured on CPU in this environment). The positional variants separate early and stay
+separated; norm placement makes no difference at this depth; removing the norm costs about 0.23 nats.}
+\label{fig:archdesign:curves}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Variant & seeds & final val.\ loss & $\Delta$ vs.\ baseline & parameters\\
+\midrule
+baseline: pre-RMSNorm, RoPE, SwiGLU & 3 & 0.922 & --- & 234,048 \\
+post-norm & 1 & 0.927 & -0.001 & 233,984 \\
+sandwich norm & 1 & 0.929 & +0.001 & 234,560 \\
+no norm & 3 & 1.146 & +0.223 & 233,472 \\
+learned absolute positions & 1 & 1.028 & +0.100 & 238,144 \\
+ALiBi & 1 & 0.960 & +0.031 & 234,048 \\
+NoPE & 3 & 1.333 & +0.410 & 234,048 \\
+SiLU MLP ($4d$) & 1 & 0.951 & +0.023 & 229,952 \\
+GELU MLP ($4d$) & 1 & 0.944 & +0.016 & 229,952 \\
+QK-norm + z-loss ($10^{-4}$) & 1 & 0.933 & +0.005 & 234,176 \\
+\bottomrule
+\end{tabular}
+\caption{Final validation loss after 250 steps at learning rate $3\times10^{-3}$ (mean over seeds; $\Delta$ is the paired difference to the baseline run with the same seed, i.e.\ the same initialisation and data order). The
+baseline's seed-to-seed standard deviation is 0.005, so differences below about 0.01 are noise.}
+\label{tab:archdesign:results}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.7\linewidth, height=5.2cm, xmode=log, xlabel={peak learning rate},
+  ylabel={final val.\ loss}, ymin=0.85, ymax=2.1, grid=both, grid style={black!8},
+  legend pos=north east, legend style={font=\scriptsize}, tick label style={font=\scriptsize}]
+\addplot[sysblue, very thick, mark=*] coordinates {(0.001,1.0584) (0.003,0.9282) (0.01,0.9166) (0.03,0.9626)};
+\addlegendentry{pre-norm}
+\addplot[warnred, thick, mark=triangle*] coordinates {(0.001,1.9874) (0.003,1.1597) (0.01,0.9573) (0.03,1.4274)};
+\addlegendentry{no norm}
+\addplot[keygreen, thick, dashed, mark=square*] coordinates {(0.001,1.0919) (0.003,0.9273) (0.01,0.9162) (0.03,1.0318)};
+\addlegendentry{post-norm}
+\end{axis}
+\end{tikzpicture}
+\caption{Learning-rate sweeps (seed 0, 250 steps). The ``no norm'' model is not hopeless; it needs a
+different learning rate and still ends worse at the best one. A single-LR comparison at $3\times10^{-3}$
+would overstate its gap.}
+\label{fig:archdesign:lrsweep}
+\end{figure}
+
+What the sweep supports, with mechanisms:
+\begin{itemize}
+\item \textbf{Position matters most here.} NoPE is about 0.4 nats worse and learned absolute embeddings about 0.1
+  worse than RoPE. The corpus contains counting runs and copy lines, which need to know \emph{how far back}
+  something is, which is exactly the relative information RoPE supplies directly and NoPE must infer
+  from the causal mask (\cref{sec:archdesign:pos}). ALiBi, with its recency bias, sits in between.
+\item \textbf{Gating helps a little, beyond noise.} The parameter-matched SiLU and GELU MLPs end about 0.02
+  worse than SwiGLU, consistent with the direction (though not necessarily the size) of the published
+  results.
+\item \textbf{Norm placement does not matter at depth 4.} Post-norm and sandwich match pre-norm within
+  noise. The post-norm pathologies of \cref{sec:archdesign:norm} grow with depth and learning rate. Our
+  4-layer model has neither, which is a reminder that small-scale ablations can miss effects that only
+  appear at scale (exercise: rerun with $L=24$).
+\item \textbf{No norm is mainly an LR-sensitivity story.} At $3\times10^{-3}$ it is about 0.22 worse; at its own
+  best learning rate the gap shrinks to about 0.04. Report sweeps, not single points.
+\item \textbf{Stability tricks are neutral when nothing is unstable.} QK-norm plus z-loss changes the loss by
+  less than the noise. Their value appears at high learning rates and long runs, which is a different
+  experiment.
+\end{itemize}
+
 
 % =====================================================================
 \section{Summary}\label{sec:archdesign:summary}

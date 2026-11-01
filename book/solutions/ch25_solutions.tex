@@ -61,7 +61,7 @@ configuration fit on a single 8-GPU node.
 probability proportional to the chance that it beats $n-1$ others; integrating
 $\log\big(n F(r)^{n-1}\big)$ against its density gives $\log n-\frac{n-1}{n}$ for continuous rewards, and
 ties can only reduce it, hence the upper bound. The lab's $\beta=0.2$ run settles near
-$4$\,nats, which corresponds to $\log n-1\approx4$, i.e.\ $n\approx e^5\approx148$. A run at 8 nats
+$3.5$\,nats, which corresponds to $\log n-1\approx3.5$, i.e.\ $n\approx e^{4.5}\approx90$. A run at 8 nats
 corresponds to $n\approx e^9\approx8{,}000$ samples per prompt, impractical at inference time, which is why
 PPO's KL ``budget'' is cheaper to spend through training.
 

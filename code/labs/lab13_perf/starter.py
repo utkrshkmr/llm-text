@@ -63,6 +63,7 @@ def time_fn(fn: Callable[[], object], warmup: int = 5, iters: int = 10,
     # 3) return dict(mean=..., std=<population std>, median=..., times=[...])
     raise NotImplementedError("TODO: time_fn")
 
+
 class SavedTensorTracker:
     """Context manager recording the bytes autograd saves for backward.
 
@@ -103,14 +104,11 @@ class SavedTensorTracker:
 
 def naive_attention_saved_bytes(B: int, H: int, T: int, D: int, dtype_bytes: int,
                                 causal: bool) -> int:
-    """Closed form for what ``naive_attention`` keeps for backward.
-
-    bmm(Q, K^T) saves Q and K; softmax saves its output P (B*H*T*T); bmm(P, V) saves P again
-    (same storage) and V; masked_fill saves the (T, T) boolean mask (1 byte per entry).
-    """
+    """Closed form (in bytes) for what ``naive_attention`` keeps for backward."""
     # Hint: run naive_attention under SavedTensorTracker and read the entries. Which ops save
     # Q, K, V? Which saves the (T, T) probabilities? What does masked_fill save?
     raise NotImplementedError("TODO: closed form for the residuals of naive_attention")
+
 
 # =============================================================== Part B: recomputation
 def checkpoint_segments(blocks: Sequence[torch.nn.Module], x: torch.Tensor, segment: int):
@@ -121,6 +119,7 @@ def checkpoint_segments(blocks: Sequence[torch.nn.Module], x: torch.Tensor, segm
     # Hint: for lo in range(0, len(blocks), segment): wrap a closure that applies
     # blocks[lo:lo+segment] in torch.utils.checkpoint.checkpoint(..., use_reentrant=False).
     raise NotImplementedError("TODO: checkpoint_segments")
+
 
 # =============================================================== Part C: FA2 in PyTorch
 def fa2_forward_tiled(q, k, v, causal: bool = False, block_q: int = 16, block_k: int = 16):
@@ -135,6 +134,7 @@ def fa2_forward_tiled(q, k, v, causal: bool = False, block_q: int = 16, block_k:
     # L_i = m + log(l). Skip key tiles that lie entirely above the diagonal.
     raise NotImplementedError("TODO: FlashAttention-2 forward in PyTorch")
 
+
 def fa2_backward_tiled(q, k, v, o, do, lse, causal: bool = False, block_q: int = 16,
                        block_k: int = 16):
     """Two-pass tiled backward. Pass 1 loops over key tiles (dK, dV); pass 2 over query
@@ -144,6 +144,7 @@ def fa2_backward_tiled(q, k, v, o, do, lse, causal: bool = False, block_q: int =
     #         dS = P * (dP - Delta_i) ; dK_j += dS^T Q_i * scale
     # Pass 2 (outer loop over query tiles): dQ_i += dS K_j * scale
     raise NotImplementedError("TODO: FlashAttention-2 backward in PyTorch")
+
 
 class FlashAttention2Tiled(torch.autograd.Function):
     """Save (Q, K, V, O, L) -- never P -- and recompute in backward."""
