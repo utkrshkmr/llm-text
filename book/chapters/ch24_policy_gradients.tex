@@ -799,10 +799,10 @@ stopped contributing.
 \draw[dashed] (1,-1.4)--(1,1.4) node[above,font=\scriptsize]{$1$};
 \draw[dashed] (0.8,-1.4)--(0.8,1.4) node[above,font=\scriptsize]{$1-\epsilon$};
 \draw[dashed] (1.2,-1.4)--(1.2,1.4) node[above,font=\scriptsize]{$1+\epsilon$};
-\node[font=\scriptsize,align=center] at (0.75,0.7) {$A>0$, gradient flows:\\raise $\pi(a)$};
+\node[font=\scriptsize,align=center] at (0.53,0.7) {$A>0$, gradient flows:\\raise $\pi(a)$};
 \node[font=\scriptsize,align=center] at (1.48,0.7) {already raised\\enough: $m_t=0$};
 \node[font=\scriptsize,align=center] at (0.55,-0.7) {already lowered\\enough: $m_t=0$};
-\node[font=\scriptsize,align=center] at (1.27,-0.7) {$A<0$, gradient flows:\\lower $\pi(a)$};
+\node[font=\scriptsize,align=center] at (1.47,-0.7) {$A<0$, gradient flows:\\lower $\pi(a)$};
 \end{tikzpicture}
 \caption{Where PPO's clipped objective passes gradient (green) and where it masks it (red), by
 importance ratio and sign of the advantage. Clipping only stops a token from moving
@@ -917,11 +917,11 @@ the two.
 \node[b,fill=fcomm!15] (adv) at (13.0,0) {advantages\\{\scriptsize group statistics}};
 \node[b,fill=fcompute!20,text width=34mm] (tr) at (8.8,-2.6) {trainer {\scriptsize(GPU 0)}\\log-probs $\to$ loss $\to$\\accumulate $\to$ clip $\to$ step};
 \node[b,fill=black!5,text width=30mm] (log) at (13.0,-2.6) {logger\\{\scriptsize reward, entropy, grad norm,\\length, clip fraction}};
-\draw[->,thick] (data)--node[above,font=\scriptsize]{$x$, $G$ times}(eng);
+\draw[->,thick] (data)--node[above,font=\scriptsize]{$x\times G$}(eng);
 \draw[->,thick] (eng)--node[above,font=\scriptsize]{token IDs}(rew);
 \draw[->,thick] (rew)--node[above,font=\scriptsize]{$r$}(adv);
 \draw[->,thick] (adv.south) -- ++(0,-0.7) -| ([xshift=6mm]tr.north);
-\draw[->,thick] (eng.south) |- node[pos=0.72,above,font=\scriptsize]{token IDs (+ old log-probs)} (tr.west);
+\draw[->,thick] (eng.south) |- node[pos=0.3,left,font=\scriptsize,align=right]{token IDs\\(+ old log-probs)} (tr.west);
 \draw[->,thick,dashed] (tr.east)--(log.west);
 \draw[->,very thick,warnred] (tr.south) -- ++(0,-0.7) -| node[pos=0.25,below,font=\scriptsize,warnred]{NCCL broadcast of new weights after every optimizer step} (eng.south);
 \end{tikzpicture}}
@@ -941,21 +941,21 @@ has a counterpart at scale: \code{sample\_fixed\_length} becomes a call to the e
 accumulation.
 
 \begin{lstlisting}[caption={One on-policy step with optional off-policy reuse (abridged from \code{llmsys.pg.train\_toy}).},label={lst:pg:step}]
-prompts = task.sample_prompts(B, gen).repeat_interleave(G, 0)       # (B*G, P)
-resp, old_lp = sample_fixed_length(model, prompts, task.k, generator=gen)  # behaviour logps
-r = task.reward(prompts, resp)                                       # (B*G,) in {0, 1}
-adv = group_advantages(r.view(B, G), baseline="mean", scale="std").reshape(-1)
-for sel in torch.randperm(B * G).chunk(n_minibatches):               # >1 => off-policy
-    lp, ent = response_logprobs(model, prompts[sel], resp[sel])      # current policy
+prompts = task.sample_prompts(B, gen).repeat_interleave(G, 0)    # (B*G, P)
+resp, old_lp = sample_fixed_length(model, prompts, task.k, generator=gen)
+r = task.reward(prompts, resp)                                    # 0/1 per row
+adv = group_advantages(r.view(B, G), "mean", "std").reshape(-1)
+method = "ppo_clip" if n_minibatches > 1 else "reinforce"         # reuse => clip
+for sel in torch.randperm(B * G).chunk(n_minibatches):
+    lp, ent = response_logprobs(model, prompts[sel], resp[sel])   # current policy
     mask = torch.ones_like(lp, dtype=torch.bool)
-    per_tok, stats = pg_token_loss(lp, adv[sel], mask, old_lp[sel],
-                                   method="ppo_clip" if n_minibatches > 1 else "reinforce")
+    per_tok, stats = pg_token_loss(lp, adv[sel], mask, old_lp[sel], method)
     loss = aggregate_loss(per_tok, mask, "seq_mean")
     opt.zero_grad(set_to_none=True)
     loss.backward()
     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     opt.step()
-# at scale: engine.sync_weights(model) here, before the next rollout batch
+# at scale: engine.sync_weights(model) here, before the next rollout
 \end{lstlisting}
 
 \Cref{fig:pg:curves} runs the chapter's estimators on the toy task (a 4-token answer whose
@@ -982,7 +982,7 @@ time, as they do for LLMs.
 \addplot[thick,sysblue] coordinates {(2.5,0.108) (7.5,0.170) (12.5,0.236) (17.5,0.293) (22.5,0.317) (27.5,0.358) (32.5,0.401) (37.5,0.473) (42.5,0.548) (47.5,0.694) (52.5,0.795) (57.5,0.871) (62.5,0.948) (67.5,0.964) (72.5,0.975) (77.5,0.988)};
 \addplot[thick,keygreen] coordinates {(2.5,0.184) (7.5,0.394) (12.5,0.530) (17.5,0.795) (22.5,0.891) (27.5,0.956) (32.5,0.994) (37.5,0.997) (42.5,0.998) (47.5,0.998) (52.5,0.999) (57.5,1.000) (62.5,0.998) (67.5,1.000) (72.5,0.998) (77.5,0.999)};
 \addplot[thick,warnred,densely dotted] coordinates {(2.5,0.161) (7.5,0.309) (12.5,0.415) (17.5,0.543) (22.5,0.584) (27.5,0.713) (32.5,0.861) (37.5,0.963) (42.5,0.969) (47.5,0.808) (52.5,0.839) (57.5,0.910) (62.5,0.960) (67.5,0.994) (72.5,0.996) (77.5,0.996)};
-\legend{REINFORCE, no baseline (= RFT), leave-one-out, group mean/std (GRPO), $8\times$ reuse naive, $8\times$ reuse PPO-clip}
+\legend{{REINFORCE, no baseline (= RFT)},{leave-one-out},{group mean/std (GRPO)},{$8\times$ reuse, naive},{$8\times$ reuse, PPO-clip}}
 \end{axis}
 \end{tikzpicture}
 \caption{Policy-gradient estimators on the digit-sum toy task (20k-parameter Qwen3-shaped
