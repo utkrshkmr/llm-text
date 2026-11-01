@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Systems from Scratch</title>
+<meta name="description" content="Building, training, serving, and teaching language models to reason: a systems-first textbook with labs.">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("theme"); } catch (e) {}
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script defer src="app.js"></script>
+</head>
+<body class="landing">
+<header class="topbar">
+  <a class="brand" href="index.html">LLM Systems <span>from Scratch</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <button class="icon-btn" id="theme-toggle" aria-label="Toggle light and dark mode">
+    <svg class="sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g></svg>
+    <svg class="moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="currentColor"/></svg>
+  </button>
+</header>
+
+<main class="landing-main">
+  <section class="hero">
+    <p class="eyebrow">A systems-first textbook with labs</p>
+    <h1>LLM Systems from Scratch</h1>
+    <p class="subtitle">Building, training, serving, and teaching language models to reason</p>
+    <p class="author">utkrshkmr</p>
+    <div class="hero-actions">
+      <a class="btn primary" href="$FIRST$">Start reading</a>
+      <a class="btn" href="$PDF$" data-pdf="$PDF$">Download PDF</a>
+    </div>
+    <p class="blurb">From tokenizers and attention to FlashAttention in Triton, FSDP, serving engines,
+      scaling laws, pretraining data, RLHF, DPO and GRPO. Every chapter pairs the modelling idea
+      with its cost on real hardware and ends with a hands-on lab.</p>
+  </section>
+  <div class="part-grid">
+$CARDS$
+  </div>
+</main>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

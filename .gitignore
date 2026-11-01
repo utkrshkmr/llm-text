@@ -11,3 +11,6 @@ book/_full/
 *.fdb_latexmk
 *.synctex.gz
 ckpt/
+site/
+_webbuild/
+web/__pycache__/

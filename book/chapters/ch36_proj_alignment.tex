@@ -84,15 +84,15 @@ Alignment track & four evaluation scripts; a packed SFT data loader and trainer;
 
 \subsection{Repository layout}
 
-Work inside this book's repository. \texttt{code/projects/a5/} holds the infrastructure
+Work inside this book's repository. \texttt{code/projects/p5\_reasoning\_rl/} holds the infrastructure
 provided for this project; your own package goes next to it:
 \begin{lstlisting}[style=plain,caption={Project layout. Only the files marked (provided) exist at the start.},label={lst:proj5:layout}]
-code/projects/a5/
+code/projects/p5_reasoning_rl/
   README.md          (provided) quick start
   env_check.py       (provided) checks Python, libraries, GPUs, disk
   run_matrix.py      (provided) settings x seeds grid -> commands
   seeds_ci.py        (provided) per-seed JSONL logs -> intervals
-  test_a5_infra.py   (provided) tests for the three tools
+  test_p5_infra.py   (provided) tests for the three tools
   p5/                yours: core.py, rollout.py, train_rl.py, evals.py
   tests/             yours: the invariants of Part 2
   data/              downloaded datasets (not committed)
@@ -112,7 +112,7 @@ project: vLLM's APIs for weight updates and generation change between releases.
 pip install -r code/requirements.txt
 pip install "transformers>=4.50" vllm wandb math-verify   # pin versions
 pip install flash-attn --no-build-isolation     # optional, last
-python code/projects/a5/env_check.py --need-gpus 2 --min-gpu-gb 40
+python code/projects/p5_reasoning_rl/env_check.py --need-gpus 2 --min-gpu-gb 40
 huggingface-cli download allenai/OLMo-2-0425-1B \
     --local-dir ckpt/olmo2-1b
 \end{lstlisting}
@@ -596,7 +596,7 @@ GRPO run alone.
 \item The core track is RL with verifiable rewards on a small, strong base model: prompting baselines,
   GRPO from first principles, normaliser and aggregation variants, off-policy reuse, and an estimator of
   your own.
-\item Setup is this repository's \code{code/projects/a5} tools, pinned vLLM and Transformers, two GPUs
+\item Setup is this repository's \code{code/projects/p5\_reasoning\_rl} tools, pinned vLLM and Transformers, two GPUs
   with a weight-sync path, and a small tested core of pure functions.
 \item The mathematics is \cref{ch:pg}; the engineering invariants are mask alignment, fp32 log-probs,
   global normalisers under accumulation, and weight-sync checks.

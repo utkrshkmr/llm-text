@@ -9,7 +9,7 @@ data.
 
 Lab~11 built every primitive in miniature, on a synthetic crawl and with pure-Python stand-ins.
 This project uses real crawl files, production tools (FastWARC, Resiliparse, fastText) and the
-generic infrastructure in \texttt{code/projects/a4}. Like the other projects in Part~VII, this
+generic infrastructure in \texttt{code/projects/p4\_data}. Like the other projects in Part~VII, this
 chapter specifies the work and guides it, but gives no solution code for the project tasks: the
 decisions are the point.
 
@@ -60,7 +60,7 @@ before you start.
 \paragraph{Rules.}
 \begin{enumerate}
   \item The model, optimiser, schedule and batch size are fixed by a named recipe in the
-        trainer \texttt{train\_on\_bin.py} (in \texttt{code/projects/a4}). Only the training token
+        trainer \texttt{train\_on\_bin.py} (in \texttt{code/projects/p4\_data}). Only the training token
         file changes between runs.
   \item You may use the target set to \emph{design} filters and classifiers (for example as the
         target $T$ of \cref{fig:data:targetraw}), but no target text may appear in the training data.
@@ -90,8 +90,8 @@ tools; all ship compiled wheels for common platforms:
 cd code
 pip install -r requirements.txt
 pip install fastwarc resiliparse fasttext-wheel mmh3 nltk tldextract tiktoken
-python projects/a4/env_check.py --data-root data/     # expects data/cc and data/models
-pytest -q projects/a4                                 # the project tooling's own tests
+python projects/p4_data/env_check.py --data-root data/     # expects data/cc and data/models
+pytest -q projects/p4_data                                 # the project tooling's own tests
 \end{lstlisting}
 
 \begin{pitfall}[Native wheels]
@@ -137,7 +137,7 @@ nothing in the project requires reading them in full.
 
 \subsection{Tooling and compute}
 
-\Cref{tab:proj4:tools} lists the generic tools in \texttt{code/projects/a4}. None of them filters
+\Cref{tab:proj4:tools} lists the generic tools in \texttt{code/projects/p4\_data}. None of them filters
 anything; they make your filters easy to run, resume, inspect and evaluate.
 
 \begin{table}[t]
@@ -155,16 +155,16 @@ over files, with a manifest, summed counters and an ETA or full-crawl extrapolat
 epochs over the training file\\
 \bottomrule
 \end{tabularx}
-\caption{Project~4 tooling (\texttt{code/projects/a4}).}
+\caption{Project~4 tooling (\texttt{code/projects/p4\_data}).}
 \label{tab:proj4:tools}
 \end{table}
 
 \begin{lstlisting}[style=shell]
-python projects/a4/inspect_samples.py --inputs data/cc/*.warc.wet.gz \
+python projects/p4_data/inspect_samples.py --inputs data/cc/*.warc.wet.gz \
     --n 25 --csv notes.csv
-python projects/a4/shard_runner.py --fn my_filters:process_file \
+python projects/p4_data/shard_runner.py --fn my_filters:process_file \
     --inputs data/cc/wet/*.warc.wet.gz --out-dir out/v1 --workers 32 --total-files 90000
-python projects/a4/train_on_bin.py --recipe small --train-bin out/v1/train.bin \
+python projects/p4_data/train_on_bin.py --recipe small --train-bin out/v1/train.bin \
     --val-bin data/val/val.bin --out runs/v1
 \end{lstlisting}
 
@@ -510,7 +510,7 @@ Validation loss suspiciously low & target text leaked into training & long-$n$-g
 \section{Milestones, sanity checks and the report}\label{sec:proj4:milestones}
 
 \begin{enumerate}
-  \item \textbf{Environment}: \code{env\_check.py} is green; \code{pytest -q projects/a4} passes; a
+  \item \textbf{Environment}: \code{env\_check.py} is green; \code{pytest -q projects/p4\_data} passes; a
         \code{tiny}-recipe smoke run of \code{train\_on\_bin.py} finishes.
   \item \textbf{Primitives}: your tests pass for P4.2--P4.6, and every analysis is backed by a small table
         from real samples.
