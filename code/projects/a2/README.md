@@ -1,15 +1,23 @@
-# Project 2 (CS336 Assignment 2) -- generic infrastructure
+# Project 2 — Make it fast, make it fit, make it scale
 
-Nothing here solves an assignment problem. These are the tools Chapter 33 recommends you have
-*before* you start measuring things:
+The project guide is Chapter 33 of the book. This directory holds the setup:
 
-* `env_check.py` -- record versions, GPUs, topology, profiler availability, and a matmul sanity
-  check; attach `--json` output to every results file.
-* `sweep.py` -- run any benchmark command over a JSON grid, log one JSON line per run (including
-  OOMs and crashes), resume after interruption.
-* `tables.py` -- pivot the JSONL into Markdown/LaTeX tables for the writeup.
+| File | Purpose |
+|---|---|
+| `env_check.py` | Record versions, GPUs, topology, profiler availability and a matmul sanity check (`--json` for results files). |
+| `sweep.py` | Run any benchmark command over a JSON grid; one JSON line per run, OOMs and crashes included; resumable. |
+| `tables.py` | Pivot a sweep's JSONL into Markdown/LaTeX tables for the writeup. |
+| `p2/impl.py` | **Your** implementations: attention, data parallel, sharded optimizer, fully sharded. Stubs only. |
+| `acceptance_p2.py` | Correctness checks for `p2/impl.py` (CPU-friendly: gloo processes, Triton interpreter). |
+| `test_projects_a2.py` | Tests for the infrastructure scripts themselves. |
 
 ```bash
+cd code
 python projects/a2/env_check.py
-python -m pytest -q projects/a2
+python -m pytest -q projects/a2/acceptance_p2.py            # your implementation
+python -m pytest -q projects/a2/acceptance_p2.py -k flash   # one part at a time
+P2_IMPL=/path/to/impl.py python -m pytest -q projects/a2/acceptance_p2.py
 ```
+
+The acceptance suite checks correctness only. Performance is what your benchmarks, profiles and
+writeup demonstrate.
