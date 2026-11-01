@@ -1,0 +1,589 @@
+\chapter{Project: Filtering Web Data for Language Modeling (CS336 Assignment 4)}\label{ch:proj4}
+
+This project guide accompanies the data assignment of Stanford's CS336, \emph{Language Modeling from
+Scratch}: take raw Common Crawl, turn it into text, filter, mask and deduplicate it, and show
+that a model trained on your data reaches lower validation loss. The guide explains how the
+assignment is set up and how to run it, maps each problem to the parts of this book that teach the
+underlying ideas, and gives milestones, sanity checks and pitfalls. Like every guide in Part~VII,
+it deliberately stops short of solutions (see the note at the start of \cref{ch:proj1}): the
+point of the assignment is to make these decisions yourself, and the course asks that AI tools and
+third-party code not do the problems for students.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  p/.style={draw=sysblue,fill=sysbluebg,rounded corners=2pt,minimum height=9mm,text width=23mm,align=center,font=\scriptsize},
+  q/.style={p,fill=keygreenbg,draw=keygreen},
+  r/.style={p,fill=napkinbg,draw=napkin},
+  arr/.style={-{Stealth[length=2mm]},thick,black!55}]
+\node[p] (look) {look\_at\_cc\\{\tiny read WARC/WET}};
+\node[p,right=4mm of look] (ext) {extract\_text\\{\tiny bytes $\to$ text}};
+\node[p,right=4mm of ext] (lang) {language\_\\identification};
+\node[p,right=4mm of lang] (pii) {mask\_pii};
+\node[p,right=4mm of pii] (harm) {harmful\_\\content};
+\node[q,below=8mm of harm] (gop) {gopher\_quality\_\\filters};
+\node[q,left=4mm of gop] (qc) {quality\_\\classifier};
+\node[q,left=4mm of qc] (ex) {exact\_\\deduplication};
+\node[q,left=4mm of ex] (mh) {minhash\_\\deduplication};
+\node[r,below=8mm of mh] (filt) {filter\_data\\{\tiny parallel pipeline}};
+\node[r,right=4mm of filt] (insp) {inspect\_\\filtered\_data};
+\node[r,right=4mm of insp] (tok) {tokenize\_data\\{\tiny uint16 + EOT}};
+\node[r,right=4mm of tok] (train) {train\_model\\{\tiny fixed recipe}};
+\draw[arr] (look)--(ext); \draw[arr] (ext)--(lang); \draw[arr] (lang)--(pii); \draw[arr] (pii)--(harm);
+\draw[arr] (harm)--(gop); \draw[arr] (gop)--(qc); \draw[arr] (qc)--(ex); \draw[arr] (ex)--(mh);
+\draw[arr] (mh)--(filt); \draw[arr] (filt)--(insp); \draw[arr] (insp)--(tok); \draw[arr] (tok)--(train);
+\draw[arr,dashed] (insp.north) to[out=90,in=-90] node[right,font=\tiny,text=srcgray] {iterate} (ex.south);
+\node[font=\scriptsize,text=sysblue,anchor=south west] at (look.north west) {Part 1: primitives on one WARC/WET pair};
+\node[font=\scriptsize,text=keygreen,anchor=south east] at (gop.north east) {Part 2: quality and dedup};
+\node[font=\scriptsize,text=napkin,anchor=north west] at (filt.south west) {Part 3: build a dataset, train on it, measure};
+\end{tikzpicture}}
+\caption{The assignment's problems in order. Parts 1 and 2 build and test primitives; Part 3
+composes them into a parallel pipeline over thousands of WET files, inspects the output, and is
+judged by the validation loss of a model trained with a fixed recipe.}
+\label{fig:proj4:map}
+\end{figure}
+
+% =====================================================================
+\section{What the assignment asks and why}\label{sec:proj4:overview}\covers{CS336 A4 \S1}
+
+The assignment has three movements. First, you implement the per-document primitives
+of \cref{ch:data}: HTML-to-text extraction with encoding detection, language identification,
+PII masking, NSFW and toxicity classification, and Gopher-style quality rules, and you look hard at
+what each one does to real Common Crawl pages. Second, you build a quality classifier from
+positives you collect yourself (pages referenced by Wikipedia) and implement exact line deduplication
+and MinHash-LSH fuzzy deduplication over files. Third, the open-ended part: filter a large collection
+of English WET files into a training set, tokenise it, and train a fixed GPT-2-shaped model with the
+course's training script. The score is that model's validation loss on a held-out benchmark (the
+C4 100-domains subset of Paloma), so all of your leverage is in the \emph{data}; the architecture and
+training procedure are frozen.
+
+Most problems have two kinds of deliverable: code that passes provided tests, and a short written
+analysis based on looking at samples. Take the analyses seriously. The habits they build (reading
+20 random examples, tabulating classifier errors, picking thresholds from evidence) are exactly
+what separates a working data pipeline from a plausible-looking one.
+
+% =====================================================================
+\section{Setting up}\label{sec:proj4:setup}
+
+\subsection{Repository and environment}
+
+The starter repository (\texttt{stanford-cs336/assignment4-data}) is organised as follows:
+
+\begin{description}
+  \item[\texttt{cs336\_basics/}] The staff implementation of the Assignment~1 model and a
+  distributed (DDP) training script, slightly optimised with PyTorch-native pieces. You use it
+  unchanged: the leaderboard requires the fixed recipe.
+  \item[\texttt{cs336\_data/}] Your code. It starts nearly empty, apart from helpers for
+  locating shared data and for building the English-filtered WET collection.
+  \item[\texttt{tests/}] The test suite plus fixtures (an HTML page with its expected extraction,
+  documents with line duplicates and with near-duplicate licences, high- and low-quality examples).
+  Tests call functions in \texttt{tests/adapters.py}; your job is to make each adapter call
+  \emph{your} implementation, keeping your real code in \texttt{cs336\_data}.
+  \item[\texttt{scripts/}] Data download, training and generation entry points (Modal apps).
+  \item[\texttt{configs/}] Hydra configs for training; you set the path to your tokenised data
+  and your experiment-tracking entity and project.
+\end{description}
+
+Dependencies are managed with \texttt{uv}. The project pins the tools this assignment relies on:
+FastWARC and warcio (record iteration), Resiliparse (encoding detection and extraction),
+fastText (classifiers), mmh3 (MurmurHash), NLTK (tokenisation for rules), tldextract (domains),
+submitit and Modal (parallel execution), and the training stack.
+
+\begin{lstlisting}[style=shell]
+git clone https://github.com/stanford-cs336/assignment4-data && cd assignment4-data
+uv sync                              # creates .venv from uv.lock (Python >= 3.12)
+uv run pytest -k test_extract        # run one family of tests while you work
+uv run pytest                        # everything (expect failures until you finish)
+\end{lstlisting}
+
+\begin{pitfall}[Native wheels]
+FastWARC, Resiliparse and fastText ship compiled extensions. If \code{uv sync} fails on your
+platform (older glibc, Apple silicon with an unusual Python), check that \texttt{uv} is using the
+managed Python the project requests, and read the specific build error before reaching for
+workarounds. fastText's \code{predict} also rejects input containing newlines; strip them before
+classifying.
+\end{pitfall}
+
+\subsection{Data}
+
+The course provides a shared data volume containing an example WARC file with its WET counterpart,
+the classifier binaries (fastText \code{lid.176.bin} for language ID and Dolma's Jigsaw-trained NSFW
+and hate-speech classifiers), a gzipped list of external URLs extracted from English Wikipedia, a
+large collection of English-filtered WET files (roughly 2{,}500 files, already filtered to an
+English probability of at least 0.7 by the language-ID model), and the tokenised validation set. Students access it through Modal; the README
+describes an offline download of just the files needed for the tests, and, for people outside the
+course, how to point \texttt{cs336\_data/common.py} at a local directory, implement the English
+check used when building the WET collection, and download fewer files.
+
+\begin{napkinmath}[How much data, and what it costs to train]
+The training recipe uses 8 GPUs, a per-device batch of 128 sequences of 512 tokens and 16{,}384 steps:
+$8\times128\times512\times16384 = 2^{33}\approx8.6\times10^{9}$ tokens. A roughly 430M-parameter model
+therefore costs about $6\times4.3\times10^{8}\times8.6\times10^{9}\approx2.2\times10^{19}$ FLOPs.
+Finishing that in about two hours, as the handout reports, implies roughly
+$3\times10^{15}$ FLOP/s across the node. On a single H100 at a realistic 40\% of its 989\,TFLOP/s
+bf16 peak, the same run takes about 15 hours. Two consequences follow. First, if your filtered set
+has fewer than 8.6B tokens, training will repeat it (\cref{sec:data:mixing}); know your epoch
+count. Second, compare filters with \emph{short} runs before spending a full one.
+\end{napkinmath}
+
+\subsection{Compute and execution}
+
+Filtering is CPU work and training is GPU work; plan them separately. The course runs both on
+Modal: data scripts parallelise with \code{.map} over inputs, and training is launched with the
+provided entry point and your tokenised file (\code{uv run modal run scripts/train.py --train-bin
+<path>}). Off Modal, a process pool on a many-core machine (\code{concurrent.futures}) or a Slurm
+array (\code{submitit}) does the filtering; the generic runner in \texttt{code/projects/a4} (a
+resumable map with a manifest, counters and an ETA) and the pipeline of
+\cref{sec:data:engineering} show the patterns. For training without eight large GPUs, see
+\cref{sec:proj4:outside}.
+
+\begin{lstlisting}[style=shell]
+python code/projects/a4/env_check.py --data-root /path/to/shared-data
+python code/projects/a4/inspect_samples.py --inputs example.warc.wet.gz \
+    --n 25 --csv notes.csv
+python code/projects/a4/shard_runner.py --fn my_filters:process_file \
+    --inputs wet/*.warc.wet.gz --out-dir filtered/ --workers 32 --total-files 90000
+\end{lstlisting}
+
+% =====================================================================
+\section{Problem-by-problem map}\label{sec:proj4:map}
+
+\Cref{tab:proj4:map} lists every problem, what it asks in brief, and where this book develops the
+ideas you need. The sections after the table add guidance specific to the assignment.
+
+{\small
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.21\linewidth}>{\raggedright\arraybackslash}p{0.41\linewidth}>{\raggedright\arraybackslash}p{0.32\linewidth}@{}}
+\caption{CS336 Assignment 4 problems and where the background is taught.}\label{tab:proj4:map}\\
+\toprule
+\textbf{Problem} & \textbf{Asks you to\ldots} & \textbf{Background}\\
+\midrule\endfirsthead
+\toprule
+\textbf{Problem} & \textbf{Asks you to\ldots} & \textbf{Background}\\
+\midrule\endhead
+look\_at\_cc & read raw WARC and WET records, judge the extracted text, annotate 25 documents & \cref{sec:data:warc}; \code{inspect\_samples.py}\\
+extract\_text & decode bytes with encoding detection, extract text with Resiliparse, compare with WET & \cref{sec:data:extract}; Lab~11 tasks 1--2\\
+language\_\allowbreak identification & wrap the fastText language-ID model, return a language and a score, choose a threshold from samples & \cref{sec:data:langid}; Lab~11 task 3\\
+mask\_pii & mask emails, US phone numbers and IPv4 addresses with fixed placeholders, return counts, discuss errors & \cref{sec:data:pii}; Lab~11 task 4\\
+harmful\_\allowbreak content & wrap the NSFW and toxic-speech classifiers, audit errors, choose thresholds & \cref{sec:data:pii}\\
+gopher\_\allowbreak quality\_\allowbreak filters & implement (at least) a subset of Gopher rules, compare with your own judgement & \cref{sec:data:rules}, \cref{tab:data:gopher}; Lab~11 task 5\\
+quality\_\allowbreak classifier & collect positives from Wikipedia-referenced URLs and negatives from CC, train a classifier, expose a label and a confidence & \cref{sec:data:quality}, \cref{fig:data:targetraw}; Lab~11 task 6\\
+exact\_\allowbreak deduplication & two-pass line dedup across files with hashed counters & \cref{sec:data:exact}; Lab~11 task 7\\
+minhash\_\allowbreak deduplication & normalise, shingle, MinHash, LSH bands, verify Jaccard, cluster, keep one per cluster, write files & \cref{sec:data:minhash,sec:data:lsh}; Lab~11 task 8\\
+filter\_data & a parallel pipeline over the WET collection, with a per-filter breakdown and runtime estimates & \cref{sec:data:engineering}; Lab~11 task 11; \texttt{projects/a4}\\
+inspect\_\allowbreak filtered\_\allowbreak data & read kept and removed samples, justify decisions, iterate & \cref{sec:data:engineering}\\
+tokenize\_\allowbreak data & GPT-2 tokenise with an EOT after every document, write \code{uint16} & \cref{sec:text:pipeline}, \cref{sec:data:engineering}\\
+train\_model & train the fixed model, report the best validation loss and learning curve & \cref{ch:pretrain}, \cref{sec:proj4:outside}\\
+\bottomrule
+\end{longtable}}
+
+% =====================================================================
+\section{Guidance for Part 1: per-document primitives}\label{sec:proj4:part1}\covers{CS336 A4 \S2.1--2.6}
+
+\paragraph{Look before you build.} Use \code{zcat ... | less} or the sample inspector, and keep
+your 25 annotations in a CSV with columns for language, domain, page type and a keep/drop verdict.
+That file becomes a tiny labelled evaluation set. Later you can measure every filter's precision and recall
+on it instead of arguing from single examples.
+
+\paragraph{Extraction.} The extractor wants a \code{str}, so the real work is decoding robustly:
+try UTF-8, fall back to a detected encoding, never crash on a malformed page
+(\cref{lst:data:extract} shows the cascade). When you compare your extraction with the WET text,
+look at boilerplate (menus, footers), lists and tables, and whitespace. Neither extraction is
+``correct''; describe what each one keeps that a model should or should not learn from.
+
+\paragraph{Classifier wrappers.} For the fastText-based tasks (language, NSFW, toxicity), the
+engineering is small but easy to get subtly wrong: load each model once per process, not once per call;
+strip newlines from the input; map fastText's \texttt{\_\_label\_\_xx} strings to the identifiers
+the tests expect; and return a score in $[0,1]$ that means what your label says. The written parts
+ask for error analysis and thresholds: sample about 20 documents, label them yourself, tabulate
+disagreements, and choose a threshold that makes the errors you can tolerate. A threshold justified
+with numbers from your own sample is worth more than one copied from a paper.
+
+\paragraph{PII.} Start from the formats listed in the problem, then write adversarial
+examples (versions, prices, dates, ISBNs, international numbers) before running on real pages.
+Report false positives and false negatives with examples. The downstream question, what a model
+learns from placeholder-riddled text, has no single right answer; reason about it with
+\cref{sec:data:pii}.
+
+\paragraph{Gopher rules.} Implement the required subset exactly as specified (word-count bounds,
+mean word length, ellipsis lines, alphabetic words). How you split text into words matters: NLTK's
+tokenizer and \code{str.split} disagree on punctuation and change the mean word length. Record which
+rule fired for every document; you will need those counts for \code{filter\_data}.
+
+\begin{keyidea}[Every primitive gets a test you wrote yourself]
+The provided tests are sanity checks, and some of them check only one or two examples. For each primitive, write three
+or four tests of your own from the failure modes in \cref{ch:data}: an undeclared cp1252 page, a
+short code-switched paragraph, a version number that looks like an IP address, a page that is all
+bullets. These tests protect you when you start optimising for speed in Part~3.
+\end{keyidea}
+
+\subsection{How many samples is ``enough''?}\label{sec:proj4:samples}
+
+Several problems ask you to estimate a filter's error rate from about 20 hand-labelled examples.
+Treat such estimates as the rough signals they are. For a proportion $\hat p = k/n$, the Wilson 95\%
+interval is
+\[
+\frac{\hat p + \frac{z^2}{2n} \pm z\sqrt{\frac{\hat p(1-\hat p)}{n} + \frac{z^2}{4n^2}}}{1+\frac{z^2}{n}},
+\qquad z = 1.96.
+\]
+With $k=2$ errors in $n=20$ samples the interval is roughly $[3\%, 30\%]$; seeing \emph{zero}
+errors in 20 still allows an error rate up to about 16\%. Pinning an error rate near 10\% to within
+$\pm5$ points needs about $1.96^2\cdot0.1\cdot0.9/0.05^2\approx140$ labelled samples. Two practical
+consequences follow. Report intervals, not just point estimates, in the writeup. And spend the
+labelling budget where the decision is made: sample documents whose scores lie \emph{near} your
+threshold, which is where a mistake would change what gets kept (\cref{ch:eval} covers the statistics in
+more depth).
+
+% =====================================================================
+\section{Guidance for Part 2: the quality classifier and deduplication}\label{sec:proj4:part2}\covers{CS336 A4 \S2.7, \S3}
+
+\paragraph{Positives are a data-collection project.} The URL list is huge; subsample it. Fetching
+pages yourself means dealing with timeouts, dead links, redirects and non-HTML responses. Use a
+WARC-writing fetcher (the handout shows \code{wget} with \code{--warc-file} and a timeout), fetch in
+parallel but politely, and expect a large fraction of the URLs to fail. Pass the fetched pages
+through your own extraction, language, safety and rule filters before treating them as positives.
+Otherwise the classifier learns the boilerplate of reputable sites.
+
+\paragraph{Negatives and evaluation.} Draw negatives from the same stage of the pipeline at which
+the classifier will be applied (for example, after language ID), balance the classes or use class weights,
+and hold out a test split. Inspect the top- and bottom-scoring held-out documents: if the top
+looks like navigation pages from news sites, your positives are contaminated. fastText's
+supervised format is one example per line, \texttt{\_\_label\_\_<name> <text>}; word bigrams
+(\code{wordNgrams=2}) and a few epochs are reasonable starting points. Keep the trained model under
+version control, or at least its training-set hash.
+
+\paragraph{Exact line dedup.} The interface is file-based: given a list of input files and an
+output directory, write same-named files with the corpus-repeated lines removed. Two passes over
+the files, a hash-keyed counter, and careful preservation of line endings are the whole design
+(\cref{sec:data:exact}). Check your output on a toy corpus where you can enumerate the answer by
+hand, and keep in mind the pitfall of \cref{sec:data:exact}.
+
+\paragraph{MinHash dedup.} Normalise (lower-case, NFD, strip accents, remove punctuation,
+collapse whitespace) before shingling, as the handout requires, and compute shingles in
+\emph{words} with the requested $n$. Use a seeded hash family so runs are reproducible. Verify LSH
+candidates with the true Jaccard similarity, cluster transitively, and keep exactly one document
+per cluster. Test with the provided licence fixtures, then with your own: two documents differing
+in one word should merge, and two unrelated documents that share a long boilerplate footer should not
+(if they do, your threshold or shingle size is wrong). \Cref{fig:data:scurve} and
+\cref{eq:data:scurve} let you reason about which $(b,r)$ split makes a given threshold work before
+you run anything.
+
+\begin{pitfall}[Determinism and memory]
+Python's built-in \code{hash()} is randomised per process: never use it for anything that must
+agree across workers or runs. Use MurmurHash (\code{mmh3}) or a fixed-digest hash. For large inputs,
+keep counters keyed by 64-bit integers rather than strings, and stream files line by line rather
+than reading them into memory.
+\end{pitfall}
+
+% =====================================================================
+\section{Guidance for Part 3: building the dataset}\label{sec:proj4:part3}\covers{CS336 A4 \S4}
+
+\paragraph{Design the pipeline on paper first.} Draw your funnel (\cref{fig:data:funnel}): which
+stages run per file, which are global, in what order, and with which thresholds. Order stages by
+cost and selectivity (\cref{sec:data:engineering}). Decide what you will log for every stage
+(documents and characters in and out, time); the problem requires a breakdown of what each
+filter removed, and you will want it anyway to debug.
+
+\paragraph{Run it as a resumable parallel job.} Process each WET file independently in a process
+pool or on Modal, write outputs atomically, and keep a manifest so that a crash costs one file, not
+the run. Load classifiers once per worker. Time a few files first and extrapolate to the whole
+collection and to a full crawl (the problem asks for both). \Cref{sec:data:engineering} has the
+napkin method. Global deduplication then runs over the filtered outputs, which are much smaller.
+
+\paragraph{The validation target shapes the data.} Your goal is low perplexity on a specific held-out
+distribution: documents from the most common web domains in C4. The handout permits using the
+validation data to \emph{design} filters or classifiers, for example as a target set $T$ in the sense of
+\cref{fig:data:targetraw}, but forbids copying any validation text into training. Treat that rule
+as a hard constraint and enforce it mechanically: run a long-$n$-gram decontamination pass
+(\cref{sec:data:decontam}) of your final training set against the validation text, and report the
+result. Think also about quantity versus quality (\cref{sec:data:quality}): the fixed recipe consumes
+about 8.6B tokens, so aggressive filtering trades quality for repetition.
+
+\paragraph{Cluster execution without Modal.} On a Slurm cluster, \code{submitit} turns a Python
+function into a job array with one task per chunk of files. The pattern below is generic: the
+function you submit is your own per-file processing function, run through a resumable wrapper like
+\texttt{projects/a4/shard\_runner.py}.
+
+\begin{lstlisting}
+import submitit
+files = sorted(glob.glob("/data/english-wet/*.warc.wet.gz"))
+chunks = [files[i::256] for i in range(256)]           # 256 array tasks
+ex = submitit.AutoExecutor(folder="logs/filter_%j")
+ex.update_parameters(timeout_min=240, cpus_per_task=16, mem_gb=64,
+                     slurm_array_parallelism=64)
+jobs = ex.map_array(process_chunk, chunks, [OUT_DIR] * len(chunks))
+counters = [j.result() for j in jobs]   # blocks; a re-run skips finished files
+\end{lstlisting}
+
+\noindent Inside each task, use a process pool over that task's files with
+\code{len(os.sched\_getaffinity(0))} workers. Keep the per-file function idempotent, so that
+re-submitting the whole array after a failure redoes only the missing files.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.72\linewidth,height=4.8cm,xmode=log,xlabel={cost per evaluation (seconds, log scale)},
+  ylabel={fidelity to final metric},xmin=1,xmax=2e5,ymin=0,ymax=1.1,yticklabels={},
+  label style={font=\small},tick label style={font=\scriptsize}]
+\addplot[only marks,mark=*,mark size=2.5pt,sysblue] coordinates {(5,0.2) (300,0.35) (4000,0.75) (60000,1.0)};
+\addplot[sysblue!40,thick] coordinates {(5,0.2) (300,0.35) (4000,0.75) (60000,1.0)};
+\node[font=\scriptsize,anchor=south west] at (axis cs:5,0.22) {funnel + samples};
+\node[font=\scriptsize,anchor=north west] at (axis cs:300,0.33) {decontamination, token count};
+\node[font=\scriptsize,anchor=north west] at (axis cs:4600,0.73) {short proxy training run};
+\node[font=\scriptsize,anchor=south east] at (axis cs:55000,1.01) {full fixed-recipe run};
+\end{axis}
+\end{tikzpicture}
+\caption{The evaluation ladder for data decisions (schematic). Run the cheap rungs on every
+pipeline variant and the expensive rungs only on the survivors. Costs are orders of magnitude, not
+measurements.}
+\label{fig:proj4:ladder}
+\end{figure}
+
+\paragraph{Inspect and iterate.} Read random kept and removed documents (the problem asks for five
+of each with justifications). Then change one thing at a time and record what changed: a threshold,
+a stage order, a new rule. An experiment log as simple as a table of (pipeline version, tokens kept,
+per-filter counts, short-run validation loss) is what makes the final writeup straightforward.
+
+\paragraph{Tokenise and train.} Encode with the GPT-2 tokenizer, append the end-of-text id after every
+document, and write a single flat \code{uint16} array, the format the training script memory-maps
+(\cref{sec:text:pipeline}). Parallelise tokenisation and avoid materialising one giant Python list.
+Check the file before launching training: its size in bytes divided by two is the token count, and decoding
+a random window should give readable text with EOT separators. Then train with the provided script,
+log to your experiment tracker, and report the best validation loss with the learning curve.
+
+\begin{systemslens}[Make every data decision cheap to evaluate]
+A full training run is the most expensive evaluation you have. Build a ladder of cheaper proxies.
+First, the per-filter funnel and samples (seconds). Second, the decontamination check (minutes). Third,
+a short training run, for example 5--10\% of the steps or a smaller model, compared across pipeline variants with the
+same seed and token budget (an hour). Last, the full run, only for the one or two best candidates.
+\Cref{fig:proj4:ladder} sketches the trade-off. This is the data-ablation methodology of DCLM and
+FineWeb (\cref{sec:data:engineering}) at the scale of one student; the scale caveat of \cref{sec:data:quality} still applies.
+\end{systemslens}
+
+% =====================================================================
+\section{Background: selecting data toward a target distribution}\label{sec:proj4:selection}\covers{CS336 L14}
+
+Part~3 is a \emph{targeted} data-selection problem: choose, from a large raw pool $R$, the training
+set that minimises loss on a specific evaluation distribution $T$. \Cref{sec:data:quality}
+described quality classifiers as one instance of ``find documents like $T$''. This section adds the
+general framework, so that you can reason about the design space rather than try filters at random.
+
+\paragraph{Selection as importance resampling.} If training on $T$ itself were possible we would
+do it, so the ideal is to sample from $R$ with weights proportional to the density ratio
+\begin{equation}
+w(x) = \frac{p_T(x)}{p_R(x)}.
+\label{eq:proj4:dsir}
+\end{equation}
+Resampling $R$ with probability proportional to $w(x)$ produces a sample distributed like $T$
+restricted to the support of $R$. Direct density estimation of text is hopeless, but cheap
+\emph{feature-space} estimates work well: DSIR (Xie et al., 2023) fits hashed $n$-gram bag-of-words models
+$\hat p_T$ and $\hat p_R$ (the same hashing trick as \cref{eq:data:hashed}) and resamples with
+$\log w(x) = \sum_{f\in F(x)}\big(\log\hat p_T(f) - \log\hat p_R(f)\big)$, with Gumbel top-$k$ sampling
+for efficiency. Two other estimators of the same ratio are already familiar. A calibrated classifier
+gives $\frac{p(T\mid x)}{p(R\mid x)} \propto w(x)$, so thresholding its score is a hard
+version of importance resampling. Perplexity under an LM trained on $T$, compared with perplexity under an
+LM trained on $R$, gives the generative version (Moore and Lewis, 2010).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.78\linewidth,height=4.6cm,xlabel={feature space (schematic)},ylabel={density},
+  xmin=-4,xmax=6,ymin=0,ymax=0.62,yticklabels={},xticklabels={},
+  legend style={font=\scriptsize,at={(0.98,0.98)},anchor=north east},
+  label style={font=\small},axis lines=left]
+\addplot[domain=-4:6,samples=150,thick,black!50,fill=black!6] {0.5*exp(-(x-0)^2/2)/sqrt(2*pi) + 0.5*exp(-(x-2.5)^2/4)/sqrt(4*pi)} \closedcycle;
+\addplot[domain=-4:6,samples=150,very thick,keygreen] {exp(-(x-2)^2/(2*0.36))/sqrt(2*pi*0.36)*0.55};
+\addplot[domain=-4:6,samples=150,thick,dashed,sysblue] {min(0.6, 0.12*(exp(-(x-2)^2/(2*0.36))/sqrt(2*pi*0.36)*0.55)/(0.5*exp(-(x-0)^2/2)/sqrt(2*pi) + 0.5*exp(-(x-2.5)^2/4)/sqrt(4*pi)))};
+\legend{raw pool $p_R$,target $p_T$,weight $w\propto p_T/p_R$ (scaled)}
+\end{axis}
+\end{tikzpicture}
+\caption{Targeted selection as importance resampling. Documents are kept in proportion to how
+much more likely they are under the target than under the raw pool. Weights explode where $p_R$
+is small, so practical methods clip or threshold them; a classifier score is a monotone transform of
+the same ratio.}
+\label{fig:proj4:dsir}
+\end{figure}
+
+\paragraph{The questions that decide the design.} Before choosing a method, answer four questions
+with data. \textbf{What is in $T$?} Read validation samples; tabulate domains, genres and lengths.
+\textbf{Where is $T$ in $R$?} Score a sample of $R$ with your candidate estimator and read the
+top-scoring documents. \textbf{How many tokens survive at each threshold?} Draw the curve of
+tokens kept against threshold and mark the 8.6B-token budget on it. \textbf{Is the estimator
+leaking?} Any method that looks at $T$ can memorise it; decontamination (\cref{sec:data:decontam})
+is the mechanical guard. Diversity is the usual casualty of aggressive selection, so watch the
+domain and length distributions of what you keep, not just the score.
+
+\begin{pitfall}[Selection bias toward the estimator's features]
+A hashed-unigram estimator rewards vocabulary overlap. It will happily select keyword-stuffed pages
+that contain the target's frequent words. Combine targeted selection with the generic quality and
+dedup stages, and check the top-scoring documents by eye before committing.
+\end{pitfall}
+
+% =====================================================================
+\section{How the training side consumes your data}\label{sec:proj4:training}
+
+Reading the provided training code before producing data saves wasted runs. The script memory-maps
+your \code{uint16} file and draws random windows of the context length (the same random-window loader
+as in \cref{ch:optim} and \cref{sec:text:pipeline}), so document order in the file does not matter,
+but every token is a potential window start: a long run of junk anywhere in the file will be sampled.
+Validation uses the provided pre-tokenised file with the same loader, periodically, and logs to your
+experiment tracker. The model, optimiser, schedule and batch size come from the config and are
+part of the fixed recipe. Your only input is the training file.
+
+Three checks catch most integration bugs before a long run:
+
+\begin{lstlisting}
+import numpy as np
+from transformers import AutoTokenizer
+ids = np.memmap("my_data.bin", dtype=np.uint16, mode="r")
+tok = AutoTokenizer.from_pretrained("gpt2")
+print(f"{len(ids):,} tokens  ({len(ids) * 2 / 1e9:.2f} GB)")
+assert ids.max() < tok.vocab_size                       # 50257 for GPT-2
+eot = (ids == tok.eos_token_id).sum()
+print(f"{eot:,} documents, mean {len(ids) / max(eot, 1):.0f} tokens/doc")
+s = np.random.randint(0, len(ids) - 1024)
+print(tok.decode(ids[s:s + 1024]))                       # read it!
+\end{lstlisting}
+
+\noindent The first check catches \code{int64} arrays written by mistake (four times the size and
+garbage when read as \code{uint16}). The second catches missing end-of-text separators. The third
+catches mojibake, leftover markup and placeholder floods. Comparing the mean document length with
+your pipeline's counters closes the loop.
+
+% =====================================================================
+\section{Tracking data experiments}\label{sec:proj4:tracking}
+
+Data work produces many artefacts: filtered shards, classifiers, thresholds, token files and
+training runs. Months later you must be able to say which pipeline produced which loss. A light
+discipline is enough:
+
+\begin{itemize}
+  \item \textbf{Config-driven pipeline.} Keep every threshold, stage order, model path and seed in one
+        versioned config (YAML or a dataclass), and write it next to the output directory.
+  \item \textbf{Content-addressed outputs.} Name dataset directories by a short hash of
+        (config, code version, input file list), so that two different pipelines can never overwrite each other.
+  \item \textbf{Manifests and counters.} Store per-file counters (the runner in \texttt{projects/a4}
+        writes \code{\_manifest.jsonl}) and aggregate them into the funnel for the writeup.
+  \item \textbf{Linked training runs.} Log the dataset hash, its token count and its funnel as run
+        metadata in your tracker, so that every learning curve points back to its data.
+  \item \textbf{Saved samples.} Store a fixed random sample of kept and removed documents for every
+        dataset version; reviewing those samples is the qualitative half of every comparison.
+\end{itemize}
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{0.27\linewidth}@{}}
+\toprule
+\textbf{Symptom} & \textbf{Likely cause} & \textbf{Check}\\
+\midrule
+Pipeline keeps almost nothing & a threshold on the wrong scale (score of the wrong label), or a rule applied to raw HTML instead of text & funnel per stage on one file; print scores of 20 good pages\\
+Kept text full of menus and footers & extraction keeps boilerplate; line dedup not applied or applied per file instead of across files & read 10 kept docs; count repeated lines across files\\
+Workers slow down over time, then die & a model loaded per call; memory growth from accumulating results & time per file and RSS per worker; load once per process\\
+Results differ between runs & built-in \code{hash()}, unseeded sampling, nondeterministic survivor choice & rerun on one file and diff outputs\\
+Token file twice or four times too large & wrong dtype (\code{int32}/\code{int64}) & bytes / tokens should equal 2\\
+Training loss fine, validation poor & distribution mismatch with the target, or too few unique tokens (heavy repetition) & tokens kept vs.\ 8.6B; domain mix of kept data\\
+Validation loss suspiciously low & validation text leaked into training & long-$n$-gram decontamination report\\
+\bottomrule
+\end{tabularx}
+\caption{Common failure modes in the data assignment and how to diagnose them.}
+\label{tab:proj4:failures}
+\end{table}
+
+% =====================================================================
+\section{Milestones, sanity checks and the writeup}\label{sec:proj4:milestones}
+
+\begin{enumerate}
+  \item \textbf{Environment}: \code{uv run pytest} collects all tests; the shared data or your local
+        copy is reachable; \code{env\_check.py} is green.
+  \item \textbf{Primitives}: each family of tests passes (\code{uv run pytest -k <name>}), plus your own
+        adversarial tests; every written answer is backed by a small table from real samples.
+  \item \textbf{Quality classifier}: a held-out accuracy or AUC you can quote, and top and bottom examples
+        that look right.
+  \item \textbf{Dedup}: the toy-corpus tests pass; on one real WET file, report how many lines and
+        documents each dedup removes, and read some removed examples.
+  \item \textbf{Pipeline}: one WET file end to end, with the funnel printed; then ten files in parallel with
+        speedup measured; then everything, resumable.
+  \item \textbf{Dataset}: the token count, the decontamination report, and the per-filter breakdown.
+  \item \textbf{Model}: the learning curve and best validation loss, and if possible a short-run
+        comparison of two pipeline variants.
+\end{enumerate}
+
+\paragraph{Sanity checks.} The number of documents in equals the number kept plus the number removed for every stage (counters
+that do not add up mean a bug); \cref{tab:proj4:failures} lists symptoms and checks. Rerunning the pipeline produces byte-identical outputs (determinism).
+The validation loss of a model trained on unfiltered English WET text is a useful baseline: your
+filters should beat it, and if they do not, look at what you removed.
+
+\paragraph{The writeup.} Organise it by problem, and for each problem state what you did, the evidence
+(tables of samples, counts, plots), and the decision you took because of it. For Part~3 include the
+funnel figure, the runtime and its extrapolation, the inspected examples, the iterations you tried,
+and the final learning curve. Being honest about failed ideas is part of good data work.
+
+% =====================================================================
+\section{Doing this project outside Stanford}\label{sec:proj4:outside}
+
+The primitives and the pipeline need only CPUs: a laptop handles Parts 1--2, and a single many-core
+workstation can filter a few hundred WET files in hours. You can download Common Crawl segments yourself (the
+handout shows the URL pattern) and the public classifier binaries; build a smaller
+English-filtered collection with the repository's helper and fewer files.
+
+Training is the expensive step. Three scaled-down options, in increasing fidelity:
+
+\begin{itemize}
+  \item Train the Lab~10 model (\cref{ch:pretrain}) or a GPT-2-small-shaped model on one GPU for a
+        fixed, small token budget, and compare pipeline variants \emph{relative} to each other on the same
+        validation file. This is the right tool for choosing between data variants.
+  \item Run the course's training script on whatever GPUs you have with fewer steps or a smaller model. The
+        script supports single-GPU and multi-GPU DDP launches (\cref{ch:distributed}).
+  \item Rent a multi-GPU node for the final run only, after the cheaper rungs of the ladder have
+        selected the data.
+\end{itemize}
+
+Whichever you choose, write down the budget (tokens, steps, model size) next to every reported
+loss, because absolute numbers are comparable only within a fixed recipe.
+
+% =====================================================================
+\section{Beyond the assignment}\label{sec:proj4:beyond}
+
+Once the required pipeline works, several directions are worth exploring as stretch work. They
+connect to research and production practice:
+
+\begin{description}
+  \item[Semantic deduplication.] MinHash catches lexical near-duplicates; embedding-based methods
+  (for example, clustering sentence embeddings and removing points that are close within a cluster,
+  as in SemDeDup) also catch paraphrases. The cost is an embedding model forward pass per document,
+  which changes the systems picture from CPU-bound to GPU-bound (\cref{sec:data:quality}'s cost
+  napkin applies).
+  \item[Small-LM perplexity filters.] Replace $n$-gram estimators with a small transformer trained on
+  the target set. Perplexity-based pruning can work well but is sensitive to which reference model you use.
+  \item[Rephrasing instead of discarding.] Use an instruction-tuned model to rewrite borderline pages
+  into clean prose (\cref{sec:data:synthetic}). Measure the effect at a fixed token budget, and audit
+  for factual drift.
+  \item[Mixture search.] Split your kept data into buckets (by domain, classifier score or length)
+  and search the mixture weights with small runs, respecting epochs (\cref{sec:data:mixing}).
+  \item[Throughput engineering.] Profile the pipeline (\cref{ch:perf} for the general methodology), move
+  the dominant stage to a compiled implementation, and measure parallel efficiency against core count
+  (\cref{sec:data:engineering}).
+\end{description}
+
+% =====================================================================
+\section{Checklist}\label{sec:proj4:checklist}
+
+\begin{itemize}
+  \item[$\square$] Environment builds; tests collect; data reachable; \code{env\_check.py} green.
+  \item[$\square$] 25 annotated samples in a CSV; every written answer backed by a table or counts.
+  \item[$\square$] All primitives pass the provided tests \emph{and} your own adversarial tests.
+  \item[$\square$] Quality classifier: positives filtered, held-out metric, top/bottom examples read.
+  \item[$\square$] Dedup: toy-corpus checks pass; deterministic hashing; one survivor per cluster.
+  \item[$\square$] Pipeline: idempotent per-file jobs, manifest, per-stage counters that add up.
+  \item[$\square$] Runtime measured on a sample and extrapolated to the full collection and a full crawl.
+  \item[$\square$] Token file validated (dtype, EOT count, readable windows); decontamination reported.
+  \item[$\square$] Proxy runs compare pipeline variants at a fixed budget before the full run.
+  \item[$\square$] Writeup: funnel, samples, iterations, learning curve, budget stated next to every number.
+\end{itemize}
+
+\begin{deepdive}[Where to go further]
+The open data pipelines are the best next reading: DataTrove (the FineWeb pipeline), Dolma's
+toolkit, and DCLM's processing code all implement the stages of \cref{ch:data} at scale with
+sharding, MinHash dedup and classifier filtering. Reading how they shard work and handle failures
+is as instructive as reading how they filter. See \cref{app:refs}.
+\end{deepdive}

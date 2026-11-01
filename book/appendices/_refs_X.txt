@@ -1,0 +1,23 @@
+Rafailov, R., Sharma, A., Mitchell, E., Ermon, S., Manning, C. D., Finn, C. (2023). Direct Preference Optimization: Your Language Model is Secretly a Reward Model. NeurIPS.
+Rafailov, R., Hejna, J., Park, R., Finn, C. (2024). From r to Q*: Your Language Model is Secretly a Q-Function. arXiv:2404.12358.
+Azar, M. G., Rowland, M., Piot, B., Guo, D., Calandriello, D., Valko, M., Munos, R. (2023). A General Theoretical Paradigm to Understand Learning from Human Preferences. arXiv:2310.12036 (AISTATS 2024).
+Ethayarajh, K., Xu, W., Muennighoff, N., Jurafsky, D., Kiela, D. (2024). KTO: Model Alignment as Prospect Theoretic Optimization. ICML.
+Meng, Y., Xia, M., Chen, D. (2024). SimPO: Simple Preference Optimization with a Reference-Free Reward. NeurIPS.
+Hong, J., Lee, N., Thorne, J. (2024). ORPO: Monolithic Preference Optimization without Reference Model. EMNLP.
+Xu, H., Sharaf, A., Chen, Y., Tan, W., Shen, L., Van Durme, B., Murray, K., Kim, Y. J. (2024). Contrastive Preference Optimization: Pushing the Boundaries of LLM Performance in Machine Translation. ICML.
+Xu, S., Fu, W., Gao, J., Ye, W., Liu, W., Mei, Z., Wang, G., Yu, C., Wu, Y. (2024). Is DPO Superior to PPO for LLM Alignment? A Comprehensive Study. ICML.
+Zhao, Y., Joshi, R., Liu, T., Khalman, M., Saleh, M., Liu, P. J. (2023). SLiC-HF: Sequence Likelihood Calibration with Human Feedback. arXiv:2305.10425.
+Liu, T., Zhao, Y., Joshi, R., Khalman, M., Saleh, M., Liu, P. J., Liu, J. (2023). Statistical Rejection Sampling Improves Preference Optimization. arXiv:2309.06657 (ICLR 2024).
+Kim, D., Kim, Y., Song, W., Kim, H., Kim, Y., Kim, S., Park, C. (2024). sDPO: Don't Use Your Data All at Once. arXiv:2403.19270.
+D'Oosterlinck, K., Xu, W., Develder, C., Demeester, T., Singh, A., Potts, C., Kiela, D., Mehri, S. (2024). Anchored Preference Optimization and Contrastive Revisions: Addressing Underspecification in Alignment. arXiv:2408.06266.
+Yuan, W., Pang, R. Y., Cho, K., Li, X., Sukhbaatar, S., Xu, J., Weston, J. (2024). Self-Rewarding Language Models. ICML.
+Chen, Z., Deng, Y., Yuan, H., Ji, K., Gu, Q. (2024). Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models. ICML.
+Munos, R., et al. (2023). Nash Learning from Human Feedback. arXiv:2312.00886 (ICML 2024).
+Pang, R. Y., Yuan, W., Cho, K., He, H., Sukhbaatar, S., Weston, J. (2024). Iterative Reasoning Preference Optimization. NeurIPS.
+Park, R., Rafailov, R., Ermon, S., Finn, C. (2024). Disentangling Length from Quality in Direct Preference Optimization. Findings of ACL.
+Bai, Y., Jones, A., Ndousse, K., et al. (2022). Training a Helpful and Harmless Assistant with Reinforcement Learning from Human Feedback. arXiv:2204.05862.
+Cui, G., Yuan, L., Ding, N., et al. (2023). UltraFeedback: Boosting Language Models with High-quality Feedback. arXiv:2310.01377 (ICML 2024).
+Dubois, Y., Galambosi, B., Liang, P., Hashimoto, T. B. (2024). Length-Controlled AlpacaEval: A Simple Way to Debias Automatic Evaluators. arXiv:2404.04475.
+Kahneman, D., Tversky, A. (1979). Prospect Theory: An Analysis of Decision under Risk. Econometrica.
+Bradley, R. A., Terry, M. E. (1952). Rank Analysis of Incomplete Block Designs: I. The Method of Paired Comparisons. Biometrika.
+Razin, N., Malladi, S., Bhaskar, A., Chen, D., Arora, S., Hu, W. (2024). Unintentional Unalignment: Likelihood Displacement in Direct Preference Optimization. arXiv:2410.08847 (ICLR 2025).

@@ -1,0 +1,30 @@
+Rae, J. W., Borgeaud, S., Cai, T., et al. (2021). Scaling Language Models: Methods, Analysis & Insights from Training Gopher. arXiv:2112.11446.
+Raffel, C., Shazeer, N., Roberts, A., et al. (2020). Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer. JMLR.
+Wenzek, G., Lachaux, M.-A., Conneau, A., et al. (2020). CCNet: Extracting High Quality Monolingual Datasets from Web Crawl Data. LREC.
+Gao, L., Biderman, S., Black, S., et al. (2020). The Pile: An 800GB Dataset of Diverse Text for Language Modeling. arXiv:2101.00027.
+Penedo, G., Malartic, Q., Hesslow, D., et al. (2023). The RefinedWeb Dataset for Falcon LLM: Outperforming Curated Corpora with Web Data, and Web Data Only. NeurIPS Datasets and Benchmarks.
+Soldaini, L., Kinney, R., Bhagia, A., et al. (2024). Dolma: an Open Corpus of Three Trillion Tokens for Language Model Pretraining Research. ACL.
+Li, J., Fang, A., Smyrnis, G., et al. (2024). DataComp-LM: In Search of the Next Generation of Training Sets for Language Models. NeurIPS Datasets and Benchmarks.
+Penedo, G., Kydlicek, H., Ben Allal, L., et al. (2024). The FineWeb Datasets: Decanting the Web for the Finest Text Data at Scale. NeurIPS Datasets and Benchmarks.
+Su, D., Kong, K., Lin, Y., et al. (2024). Nemotron-CC: Transforming Common Crawl into a Refined Long-Horizon Pretraining Dataset. arXiv:2412.02595.
+Kocetkov, D., Li, R., Ben Allal, L., et al. (2022). The Stack: 3 TB of Permissively Licensed Source Code. arXiv:2211.15533.
+Lozhkov, A., Li, R., Ben Allal, L., et al. (2024). StarCoder 2 and The Stack v2: The Next Generation. arXiv:2402.19173.
+Kandpal, N., Lester, B., Raffel, C., et al. (2025). The Common Pile v0.1: An 8TB Dataset of Public Domain and Openly Licensed Text. arXiv:2506.05209.
+Lee, K., Ippolito, D., Nystrom, A., et al. (2022). Deduplicating Training Data Makes Language Models Better. ACL.
+Broder, A. Z. (1997). On the Resemblance and Containment of Documents. Compression and Complexity of Sequences.
+Leskovec, J., Rajaraman, A., Ullman, J. D. (2014). Mining of Massive Datasets (2nd ed.), Chapter 3: Finding Similar Items. Cambridge University Press.
+Bloom, B. H. (1970). Space/Time Trade-offs in Hash Coding with Allowable Errors. Communications of the ACM.
+Joulin, A., Grave, E., Bojanowski, P., Mikolov, T. (2017). Bag of Tricks for Efficient Text Classification. EACL.
+Muennighoff, N., Rush, A. M., Barak, B., et al. (2023). Scaling Data-Constrained Language Models. NeurIPS.
+Chung, H. W., Constant, N., Garcia, X., et al. (2023). UniMax: Fairer and More Effective Language Sampling for Large-Scale Multilingual Pretraining. ICLR.
+Liu, Q., Zheng, X., Muennighoff, N., et al. (2024). RegMix: Data Mixture as Regression for Language Model Pre-training. arXiv:2407.01492.
+Xie, S. M., Santurkar, S., Ma, T., Liang, P. (2023). Data Selection for Language Models via Importance Resampling. NeurIPS.
+Moore, R. C., Lewis, W. (2010). Intelligent Selection of Language Model Training Data. ACL.
+Paster, K., Dos Santos, M., Azerbayev, Z., Ba, J. (2023). OpenWebMath: An Open Dataset of High-Quality Mathematical Web Text. arXiv:2310.06786.
+Magnusson, I., Bhagia, A., Hofmann, V., et al. (2023). Paloma: A Benchmark for Evaluating Language Model Fit. arXiv:2312.10523.
+Guha, E., Marten, R., Keh, S., et al. (2025). OpenThoughts: Data Recipes for Reasoning Models. arXiv:2506.04178.
+Abbas, A., Tirumala, K., Simig, D., Ganguli, S., Morcos, A. S. (2023). SemDeDup: Data-Efficient Learning at Web-Scale through Semantic Deduplication. arXiv:2303.09540.
+Yang, J., Lieret, K., Jimenez, C. E., et al. (2025). SWE-smith: Scaling Data for Software Engineering Agents. arXiv:2504.21798.
+Badertdinov, I., Golubev, A., Nekrashevich, M., et al. (2025). SWE-rebench: An Automated Pipeline for Task Collection and Decontaminated Evaluation of Software Engineering Agents. arXiv:2505.20411.
+Sap, M., Card, D., Gabriel, S., Choi, Y., Smith, N. A. (2019). The Risk of Racial Bias in Hate Speech Detection. ACL.
+Dodge, J., Sap, M., Marasovic, A., et al. (2021). Documenting Large Webtext Corpora: A Case Study on the Colossal Clean Crawled Corpus. EMNLP.

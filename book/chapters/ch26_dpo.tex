@@ -1,0 +1,1174 @@
+\chapter{Direct Preference Optimization and Its Family}\label{ch:dpo}
+
+\Cref{ch:rlhf} built the classical RLHF pipeline: collect human comparisons, fit a reward
+model, then run PPO with four networks in memory (policy, reference, reward, value) and a
+generation engine in the loop. It works, but it is the most complex training system in this book
+outside large-scale pretraining. In 2023, Rafailov and colleagues showed that for the
+KL-regularised objective RLHF optimises, the reward-modelling stage and the RL stage can be
+\emph{collapsed into one supervised loss on the preference pairs themselves}. The result,
+\emph{Direct Preference Optimization} (DPO), needs no reward model, no value function, no sampling
+during training and no PPO machinery. A DPO step is two forward passes over (prompt, response)
+pairs and one backward pass. That is the cost profile of supervised fine-tuning, which makes DPO
+easy to run, to scale and to debug.
+
+For a systems person this chapter has two halves. The first derives DPO carefully, because
+every design choice in an implementation follows from where the terms in the loss come from:
+summing over response tokens only, caching the reference, interpreting the logged metrics. The
+second half is about running it: data formats, the pair-batch layout, the reference-model cache,
+LoRA-DPO, launch recipes, what healthy logs look like, the failure modes, the large family of
+variants (cDPO, IPO, KTO, SimPO, ORPO, CPO, online DPO), and what a DPO step costs in memory
+and FLOPs.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  st/.style={draw, rounded corners=3pt, minimum height=1.0cm, text width=2.35cm, align=center,
+    font=\small, line width=0.6pt},
+  th/.style={st, fill=fcompute!15, draw=sysblue},
+  im/.style={st, fill=fdata!15, draw=keygreen},
+  sy/.style={st, fill=fmemory!18, draw=napkin},
+  num/.style={circle, fill=labpurple, text=white, font=\scriptsize\bfseries, inner sep=1.2pt},
+  arr/.style={-{Stealth[length=2mm]}, line width=0.7pt, draw=black!65}]
+\node[th] (a) at (0,0) {KL-regularised RL objective};
+\node[th] (b) at (2.9,0) {closed-form optimal policy};
+\node[th] (c) at (5.8,0) {implicit reward $\beta\log\frac{\pi}{\pi_{\mathrm{ref}}}$};
+\node[th] (d) at (8.7,0) {Bradley--Terry $\Rightarrow$ DPO loss};
+\node[im] (e) at (8.7,-1.7) {pair batches, masks, log-probs};
+\node[im] (f) at (5.8,-1.7) {reference cache, LoRA-DPO};
+\node[im] (g) at (2.9,-1.7) {training recipe \& metrics};
+\node[im] (h) at (0,-1.7) {failure modes};
+\node[sy] (i) at (0,-3.4) {the family: IPO, KTO, SimPO, ORPO, \ldots};
+\node[sy] (j) at (2.9,-3.4) {DPO vs PPO vs GRPO};
+\node[sy] (k) at (5.8,-3.4) {memory \& FLOPs per step};
+\node[sy] (l) at (8.7,-3.4) {Lab 26: toy task on CPU};
+\foreach \x/\n in {a/1,b/2,c/3,d/4,e/5,f/6,g/7,h/8,i/9,j/10,k/11,l/12}
+  \node[num] at (\x.north west) {\n};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d); \draw[arr] (d)--(e);
+\draw[arr] (e)--(f); \draw[arr] (f)--(g); \draw[arr] (g)--(h); \draw[arr] (h)--(i);
+\draw[arr] (i)--(j); \draw[arr] (j)--(k); \draw[arr] (k)--(l);
+\node[font=\scriptsize\itshape, text=sysblue, anchor=east] at (-1.4,0) {theory};
+\node[font=\scriptsize\itshape, text=keygreen, anchor=east] at (-1.4,-1.7) {implementation};
+\node[font=\scriptsize\itshape, text=napkin, anchor=east] at (-1.4,-3.4) {landscape \& systems};
+\end{tikzpicture}}
+\caption{Roadmap of this chapter. Steps 1--4 derive DPO; steps 5--8 implement and run it;
+steps 9--12 place it among its relatives and cost it out.}
+\label{fig:dpo:roadmap}
+\end{figure}
+
+% ======================================================================
+\section{Why skip the reward model?}\label{sec:dpo:why}\covers{PO §7; CS336 L15}
+
+Recall the three-stage pipeline of \cref{ch:rlhf} (\cref{fig:dpo:pipelines}, top). After
+supervised fine-tuning (SFT) produces $\pi_{\text{SFT}}$, annotators compare pairs of responses
+$(y_w, y_l)$ to a prompt $x$, with $y_w$ the \emph{winner} (``chosen'') and $y_l$ the \emph{loser}
+(``rejected''). A reward model $r_\phi$ is fitted with the Bradley--Terry (BT) likelihood
+\begin{equation}
+\mathcal{L}_{\text{RM}}(\phi) = -\E_{(x,y_w,y_l)}\big[\log\sigma\big(r_\phi(x,y_w)-r_\phi(x,y_l)\big)\big],
+\label{eq:dpo:bt}
+\end{equation}
+and the policy is then trained online against it, with a penalty for drifting from the reference
+$\piref=\pi_{\text{SFT}}$:
+\begin{equation}
+\max_{\pi_\theta}\ \E_{x\sim\mathcal{D},\,y\sim\pi_\theta(\cdot\mid x)}\big[r_\phi(x,y)\big]
+ \;-\;\beta\,\KL\big(\pi_\theta(\cdot\mid x)\,\|\,\piref(\cdot\mid x)\big).
+\label{eq:dpo:rlobj}
+\end{equation}
+The RL stage is where the systems pain lives. Every step needs fresh samples from the current policy,
+so a generation engine has to sit in the loop and receive weight updates (\cref{ch:rlsys}). A
+critic as large as the policy has to be trained, and the reward model must stay in memory.
+PPO's many hyperparameters (clip range, GAE $\lambda$, value-loss coefficient, KL
+controller) all interact.
+
+DPO keeps the \emph{objective}~\eqref{eq:dpo:rlobj} and the \emph{data} (the same comparison
+pairs) but removes both the explicit reward model and the RL loop
+(\cref{fig:dpo:pipelines}, bottom). The trick is that \eqref{eq:dpo:rlobj} has a closed-form
+solution, and that solution lets us express the reward in terms of the policy.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  bx/.style={draw, rounded corners=3pt, minimum height=0.95cm, text width=2.1cm, align=center,
+    font=\small, line width=0.6pt},
+  data/.style={bx, fill=fdata!15, draw=keygreen},
+  model/.style={bx, fill=fcompute!15, draw=sysblue},
+  loop/.style={bx, fill=fcomm!14, draw=labpurple},
+  arr/.style={-{Stealth[length=2mm]}, line width=0.7pt, draw=black!65}]
+\node[font=\bfseries\small, anchor=west] at (-1.2,1.15) {RLHF (Chapter 25)};
+\node[data] (p1) at (0,0) {preference pairs $(x,y_w,y_l)$};
+\node[model] (rm) at (3.0,0) {fit reward model $r_\phi$ (BT loss)};
+\node[loop] (ppo) at (6.3,0) {PPO: sample $y\sim\pi_\theta$, score, GAE, update};
+\node[model] (out1) at (9.6,0) {aligned $\pi_\theta$};
+\draw[arr] (p1)--(rm); \draw[arr] (rm)--(ppo); \draw[arr] (ppo)--(out1);
+\node[font=\scriptsize, align=center, text=black!60] at (6.3,-1.2) {online loop: policy + reference + reward + value\\ + generation engine in memory};
+\node[font=\bfseries\small, anchor=west] at (-1.2,-2.0) {DPO (this chapter)};
+\node[data] (p2) at (0,-3.1) {preference pairs $(x,y_w,y_l)$};
+\node[model] (ref) at (3.0,-3.1) {reference log-probs (computed once)};
+\node[loop, fill=fdata!10] (dpo) at (6.3,-3.1) {supervised loss on pairs: 2 forwards + 1 backward};
+\node[model] (out2) at (9.6,-3.1) {aligned $\pi_\theta$};
+\draw[arr] (p2)--(ref); \draw[arr] (ref)--(dpo); \draw[arr] (dpo)--(out2);
+\node[font=\scriptsize, align=center, text=black!60] at (6.3,-4.25) {policy only (reference cached or\\ = LoRA base); no sampling};
+\end{tikzpicture}}
+\caption{RLHF and DPO optimise the same KL-regularised objective from the same data. DPO
+replaces the reward model and the online PPO loop with a classification-style loss whose
+cost profile is that of supervised fine-tuning.}
+\label{fig:dpo:pipelines}
+\end{figure}
+
+% ======================================================================
+\section{Deriving DPO}\label{sec:dpo:derive}\covers{PO §7; CS336 A5s §6.1}
+
+\subsection{The optimal policy of the KL-regularised objective}
+
+Fix a prompt $x$ and drop it from the notation. For a reward $r(y)$, we want the distribution
+$\pi$ over responses that maximises $\E_{\pi}[r(y)] - \beta\,\KL(\pi\,\|\,\piref)$.
+
+\begin{proposition}[Gibbs policy]\label{prop:dpo:gibbs}
+The unique maximiser is
+\begin{equation}
+\pi^*(y) = \frac{1}{Z}\,\piref(y)\exp\!\Big(\frac{r(y)}{\beta}\Big),\qquad
+Z = \sum_{y}\piref(y)\exp\!\Big(\frac{r(y)}{\beta}\Big).
+\label{eq:dpo:gibbs}
+\end{equation}
+\end{proposition}
+\begin{proof}
+Write the objective as
+$J(\pi)=\sum_y \pi(y)\big[r(y)-\beta\log\frac{\pi(y)}{\piref(y)}\big]$. Substituting
+$r(y)=\beta\log\frac{\pi^*(y)}{\piref(y)}+\beta\log Z$ from \eqref{eq:dpo:gibbs} gives
+\[
+J(\pi)=\sum_y\pi(y)\Big[\beta\log\frac{\pi^*(y)}{\pi(y)}\Big]+\beta\log Z
+      =-\beta\,\KL(\pi\,\|\,\pi^*)+\beta\log Z .
+\]
+$\beta\log Z$ does not depend on $\pi$, and the KL divergence is non-negative and zero only at
+$\pi=\pi^*$.
+\end{proof}
+
+The proof shows something useful in practice too: maximising the RLHF objective is the same as
+minimising the reverse KL to an exponentially tilted reference. Small $\beta$ means a sharp tilt
+(the policy chases reward); large $\beta$ keeps $\pi^*$ close to $\piref$.
+
+\subsection{Inverting for the reward}
+
+\Cref{eq:dpo:gibbs} expresses the policy in terms of the reward. Take logs and solve for the
+reward instead (restoring $x$):
+\begin{equation}
+r(x,y) = \beta\log\frac{\pi^*(y\mid x)}{\piref(y\mid x)} + \beta\log Z(x).
+\label{eq:dpo:reparam}
+\end{equation}
+Any reward function corresponds to some optimal policy, and \eqref{eq:dpo:reparam} turns that
+around: \emph{the log-ratio of a policy to the reference, scaled by $\beta$, is a reward for which
+that policy is optimal}, up to a prompt-dependent constant $\beta\log Z(x)$. Computing $Z(x)$
+exactly is hopeless, since it sums over all possible responses. But BT only ever looks at reward
+\emph{differences} between two responses to the same prompt, and in that difference $Z(x)$
+cancels.
+
+\subsection{Plugging into Bradley--Terry}
+
+Parameterise the policy as $\pi_\theta$ and substitute \eqref{eq:dpo:reparam} into the BT
+likelihood \eqref{eq:dpo:bt}:
+\begin{equation}
+\boxed{\;
+\mathcal{L}_{\text{DPO}}(\theta) = -\E_{(x,y_w,y_l)\sim\mathcal{D}}\Big[\log\sigma\Big(
+\beta\log\frac{\pi_\theta(y_w\mid x)}{\piref(y_w\mid x)}
+-\beta\log\frac{\pi_\theta(y_l\mid x)}{\piref(y_l\mid x)}\Big)\Big].\;}
+\label{eq:dpo:loss}
+\end{equation}
+That is the whole method. Define the \emph{implicit reward}
+$\hat r_\theta(x,y)=\beta\log\frac{\pi_\theta(y\mid x)}{\piref(y\mid x)}$ and the margin
+$h=\hat r_\theta(x,y_w)-\hat r_\theta(x,y_l)$. Then $\mathcal{L}_{\text{DPO}}=-\E[\log\sigma(h)]$:
+DPO is the BT reward-model loss, with the reward model \emph{being} the policy's log-ratio. Fitting the
+implicit reward to the preferences moves the policy directly to the optimum of
+\eqref{eq:dpo:rlobj} for that reward. This is the sense of the DPO paper's subtitle, ``your
+language model is secretly a reward model''.
+
+\begin{keyidea}[What DPO assumes]
+DPO inherits two modelling assumptions. (1) Preferences follow Bradley--Terry: the probability that
+$y_w\succ y_l$ is a logistic function of a reward difference. (2) We want the optimum of the
+\emph{KL-regularised} objective with reference $\piref$. The optimisation is offline: the expectation in
+\eqref{eq:dpo:loss} is over a fixed dataset, not over samples from $\pi_\theta$. That last point
+is the source of both DPO's simplicity and most of its failure modes (\cref{sec:dpo:failures}).
+\end{keyidea}
+
+\subsection{How DPO uses Bradley--Terry implicitly}\covers{PO §7}
+
+Compare DPO with explicit reward modelling term by term. A reward model is an LM trunk with a
+scalar head (\cref{ch:rlhf}), trained by \eqref{eq:dpo:bt}, after which the head is thrown away
+and only its scores are used in PPO. DPO uses the same likelihood but with a different hypothesis
+class for $r$: functions of the form $\beta\log\pi_\theta/\piref$. Two consequences follow.
+
+\begin{itemize}
+\item \textbf{The reward is only defined up to $\beta\log Z(x)$.} Implicit rewards of responses to
+  the \emph{same} prompt are comparable; rewards across \emph{different} prompts are not. Do not
+  rank prompts by implicit reward, and do not use the DPO model as a general-purpose reward model
+  for best-of-$N$ across prompts without care.
+\item \textbf{The implicit reward is a sum over tokens.} Because
+  $\log\pi(y\mid x)=\sum_t\log\pi(y_t\mid x,y_{<t})$, the implicit reward decomposes into per-token
+  log-ratios. DPO can therefore be read as learning token-level credit assignment, and later work
+  interprets the per-token log-ratios as an optimal advantage-like quantity (Rafailov et al., 2024).
+  In practice, plotting per-token log-ratios over a response is an excellent debugging tool:
+  you can see \emph{which} tokens the update promoted or suppressed.
+\end{itemize}
+
+\subsection{The gradient: a weighted likelihood update}\label{sec:dpo:grad}\covers{PO §7}
+
+Differentiate \eqref{eq:dpo:loss}. With $\frac{d}{dh}[-\log\sigma(h)]=-\sigma(-h)$,
+\begin{equation}
+\nabla_\theta\mathcal{L}_{\text{DPO}} = -\beta\,\E\Big[\underbrace{\sigma\big(\hat r_\theta(x,y_l)-\hat r_\theta(x,y_w)\big)}_{\text{weight }w\in(0,1)}
+\Big(\underbrace{\nabla_\theta\log\pi_\theta(y_w\mid x)}_{\text{raise winner}}
+-\underbrace{\nabla_\theta\log\pi_\theta(y_l\mid x)}_{\text{lower loser}}\Big)\Big].
+\label{eq:dpo:grad}
+\end{equation}
+Each pair contributes ``maximum likelihood on the winner, unlikelihood on the loser'', weighted
+by how \emph{wrong} the current implicit reward is about that pair. When the implicit reward
+already ranks $y_w$ far above $y_l$ the weight goes to zero, and the pair stops contributing
+(\cref{fig:dpo:grad}). The weight is what distinguishes DPO from naive ``unlikelihood'' training,
+which keeps pushing the loser's probability down forever and degenerates; the original DPO paper
+reports exactly this degeneration for the unweighted version.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.62\linewidth, height=5.0cm, xmin=-6, xmax=6, ymin=0, ymax=1.05,
+  xlabel={margin $h=\hat r(x,y_w)-\hat r(x,y_l)$}, ylabel={per-pair weight},
+  grid=major, grid style={black!10}, legend style={font=\scriptsize, at={(0.98,0.97)}, anchor=north east},
+  tick label style={font=\scriptsize}, label style={font=\small}]
+\addplot[sysblue, very thick, domain=-6:6, samples=100] {1/(1+exp(x))};
+\addlegendentry{DPO: $\sigma(-h)$}
+\addplot[warnred, very thick, dashed, domain=-6:6, samples=2] {1};
+\addlegendentry{unweighted (unlikelihood)}
+\draw[black!50, dashed] (axis cs:0,0) -- (axis cs:0,1.05);
+\node[font=\scriptsize, align=center] at (axis cs:-3.6,0.55) {pair mis-ranked:\\ full update};
+\node[font=\scriptsize, align=center] at (axis cs:3.6,0.32) {pair already\\ ranked: tiny update};
+\end{axis}
+\end{tikzpicture}
+\caption{The DPO gradient weight $\sigma(-h)$ as a function of the implicit-reward margin
+(analytic). Mis-ranked pairs get a full likelihood/unlikelihood update; well-ranked pairs fade
+out. At initialisation ($\pi_\theta=\piref$) every margin is $0$ and every weight is $1/2$.}
+\label{fig:dpo:grad}
+\end{figure}
+
+\begin{pitfall}[The prompt cancels, so truncate it freely but consistently]
+$\log\pi(x,y_w)-\log\pi(x,y_l)=\log\pi(y_w\mid x)-\log\pi(y_l\mid x)$: the prompt's own
+log-probability cancels inside each ratio-difference, both for $\pi_\theta$ and for $\piref$. So you
+may sum log-probs over the whole concatenated sequence and get the same loss. But you \emph{must}
+then use exactly the same prompt tokens for winner, loser, policy and reference. If the reference
+cache was built with one chat template or truncation policy and training uses another, the
+prompt terms no longer cancel and the loss is silently wrong. Summing over response tokens only
+(as we do) makes the code robust to this.
+\end{pitfall}
+
+% ======================================================================
+\section{Preference data in practice}\label{sec:dpo:data}\covers{CS336 A5s §6.2}
+
+A DPO dataset is a list of triples. On disk, the most portable format is JSON Lines with one
+record per comparison:
+\begin{lstlisting}[style=plain]
+{"prompt": "How do I boil an egg?", "chosen": "Place the egg in ...", "rejected": "Eggs are ...",
+ "source": "helpful", "chosen_score": 8, "rejected_score": 3}
+\end{lstlisting}
+Real datasets arrive in other shapes, and the first job is a converter into this one.
+\begin{itemize}
+\item \textbf{Paired conversations.} Some corpora store two complete transcripts that share a
+  prefix and differ in the final assistant turn, for example Anthropic's HH-RLHF, whose records hold a
+  \texttt{chosen} and a \texttt{rejected} dialogue written as alternating
+  ``\texttt{Human:}''/``\texttt{Assistant:}'' turns. The prompt is everything up to the last assistant
+  turn; the responses are the two final turns. Decide explicitly what to do with multi-turn
+  dialogues whose earlier turns differ between the two sides: dropping them is the simplest correct
+  choice.
+\item \textbf{Rated completions.} Datasets such as UltraFeedback attach several completions with
+  scalar ratings to each prompt. Turn them into pairs by taking the best against a random
+  lower-rated one (or the worst), drop ties, and optionally keep the score gap as metadata to filter
+  or weight pairs.
+\item \textbf{Self-generated (on-policy) pairs.} Sample $k$ responses from $\piref$, score them with
+  a reward model, a verifier (\cref{ch:eval}) or an LLM judge, and keep (best, worst). Data drawn
+  from the reference policy itself matches DPO's assumptions better than responses written by other
+  models (\cref{sec:dpo:failures}).
+\end{itemize}
+
+\begin{lstlisting}[caption={Loading JSONL pairs and tokenising them with a chat template. Prompts are truncated from the left (keep the latest turns), responses from the right; EOS is appended to both responses.},label={lst:dpo:tokenize}]
+def tokenize_pair(rec, encode, eos_id, template=lambda p: p,
+                  max_prompt=512, max_response=512):
+    if rec["chosen"] == rec["rejected"]:
+        return None                        # no preference signal
+    p = encode(template(rec["prompt"]))[-max_prompt:]
+    c = encode(rec["chosen"])[: max_response - 1] + [eos_id]
+    r = encode(rec["rejected"])[: max_response - 1] + [eos_id]
+    return PreferencePair(p, c, r, {k: v for k, v in rec.items()
+                                    if k not in ("prompt", "chosen", "rejected")})
+
+# e.g. with Qwen3's ChatML template from Chapter 6:
+tok = Qwen3Tokenizer("ckpt/qwen3-0.6b/tokenizer.json")
+pairs = [tokenize_pair(r, tok.encode, tok.eos_token_id,
+                       template=tok.apply_chat_template)
+         for r in load_preference_jsonl("data/prefs.jsonl")]
+pairs = [p for p in pairs if p is not None]
+\end{lstlisting}
+
+\begin{pitfall}[Append EOS, and use the template the SFT model was trained with]
+If responses lack EOS, the policy is never taught where a preferred answer \emph{ends}, and
+length drifts. If the template differs from the one used to train $\piref$ (\cref{ch:instruct}),
+the reference log-probs are computed on out-of-distribution inputs, the ``KL anchor'' points
+somewhere odd, and step-0 metrics look strange (see the checklist in \cref{sec:dpo:recipe}).
+\end{pitfall}
+
+\paragraph{Look at the data before training.} For a few dozen random pairs, read the prompt and
+both responses and ask: do you agree with the label? Is the chosen response systematically
+longer? (Compute the mean length difference; on many public datasets it is clearly positive,
+which DPO will happily learn as ``longer is better''.) Are there near-duplicates or identical
+pairs? Is the rejected response sometimes truncated mid-sentence (a giveaway artefact the model can
+key on)? Ten minutes here saves days of confusing runs.
+
+\subsection{Building pairs on-policy}\label{sec:dpo:onpolicy}
+
+When no suitable dataset exists, or when you want pairs that match the policy's own
+distribution, generate them. One round is: sample $k$ responses per prompt from the current model
+with temperature, score each with whatever judge you trust, and keep the best and the worst if their
+scores differ by enough to be a reliable preference (\cref{lst:dpo:onpolicy}). With a verifier
+(\cref{ch:eval}) the scores are exact; with a reward model or LLM judge, the gap threshold filters
+out pairs where the judge is guessing.
+
+\begin{lstlisting}[caption={One round of on-policy pair construction (\ident{llmsys.prefopt.build_onpolicy_pairs}, abridged). Generation uses the batched, left-padded, KV-cached path from \cref{ch:serving}.},label={lst:dpo:onpolicy}]
+@torch.no_grad()
+def build_onpolicy_pairs(model, prompts, score_fn, pad_id, eos_id, k=4,
+                         max_new_tokens=64, temperature=1.0, min_gap=0.0):
+    flat = [list(p) for p in prompts for _ in range(k)]   # k copies each
+    outs = generate_batch(model, flat, max_new_tokens, pad_id=pad_id,
+                          eos_id=eos_id, temperature=temperature)
+    pairs = []
+    for i, p in enumerate(prompts):
+        cands = sorted((score_fn(p, outs[i * k + j]), outs[i * k + j])
+                       for j in range(k))
+        (lo, worst), (hi, best) = cands[0], cands[-1]
+        if hi - lo > min_gap and best != worst:
+            pairs.append(PreferencePair(list(p), best, worst, {"gap": hi - lo}))
+    return pairs
+\end{lstlisting}
+
+\begin{systemslens}[Pair generation is an inference job: run it like one]
+The $k$ samples of a prompt share their prefix, so a serving engine with prefix caching
+(\cref{ch:serving}) prefills the prompt once and decodes $k$ branches. At scale, generation runs
+offline on an inference fleet (vLLM, SGLang or the mini engine of \cref{ch:serving}), writes JSONL
+shards with the sampling parameters and the generating checkpoint's hash, and a separate scoring job
+(a reward model is a prefill-only workload; a judge is another generation job) adds scores. Keep
+generation, scoring and training as separate, restartable stages that communicate through files,
+just as in the data pipelines of \cref{ch:data}. That makes each stage independently scalable
+and debuggable, and lets you re-score without re-generating.
+\end{systemslens}
+
+% ======================================================================
+\section{Implementing DPO}\label{sec:dpo:impl}\covers{CS336 A5s §6.3}
+
+\subsection{The pair batch}
+
+The workhorse is one forward pass over a $(2B,T)$ batch: rows $0..B{-}1$ hold prompt+chosen and
+rows $B..2B{-}1$ prompt+rejected, in the same order (\cref{fig:dpo:batch}). A boolean
+\texttt{loss\_mask} marks response tokens. Padding goes on the right: under a causal mask real
+tokens never attend to later padding, so no attention mask is needed for training (contrast with
+left padding for generation, \cref{ch:serving}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[cell/.style={draw=black!40, minimum width=0.52cm, minimum height=0.48cm,
+  font=\tiny, inner sep=0pt}, x=0.52cm, y=0.48cm]
+\newcommand{\row}[5]{% y, nprompt, nresp, npad, label
+  \foreach \i in {1,...,#2} \node[cell, fill=black!10] at (\i,#1) {$x$};
+  \pgfmathtruncatemacro{\a}{#2+1}\pgfmathtruncatemacro{\b}{#2+#3}
+  \foreach \i in {\a,...,\b} \node[cell, fill=#5] at (\i,#1) {$y$};
+  \ifnum#4>0 \pgfmathtruncatemacro{\c}{#2+#3+1}\pgfmathtruncatemacro{\d}{#2+#3+#4}
+  \foreach \i in {\c,...,\d} \node[cell, fill=white] at (\i,#1) {\textcolor{black!35}{pad}};\fi}
+\row{0}{4}{5}{1}{keygreen!35}
+\row{-1}{3}{4}{3}{keygreen!35}
+\row{-2}{5}{3}{2}{keygreen!35}
+\row{-3.4}{4}{6}{0}{warnred!30}
+\row{-4.4}{3}{3}{4}{warnred!30}
+\row{-5.4}{5}{4}{1}{warnred!30}
+\node[anchor=east, font=\scriptsize] at (0.3,-1) {\begin{tabular}{r}pair 1\\ pair 2\\ pair 3\end{tabular}};
+\node[anchor=east, font=\scriptsize] at (0.3,-4.4) {\begin{tabular}{r}pair 1\\ pair 2\\ pair 3\end{tabular}};
+\draw[decorate, decoration={brace, amplitude=4pt}, thick] (11,0.4) -- (11,-2.4)
+  node[midway, right=5pt, font=\scriptsize, align=left] {rows $0..B{-}1$: prompt + chosen $y_w$};
+\draw[decorate, decoration={brace, amplitude=4pt}, thick] (11,-3) -- (11,-5.8)
+  node[midway, right=5pt, font=\scriptsize, align=left] {rows $B..2B{-}1$: prompt + rejected $y_l$};
+\node[font=\scriptsize, anchor=west] at (0.5,-6.7) {\tikz\node[cell,fill=black!10]{};~prompt (mask 0)\quad
+  \tikz\node[cell,fill=keygreen!35]{};/\tikz\node[cell,fill=warnred!30]{};~response incl.\ EOS (mask 1)\quad
+  \tikz\node[cell,fill=white]{};~right padding (mask 0)};
+\end{tikzpicture}
+\caption{The DPO pair batch: one $(2B,T)$ tensor, chosen half first, same pair order in both
+halves, right-padded. Log-probabilities are summed only where the mask is 1, giving
+$\log\pi(y\mid x)$ for each row; splitting the result at $B$ yields winner and loser terms.}
+\label{fig:dpo:batch}
+\end{figure}
+
+\begin{lstlisting}[caption={Building the pair batch (from \ident{llmsys/prefopt.py}).},label={lst:dpo:batch}]
+def build_pair_batch(pairs, pad_id):
+    rows, masks = [], []
+    for side in ("chosen", "rejected"):          # chosen half first
+        for pr in pairs:
+            resp = getattr(pr, side)
+            rows.append(list(pr.prompt) + list(resp))
+            masks.append([False] * len(pr.prompt) + [True] * len(resp))
+    ids, loss_mask = _pad_rows(rows, masks, pad_id)   # right padding
+    return {"input_ids": ids, "loss_mask": loss_mask}
+\end{lstlisting}
+
+\subsection{Sequence log-probabilities}
+
+\begin{lstlisting}[caption={Response-only sequence log-probabilities. The logit at position $t$ scores token $t{+}1$, so both targets and mask shift by one. \code{gather} minus \code{logsumexp} avoids materialising a $(2B,T,V)$ log-softmax tensor.},label={lst:dpo:logps}]
+def sequence_logps(model, input_ids, loss_mask):
+    logits = model(input_ids)[:, :-1].float()        # (2B, T-1, V)
+    targets = input_ids[:, 1:]
+    mask = loss_mask[:, 1:].to(logits.dtype)
+    tok = (logits.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
+           - torch.logsumexp(logits, dim=-1))         # log p(target)
+    return (tok * mask).sum(-1), mask.sum(-1)         # sum, #tokens
+\end{lstlisting}
+
+\begin{pitfall}[Sum, don't average, for DPO]
+\Cref{eq:dpo:loss} uses $\log\pi(y\mid x)$, the \emph{sum} over response tokens. Averaging per token
+silently changes the objective: it removes the dependence on length from both terms and
+corresponds to a different (length-normalised) implicit reward. That is a legitimate design,
+but it is SimPO's (\cref{sec:dpo:family}), not DPO's, and it changes the scale on which $\beta$
+operates. Pick one deliberately and log which one you used.
+\end{pitfall}
+
+\subsection{The loss}
+
+\begin{lstlisting}[caption={DPO with optional conservative label smoothing (cDPO, \cref{sec:dpo:family}). The rewards are returned detached for logging.},label={lst:dpo:loss}]
+def dpo_loss(pol_c, pol_r, ref_c, ref_r, beta=0.1, label_smoothing=0.0):
+    r_c = beta * (pol_c - ref_c)              # implicit reward of y_w
+    r_r = beta * (pol_r - ref_r)              # implicit reward of y_l
+    h = r_c - r_r
+    loss = (-(1 - label_smoothing) * F.logsigmoid(h)
+            - label_smoothing * F.logsigmoid(-h))
+    return loss, r_c.detach(), r_r.detach()
+\end{lstlisting}
+
+Use \code{F.logsigmoid}, never \code{torch.log(torch.sigmoid(h))}: for large negative $h$ the
+latter underflows to $\log 0$.
+
+\subsection{The reference model: cache it, or get it for free}\label{sec:dpo:ref}
+
+$\piref$ is frozen, so $\log\piref(y_w\mid x)$ and $\log\piref(y_l\mid x)$ are constants of the
+dataset. There are three ways to provide them.
+\begin{enumerate}
+\item \textbf{A second model on the device.} Simplest to write; costs a full copy of the weights in
+  memory and an extra forward per step. A common two-GPU recipe puts the policy on one device and
+  the reference on another.
+\item \textbf{Precompute and cache} (\cref{lst:dpo:cache}). One forward pass over the dataset before
+  training stores two floats per pair. Training then never loads the reference. For multiple
+  epochs this also saves compute; for one epoch it costs the same FLOPs, but they are spent
+  \emph{before} training, so every GPU byte can go to the policy during training.
+\item \textbf{LoRA-DPO.} If the policy is $\piref$ plus LoRA adapters (\cref{sec:instruct:lora}),
+  the reference \emph{is} the frozen base: zero the adapters' scaling and run the same model
+  (\cref{lst:dpo:lora}). No second copy, no cache file, and the reference stays consistent with the
+  policy's exact numerics.
+\end{enumerate}
+
+\begin{lstlisting}[caption={Caching reference log-probs (abridged). The optional third column stores KTO's mismatched-pair term (\cref{sec:dpo:family}).},label={lst:dpo:cache}]
+@torch.no_grad()
+def precompute_reference_logps(ref_model, pairs, pad_id, batch_size=16):
+    ref_model.eval()
+    out = []
+    for s in range(0, len(pairs), batch_size):
+        b = build_pair_batch(pairs[s: s + batch_size], pad_id)
+        lp, _ = sequence_logps(ref_model, b["input_ids"], b["loss_mask"])
+        B = lp.shape[0] // 2
+        out.append(torch.stack([lp[:B], lp[B:]], dim=1).float())
+    return torch.cat(out)                       # (N, 2): [chosen, rejected]
+
+torch.save({"ref_logps": cache, "ref_ckpt": "ckpt/sft-step-4000",
+            "template": "chatml-v1", "n_pairs": len(pairs)}, "cache/ref.pt")
+\end{lstlisting}
+
+\begin{lstlisting}[caption={LoRA-DPO: the base weights are the reference model.},label={lst:dpo:lora}]
+@contextmanager
+def disable_lora(model):
+    mods = [m for m in model.modules() if isinstance(m, LoRALinear)]
+    saved = [m.scaling for m in mods]
+    for m in mods:
+        m.scaling = 0.0                   # y = base(x) + 0 * B(A(x))
+    try:
+        yield model
+    finally:
+        for m, s in zip(mods, saved):
+            m.scaling = s
+
+policy = apply_lora(load_sft_model(), rank=16, alpha=32)
+with disable_lora(policy):
+    ref_logps = precompute_reference_logps(policy, pairs, pad_id)
+\end{lstlisting}
+
+\begin{pitfall}[Cache hygiene]
+A reference cache is only valid for the exact (reference checkpoint, tokenizer, template,
+truncation lengths, data order) it was built with. Store these alongside the tensor (as in
+\cref{lst:dpo:cache}) and assert them at load time. Index the cache by \emph{example id}, not
+by batch position, so shuffling cannot misalign it. One cheap end-to-end check: at step 0 the DPO
+loss must equal $\ln 2\approx 0.6931$ to three decimals (next section). If it does not, the cache
+and the policy disagree.
+\end{pitfall}
+
+\subsection{The training step}
+
+\begin{lstlisting}[caption={One optimizer step of DPO with gradient accumulation (the lab's \ident{dpo_train_loop}, abridged).},label={lst:dpo:step}]
+for step in range(steps):
+    for _ in range(grad_accum):
+        idx = next_indices(batch_size)                       # shuffled
+        b = build_pair_batch([pairs[i] for i in idx], pad_id)
+        lp, _ = sequence_logps(policy, b["input_ids"], b["loss_mask"])
+        B = lp.shape[0] // 2
+        loss, rc, rr = dpo_loss(lp[:B], lp[B:],
+                                ref_logps[idx, 0], ref_logps[idx, 1], beta)
+        (loss.mean() / grad_accum).backward()
+        log_metrics(loss, rc, rr, lp[:B], lp[B:])
+    torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
+    opt.step(); opt.zero_grad(set_to_none=True)
+\end{lstlisting}
+
+% ======================================================================
+\section{Running DPO: a recipe}\label{sec:dpo:recipe}
+
+\subsection{Hyperparameters}
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Knob} & \textbf{What it does} & \textbf{Typical starting point}\\
+\midrule
+$\beta$ & strength of the KL anchor; scale of implicit rewards & $0.1$ (sweep $0.01$--$0.5$)\\
+learning rate & full fine-tuning is very sensitive & $\sim 5\times10^{-7}$--$10^{-6}$ (full), $\sim10^{-5}$--$10^{-4}$ (LoRA)\\
+effective batch & pairs per optimizer step & 32--128 pairs\\
+epochs & passes over fixed data; overfitting comes fast & 1--3\\
+warmup & avoids a large early step & a few \% of steps, linear\\
+optimizer & the DPO paper used RMSprop; AdamW is common & AdamW, no weight decay\\
+max lengths & prompt/response truncation & cover $\geq95\%$ of pairs; log what is cut\\
+\bottomrule
+\end{tabularx}
+\caption{DPO hyperparameters and commonly used starting values. These are conventions, not laws:
+the right learning rate in particular depends on the model size and on full vs LoRA training.}
+\label{tab:dpo:hparams}
+\end{table}
+
+\subsection{Project layout and launch}
+
+\begin{lstlisting}[style=plain]
+dpo/
+  configs/qwen3-0.6b-dpo.yaml   # model, data, beta, lr, batch, lengths, seeds
+  data/prefs.train.jsonl         # {"prompt","chosen","rejected", ...}
+  data/prefs.val.jsonl           # ~200-1000 held-out pairs
+  cache/ref.train.pt             # reference log-probs + metadata
+  runs/<name>/metrics.jsonl      # one line per step
+  runs/<name>/ckpt-best/         # best val reward-accuracy checkpoint
+\end{lstlisting}
+
+\begin{lstlisting}[style=shell]
+# 1) reference cache (once per dataset x reference checkpoint)
+python -m dpo.cache_ref --config configs/qwen3-0.6b-dpo.yaml
+# 2a) single GPU (LoRA) or one GPU each for policy/reference
+python -m dpo.train --config configs/qwen3-0.6b-dpo.yaml
+# 2b) full fine-tuning of a larger model: shard the policy (Chapters 14-15)
+torchrun --nproc_per_node 8 -m dpo.train --config configs/qwen3-8b-dpo.yaml --fsdp
+\end{lstlisting}
+The modules named here are the pattern to build, not files in this repository; Lab 26's
+\ident{llmsys/prefopt.py} implements their core (\ident{precompute_reference_logps},
+\ident{train_preference}). For multi-GPU full fine-tuning, the policy is wrapped with FSDP exactly
+as in \cref{ch:sharding}; the cached reference log-probs are just another per-example field
+that the data loader returns.
+
+\subsection{What healthy logs look like}
+
+Log, every step: the loss; \textbf{reward accuracy} (fraction of pairs with $\hat r_w>\hat r_l$); the
+\textbf{margin} $\E[h]$; the mean implicit rewards of chosen and rejected; the mean
+\textbf{log-probs} $\log\pi_\theta(y_w\mid x)$ and $\log\pi_\theta(y_l\mid x)$; and the gradient norm.
+\begin{itemize}
+\item \textbf{Step 0}: $\pi_\theta=\piref$, so every implicit reward is exactly 0: loss $=\ln 2$,
+  margin $=0$, and reward accuracy is $0.5$ if ties count half (0 if you use a strict $>$). Anything
+  else is a bug (cache mismatch, template mismatch, dropout left on in one pass, a different dtype for
+  reference and policy).
+\item \textbf{Early training}: the margin rises, accuracy climbs fast, and the rejected reward goes
+  negative much faster than the chosen reward rises.
+\item \textbf{Watch the chosen log-prob.} It often \emph{decreases} even though its implicit reward
+  increases relative to the loser (\cref{sec:dpo:failures}). A small drop is normal; a collapse
+  of both log-probs by tens of nats signals over-optimisation.
+\item \textbf{Validation reward accuracy} on held-out pairs is the cheapest model-selection signal.
+  Keep the checkpoint with the best value, then confirm with generation-based evaluation.
+\end{itemize}
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4.2cm}@{}}
+\toprule
+\textbf{Symptom} & \textbf{Likely cause} & \textbf{Check}\\
+\midrule
+step-0 loss $\neq\ln 2$ & reference cache built with a different template, truncation, dtype or checkpoint; dropout on & recompute 8 pairs on the fly and diff against the cache\\
+reward accuracy stuck at 0.5 & loss mask covers prompt only or is shifted wrongly; learning rate far too small & assert mask sums equal response lengths; overfit 16 pairs\\
+train accuracy $\to1$ in a few hundred steps, val flat & memorising a small or duplicated set & dedupe, hold out by prompt, fewer epochs, larger $\beta$\\
+both log-probs fall by tens of nats & over-optimisation / likelihood displacement & lower lr or step count, raise $\beta$, add NLL on $y_w$\\
+generations get longer every checkpoint & chosen responses are longer on average & length stats of the data; LC win rate; SimPO/R-DPO\\
+NaN loss & $\log\sigma$ computed as $\log(\sigma)$; fp16 logits & use \code{F.logsigmoid}; fp32 log-softmax\\
+OOM at the LM head & $(2B,T,V)$ logits materialised & gather$-$logsumexp, chunking, response slicing\\
+\bottomrule
+\end{tabularx}
+\caption{A DPO debugging checklist.}
+\label{tab:dpo:debug}
+\end{table}
+
+When something looks wrong, \cref{tab:dpo:debug} lists the usual suspects in the order to check
+them.
+
+\subsection{Evaluating a DPO model}
+
+Implicit-reward accuracy measures how well the model \emph{ranks} the dataset's pairs, not how good its
+\emph{generations} are. For the latter, generate on held-out prompts and evaluate as in
+\cref{ch:eval}: pairwise win rate against the SFT model with an LLM judge
+(\cref{sec:eval:judge}), with position swapping to remove order bias, and a length-controlled
+variant that regresses out the effect of response length, since judges favour longer answers.
+Also run capability benchmarks (multiple-choice knowledge, math with a verifier) and safety probes
+(\cref{ch:alignment}) to detect an \emph{alignment tax}, where preference tuning costs capability.
+
+% ======================================================================
+\section{DPO on a toy task you can run on a laptop}\label{sec:dpo:toy}
+
+Lab 26's task makes the preferred behaviour \emph{exactly measurable}. A prompt is
+\texttt{Q d1 \ldots dk >}; a response is a style token followed by the reversed digits and EOS. The
+reference policy is a tiny Qwen3-shaped model (two layers, width 64) trained by SFT on
+demonstrations that use the polite style \texttt{sure} only 25\% of the time (otherwise
+\texttt{nope}). Preference pairs come in two kinds: \emph{style} pairs (70\%: same correct digits,
+\texttt{sure} $\succ$ \texttt{nope}) and \emph{quality} pairs (30\%: both polite, correct reversal
+$\succ$ one corrupted digit). Two metrics are computed exactly: $P(\texttt{sure})$, the
+probability of the polite first token averaged over prompts, and greedy exact-match accuracy of the
+reversal.
+
+%%RESULTS%%
+
+The run shows the three behaviours you will see at scale. (1) DPO moves the behaviour the pairs
+encode: $P(\texttt{sure})$ goes from the reference's $\approx0.25$ to near 1, faster for smaller $\beta$.
+(2) The log-probability of the \emph{rejected} responses falls by tens of nats, while that of the
+\emph{chosen} responses barely moves or drifts down: the margin grows mostly by pushing losers down.
+(3) Capability can regress: in some runs greedy reversal accuracy, which the reference had
+essentially perfect, drops, an alignment tax in miniature caused by over-optimising a fixed
+dataset with a large learning rate.
+
+% ======================================================================
+\section{Failure modes}\label{sec:dpo:failures}\covers{PO §7}
+
+\paragraph{Likelihood displacement.} \Cref{eq:dpo:grad} only constrains the \emph{difference}
+of log-ratios, so both log-probabilities may fall while the margin grows. Probability mass freed
+from both responses goes \emph{somewhere else}: sometimes to paraphrases of the winner (harmless),
+sometimes to responses unlike either (harmful). Displacement is worse when $y_w$ and $y_l$ are
+similar (they share most tokens, so pushing $y_l$ down drags $y_w$ along); Razin et al.\ (2024)
+analyse when this happens. Mitigations: an auxiliary SFT/NLL term on the chosen response (as in
+iterative RPO, Pang et al., 2024, and in CPO), larger $\beta$, fewer epochs, and on-policy pairs.
+
+\paragraph{Overfitting deterministic preferences.} If a pair is always labelled the same way, the
+BT-optimal margin is infinite; DPO keeps pushing $h\to\infty$, so the implicit reward and the
+policy can move arbitrarily far from $\piref$ despite the KL term. The KL regularisation in
+\eqref{eq:dpo:rlobj} acts through the \emph{optimal policy}, but with finite data the empirical
+optimum is not regularised. IPO (\cref{sec:dpo:family}) was designed for exactly this.
+
+\paragraph{Length exploitation.} If chosen responses are longer on average, DPO learns
+``longer is better''. A summed log-prob implicit reward also scales with length. Watch the mean
+generation length per checkpoint; use length-controlled evaluation; consider length-normalised
+variants (SimPO), a length penalty in the margin (R-DPO, Park et al., 2024), or length-balanced data.
+
+\paragraph{Off-policy data.} DPO's gradient only touches the responses in the dataset. If those
+were written by a different (stronger) model, the policy is pushed towards sequences it would
+rarely sample itself, and what it actually generates is never directly corrected. Generating pairs
+from $\piref$ (or iteratively from the current policy; \emph{online DPO}) closes this gap at the
+cost of reintroducing a generation engine.
+
+\paragraph{A mis-specified reference.} DPO anchors to whatever $\piref$ is. A reference that is not
+the SFT model the data was collected around (wrong checkpoint, wrong template) makes the KL
+anchor meaningless. This is why the cache metadata matters.
+
+\begin{systemslens}[Why DPO is easy to scale, and where it isn't]
+A DPO step is SFT on $2\times$ the sequences plus (optionally) a no-grad forward of the
+reference. Everything from \cref{ch:pretrain,ch:distributed,ch:sharding} applies unchanged:
+FSDP, activation checkpointing, mixed precision, sequence packing. There is no generation, no
+weight sync to an inference engine, and no long-tailed rollouts (\cref{ch:rlsys}), so throughput is
+predictable and GPU utilisation can approach SFT levels. The price is off-policy data. The moment
+you go online (sample new pairs every round), you inherit the RL-systems problems of
+\cref{ch:rlsys}, but in a milder, batched form: generate a whole dataset, label it, train, repeat.
+\end{systemslens}
+
+% ======================================================================
+\section{The family: cDPO, IPO, KTO, SimPO, ORPO, CPO and online variants}\label{sec:dpo:family}\covers{PO §8; PO §15}
+
+DPO kicked off a large literature of ``direct alignment'' losses. Nearly all of them are
+functions of the same few per-pair quantities: summed or averaged log-probs of the winner and
+loser under the policy, optionally minus the same under a reference. \Cref{fig:dpo:losses} plots
+several as functions of the margin, and \cref{tab:dpo:family} summarises them.
+
+\paragraph{Conservative DPO (cDPO) and robust variants.} If a fraction $\varepsilon$ of labels are
+flipped, model the label as noisy:
+$\mathcal{L}=-(1-\varepsilon)\log\sigma(h)-\varepsilon\log\sigma(-h)$. The optimum is now at a finite
+margin, $h^*=\log\frac{1-\varepsilon}{\varepsilon}$, which also tames overfitting.
+
+\paragraph{IPO.} Azar et al.\ (2023) cast RLHF and DPO as instances of a general objective
+($\Psi$PO) and showed that DPO's use of the BT logit is what makes deterministic preferences
+blow up. \emph{Identity preference optimisation} replaces the logistic loss with a squared
+regression of the log-ratio margin onto a finite target:
+\begin{equation}
+\mathcal{L}_{\text{IPO}}=\E\Big[\Big(\log\frac{\pi_\theta(y_w\mid x)\,\piref(y_l\mid x)}
+{\pi_\theta(y_l\mid x)\,\piref(y_w\mid x)}-\frac{1}{2\tau}\Big)^2\Big].
+\label{eq:dpo:ipo}
+\end{equation}
+The margin is pulled \emph{towards} $1/(2\tau)$ and penalised for overshooting it. $\tau$ plays
+$\beta$'s role. Many implementations feed length-averaged log-probs into \eqref{eq:dpo:ipo}.
+
+\paragraph{KTO.} Ethayarajh et al.\ (2024) observe that paired comparisons are expensive to
+collect, while binary ``this response is good/bad'' signals (thumbs up/down) are cheap. Drawing on
+prospect theory, KTO assigns each unpaired example a value relative to a \emph{reference point}
+$z_0$:
+\begin{align}
+r_\theta(x,y)&=\log\frac{\pi_\theta(y\mid x)}{\piref(y\mid x)},\qquad
+z_0=\max\!\big(0,\ \widehat{\KL}(\pi_\theta\,\|\,\piref)\big)\ \text{(detached)},\\
+v(x,y)&=\begin{cases}\lambda_D\,\sigma\big(\beta(r_\theta(x,y)-z_0)\big) & y\ \text{desirable}\\
+\lambda_U\,\sigma\big(\beta(z_0-r_\theta(x,y))\big) & y\ \text{undesirable}\end{cases},\qquad
+\mathcal{L}_{\text{KTO}}=\E\big[\lambda_y-v(x,y)\big].
+\end{align}
+The logistic value function is concave for gains and convex for losses, like Kahneman and
+Tversky's (\cref{fig:dpo:kto}). $\lambda_D,\lambda_U$ rebalance classes (setting $\lambda_U>\lambda_D$
+encodes loss aversion). $z_0$ is estimated per batch, without sampling, by scoring
+\emph{mismatched} pairs (prompt $i$ with the response of example $i{+}1$) under policy and
+reference. Ethayarajh et al.\ frame DPO, KTO and others as \emph{human-aware losses} (HALOs).
+From a systems view, KTO's per-example (rather than per-pair) batches pack better and allow
+unbalanced data.
+
+\paragraph{SimPO.} Meng et al.\ (2024) drop the reference model and use the
+\emph{length-normalised} log-probability as the reward, plus a target margin $\gamma$:
+$\mathcal{L}=-\log\sigma\big(\frac{\beta}{|y_w|}\log\pi_\theta(y_w\mid x)-\frac{\beta}{|y_l|}\log\pi_\theta(y_l\mid x)-\gamma\big)$.
+No reference means no cache and no second model, and the length normalisation counters length
+exploitation. The cost: no explicit anchor to $\piref$, so the learning rate and step count
+carry the regularisation.
+
+\paragraph{ORPO.} Hong et al.\ (2024) fold SFT and preference learning into one stage with no
+reference model: the loss is the SFT negative log-likelihood of $y_w$ plus
+$-\lambda\log\sigma\big(\log\frac{\text{odds}_\theta(y_w)}{\text{odds}_\theta(y_l)}\big)$, where
+$\text{odds}(y)=p/(1-p)$ with $p$ the length-normalised sequence probability. Starting from a base
+model, one ORPO run replaces SFT followed by DPO.
+
+\paragraph{CPO.} Contrastive preference optimisation (Xu et al., 2024), proposed for machine
+translation, uses a reference-free DPO-like term $-\log\sigma(\beta(\log\pi_\theta(y_w)-\log\pi_\theta(y_l)))$
+plus an NLL term on $y_w$. Like ORPO and SimPO, it trades the KL anchor for simplicity.
+
+\paragraph{Earlier and adjacent methods.} SLiC-HF (Zhao et al., 2023) uses a hinge loss on the
+log-probability margin plus a regulariser towards SFT. RSO (Liu et al., 2023) argues for
+sampling pairs from (an estimate of) the optimal policy via statistical rejection sampling.
+sDPO (Kim et al., 2024) splits the data into stages and uses the previous stage's model as the
+next reference. Anchored preference optimisation (APO, D'Oosterlinck et al., 2024) controls whether
+the winner's likelihood should go up or down explicitly.
+
+\paragraph{Online and iterative DPO.} Generate $k$ responses per prompt from the \emph{current} policy,
+label them (reward model, verifier or judge), form pairs, run a DPO epoch, and repeat. This
+recovers much of the benefit of on-policy RL at a fraction of the systems complexity. Self-rewarding
+LMs (Yuan et al., 2024) use the model itself as the judge. SPIN (Chen et al., 2024) treats SFT data
+as winners against the model's own generations. Nash learning from human feedback (Munos et al.,
+2023) treats alignment as a game against a preference model rather than a reward.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.7\linewidth, height=5.4cm, xmin=-3, xmax=6, ymin=0, ymax=4.2,
+  xlabel={margin $h$ (log-ratio difference, or scaled log-prob difference)}, ylabel={loss},
+  grid=major, grid style={black!10}, legend columns=2,
+  legend style={font=\scriptsize, at={(0.5,-0.28)}, anchor=north},
+  tick label style={font=\scriptsize}, label style={font=\small}]
+\addplot[sysblue, very thick, domain=-3:6, samples=120] {ln(1+exp(-x))};
+\addlegendentry{DPO $-\log\sigma(h)$}
+\addplot[keygreen, very thick, dashed, domain=-3:6, samples=120] {-0.9*ln(1/(1+exp(-x))) - 0.1*ln(1/(1+exp(x)))};
+\addlegendentry{cDPO, $\varepsilon=0.1$}
+\addplot[warnred, very thick, domain=-3:6, samples=120] {0.25*(x-2.5)^2};
+\addlegendentry{IPO $(h-\frac{1}{2\tau})^2$, $\frac{1}{2\tau}=2.5$ (scaled)}
+\addplot[napkin, very thick, dotted, domain=-3:6, samples=120] {ln(1+exp(-(x-1)))};
+\addlegendentry{SimPO, margin $\gamma=1$}
+\addplot[labpurple, thick, domain=-3:6, samples=120] {max(0,1-x)};
+\addlegendentry{hinge (SLiC)}
+\end{axis}
+\end{tikzpicture}
+\caption{Direct-alignment losses as functions of the margin (analytic; IPO scaled by 1/4 to
+share the axis). DPO never stops rewarding a larger margin; cDPO's minimum is at a finite margin
+($\log 9\approx2.2$ for $\varepsilon=0.1$); IPO penalises overshooting its target; SimPO shifts
+DPO's curve by the target margin $\gamma$; the hinge stops at margin 1.}
+\label{fig:dpo:losses}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.62\linewidth, height=5.0cm, xmin=-8, xmax=8, ymin=-1.6, ymax=1.1,
+  xlabel={$r_\theta(x,y)-z_0$}, ylabel={value $v$ (centred)},
+  grid=major, grid style={black!10}, legend style={font=\scriptsize, at={(0.02,0.98)}, anchor=north west},
+  tick label style={font=\scriptsize}, label style={font=\small}]
+\addplot[keygreen, very thick, domain=0:8, samples=60] {1/(1+exp(-0.6*x)) - 0.5};
+\addlegendentry{desirable, $\lambda_D=1$}
+\addplot[warnred, very thick, domain=-8:0, samples=60] {1.5*(1/(1+exp(0.6*x)) - 0.5)*(-1)};
+\addlegendentry{undesirable, $\lambda_U=1.5$}
+\draw[black!50] (axis cs:-8,0) -- (axis cs:8,0);
+\draw[black!50] (axis cs:0,-1.6) -- (axis cs:0,1.1);
+\node[font=\scriptsize, align=center] at (axis cs:4.5,-0.6) {concave for gains};
+\node[font=\scriptsize, align=center] at (axis cs:-4.3,0.55) {convex for losses,\\ steeper (loss aversion)};
+\end{axis}
+\end{tikzpicture}
+\caption{The shape of KTO's value function (analytic, $\beta=0.6$): a logistic stand-in for
+Kahneman--Tversky's value curve, centred at the reference point $z_0$. Gains (desirable outputs
+above the reference point) saturate; losses are weighted by $\lambda_U$.}
+\label{fig:dpo:kto}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lccXl@{}}
+\toprule
+\textbf{Method} & \textbf{Ref.} & \textbf{Data} & \textbf{Per-example signal} & \textbf{Extra knobs}\\
+\midrule
+DPO & yes & pairs & $\beta(\Delta\log\pi_\theta-\Delta\log\piref)$, logistic & $\beta$\\
+cDPO & yes & pairs & as DPO with label noise $\varepsilon$ & $\beta,\varepsilon$\\
+IPO & yes & pairs & squared error to margin $1/(2\tau)$ & $\tau$\\
+KTO & yes & unpaired & $\sigma(\pm\beta(r-z_0))$, asymmetric weights & $\beta,\lambda_D,\lambda_U$\\
+SimPO & no & pairs & length-normalised log-prob difference, margin $\gamma$ & $\beta,\gamma$\\
+ORPO & no & pairs & NLL$(y_w)$ + log odds-ratio term & $\lambda$\\
+CPO & no & pairs & ref-free DPO term + NLL$(y_w)$ & $\beta$\\
+SLiC-HF & no & pairs & hinge on log-prob margin + SFT regulariser & margin, weight\\
+online DPO & yes & pairs (fresh) & DPO on pairs sampled from current policy & sampler, labeller\\
+\bottomrule
+\end{tabularx}
+\caption{The direct-alignment family at a glance. ``Ref.'' is whether a reference model (or cache)
+is needed. All except online DPO train on a fixed dataset.}
+\label{tab:dpo:family}
+\end{table}
+
+\begin{lstlisting}[caption={Four relatives in a few lines each (from \ident{llmsys/prefopt.py}). Sums are over response tokens; \code{len\_*} are token counts.},label={lst:dpo:family}]
+def ipo_loss(pc, pr, rc, rr, tau=0.1):
+    h = (pc - rc) - (pr - rr)
+    return (h - 1.0 / (2.0 * tau)) ** 2
+
+def kto_loss(pol, ref, desirable, z0, beta=0.1, lam_d=1.0, lam_u=1.0):
+    r, z0 = pol - ref, z0.detach().clamp(min=0)
+    v = torch.where(desirable, lam_d * torch.sigmoid(beta * (r - z0)),
+                    lam_u * torch.sigmoid(beta * (z0 - r)))
+    lam = torch.where(desirable, torch.full_like(r, lam_d),
+                      torch.full_like(r, lam_u))
+    return lam - v
+
+def simpo_loss(pc_sum, pr_sum, len_c, len_r, beta=2.0, gamma=0.5):
+    h = beta * pc_sum / len_c - beta * pr_sum / len_r
+    return -F.logsigmoid(h - gamma)
+
+def orpo_loss(pc_sum, pr_sum, len_c, len_r, lam=0.1):
+    a_c, a_r = pc_sum / len_c, pr_sum / len_r          # mean log-probs < 0
+    log_odds = lambda a: a - torch.log(-torch.expm1(a))  # log p/(1-p)
+    return -a_c - lam * F.logsigmoid(log_odds(a_c) - log_odds(a_r))
+\end{lstlisting}
+
+\paragraph{One trainer for every loss.} Because all these losses consume the same per-pair
+quantities, one training loop serves them all; only the reduction differs.
+\Cref{lst:dpo:dispatch} shows the dispatch in \ident{llmsys.prefopt}. KTO is the only one that
+needs an extra forward, over the mismatched pairs used to estimate its reference point. The
+reference cache gets a third column for it, so the reference model is still never loaded during
+training.
+
+\begin{lstlisting}[caption={Dispatching on the loss type in one training step (\ident{preference_step_loss}, abridged).},label={lst:dpo:dispatch}]
+lp, n = sequence_logps(model, b["input_ids"], b["loss_mask"])
+pc, pr = split_pair_logps(lp); nc, nr = split_pair_logps(n)
+if cfg.needs_reference:                       # dpo, ipo, kto
+    rc, rr = ref[:, 0], ref[:, 1]
+if cfg.loss == "dpo":
+    loss, a, c = dpo_loss(pc, pr, rc, rr, cfg.beta, cfg.label_smoothing)
+elif cfg.loss == "ipo":
+    loss, a, c = ipo_loss(pc, pr, rc, rr, cfg.ipo_tau)
+elif cfg.loss == "simpo":
+    loss, a, c = simpo_loss(pc, pr, nc, nr, cfg.beta, cfg.simpo_gamma)
+elif cfg.loss == "orpo":
+    loss, a, c = orpo_loss(pc, pr, nc, nr, cfg.orpo_lambda)
+elif cfg.loss == "kto":                       # winners desirable, losers not
+    mism = [mismatched_pair(all_pairs, i) for i in idx]   # prompt i, y_w of i+1
+    mb = build_pair_batch(mism, pad_id)
+    mlp, _ = sequence_logps(model, mb["input_ids"], mb["loss_mask"])
+    z0 = kto_kl_estimate(split_pair_logps(mlp)[0], ref[:, 2])
+    ...
+metrics = preference_metrics(a, c)
+\end{lstlisting}
+
+% ======================================================================
+\section{DPO vs PPO vs GRPO}\label{sec:dpo:compare}\covers{PO §11; PO §3.8}
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXXX@{}}
+\toprule
+ & \textbf{PPO-RLHF} (\cref{ch:rlhf}) & \textbf{DPO} (this chapter) & \textbf{GRPO} (\cref{ch:grpo,ch:grpo2})\\
+\midrule
+data & prompts + reward model & fixed preference pairs & prompts + verifier / reward\\
+on/off-policy & on-policy (minibatch reuse) & offline & on-policy (near)\\
+reward model & explicit, trained first & implicit $\beta\log\pi_\theta/\piref$ & rule/verifier or RM\\
+critic & value network & none & none (group baseline)\\
+models in memory & policy, ref, RM, value & policy (+ ref or cache) & policy, ref (optional)\\
+generation in loop & yes & no & yes, $G$ samples/prompt\\
+step cost & rollouts + 4 forwards + 2 backwards & 2 seq.\ fwd+bwd (+ref fwd) & rollouts + fwd/bwd on $G$ seqs\\
+main knobs & clip, GAE $\lambda$, KL coef., value coef. & $\beta$, lr, epochs & $G$, clip, KL coef., lengths\\
+strengths & explores, optimises a real reward & simple, stable, cheap & no critic, verifiable rewards\\
+weaknesses & complex, expensive, brittle & off-policy, overfits, length bias & needs verifiable reward, rollout cost\\
+\bottomrule
+\end{tabularx}
+\caption{The three post-training workhorses compared. The rows are characteristics of the
+methods as usually run; each has online/offline hybrids.}
+\label{tab:dpo:compare}
+\end{table}
+
+\Cref{tab:dpo:compare} compares the three methods. Which works best is an empirical, setting-dependent question. Some
+careful comparisons (e.g.\ Xu et al., 2024, ``Is DPO superior to PPO for LLM alignment?'') report
+that a well-tuned PPO can outperform DPO, especially on tasks such as code where on-policy
+exploration and an accurate reward matter, and that DPO is sensitive to the distribution shift
+between the data and the policy. Others find DPO competitive at much lower cost for chat-style
+preference data. A practical reading for a systems person:
+\begin{itemize}
+\item If you have a \textbf{fixed pairwise dataset} and want a dependable improvement cheaply, start
+  with DPO (or SimPO/ORPO if a reference is inconvenient).
+\item If you have a \textbf{verifiable reward} (math, code, tests), the on-policy, critic-free
+  methods of \cref{ch:grpo} are the natural fit.
+\item If you have a \textbf{learned reward model} and the budget for an RL system, PPO or online DPO
+  can exploit it, with the reward-hacking caveats of \cref{ch:rlhf}.
+\item Many production post-training pipelines use \emph{several}: SFT, then DPO-style
+  preference tuning, then RL with verifiable rewards, sometimes iterated.
+\end{itemize}
+
+% ======================================================================
+\section{Systems: what a DPO step costs}\label{sec:dpo:systems}
+
+\begin{napkinmath}[FLOPs per pair and per epoch]
+Take Qwen3-8B ($N\approx8.19\times10^9$ parameters), prompts of 256 tokens and responses of 256
+tokens each. A pair is two sequences of 512 tokens: 1{,}024 tokens. The policy costs about $6N$
+FLOPs per token (forward + backward), the reference $2N$ (forward only):
+\begin{align*}
+\text{policy: }& 6\cdot8.19\times10^9\cdot1024\approx5.0\times10^{13}\ \text{FLOPs/pair},\\
+\text{reference: }& 2\cdot8.19\times10^9\cdot1024\approx1.7\times10^{13}\ \text{FLOPs/pair}.
+\end{align*}
+For 160k pairs (about the size of a large public chat preference set) that is $1.07\times10^{19}$
+FLOPs per epoch, or about \textbf{7.5 H100-hours} at 40\% MFU
+($0.4\times989$\,TFLOP/s). The reference forward is a quarter of the total: caching it moves
+$2.7\times10^{18}$ FLOPs into a one-off precomputation that can run on inference-optimised
+hardware, and it is saved outright for every additional epoch.
+\end{napkinmath}
+
+\begin{napkinmath}[Memory: full DPO vs LoRA-DPO for 8B]
+Full fine-tuning with AdamW and fp32 master weights needs $\approx16$ bytes/param
+(\cref{ch:pretrain}): $16\times8.19\times10^9\approx131$\,GB of weights, gradients and optimizer
+state, plus activations for $2B$ sequences. A bf16 reference adds 16.4\,GB. This does not fit on
+one 80\,GB GPU: shard the policy with FSDP/ZeRO-3 (\cref{ch:sharding}) over 8 GPUs ($\approx16$\,GB of
+states per GPU) and cache the reference.
+
+LoRA-DPO with rank 16 on every linear layer of Qwen3-8B trains about $44$M parameters: a frozen
+bf16 base of 16.4\,GB plus $16\times4.4\times10^7\approx0.7$\,GB of adapter states. The reference
+costs nothing extra, because it \emph{is} the base with adapters disabled. Activations then dominate:
+use activation checkpointing (\cref{ch:perf}) and keep the logits small (next box).
+\end{napkinmath}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[ybar stacked, width=0.78\linewidth, height=5.6cm, bar width=22pt,
+  ylabel={GB (excluding activations)}, ymin=0, ymax=170,
+  symbolic x coords={A,B,C,D},
+  xtick=data, xticklabels={full + ref model, full + cache, full FSDP/8 (per GPU), LoRA (ref = base)}, x tick label style={font=\scriptsize, text width=2.4cm, align=center},
+  legend style={font=\scriptsize, at={(0.5,-0.3)}, anchor=north, legend columns=1},
+  tick label style={font=\scriptsize}]
+\addplot[fill=fcompute!60, draw=sysblue] coordinates {(A,131) (B,131) (C,16.4) (D,16.4)};
+\addplot[fill=fmemory!60, draw=napkin] coordinates {(A,16.4) (B,0) (C,0) (D,0)};
+\addplot[fill=fdata!60, draw=keygreen] coordinates {(A,0) (B,0) (C,0) (D,0.7)};
+\legend{policy weights+grads+Adam (or frozen base), reference model, LoRA adapter states}
+\node[font=\scriptsize, above] at (axis cs:A,147.4) {147.4};
+\node[font=\scriptsize, above] at (axis cs:B,131) {131};
+\node[font=\scriptsize, above] at (axis cs:C,16.4) {16.4};
+\node[font=\scriptsize, above] at (axis cs:D,17.1) {17.1};
+\end{axis}
+\end{tikzpicture}
+\caption{Analytic memory for DPO on an 8B model (16 bytes/param for full training, bf16 frozen
+weights). Caching the reference removes 16\,GB; FSDP divides policy state across GPUs; LoRA-DPO
+needs only the frozen base plus tiny adapter states, with the reference for free.}
+\label{fig:dpo:memory}
+\end{figure}
+
+\begin{systemslens}[Logits are the hidden activation hog]
+The output layer produces $(2B,T,V)$ logits. For $B=8$ pairs, $T=1024$ and Qwen's $V=151{,}936$
+in fp32 that is $2\cdot8\cdot1024\cdot151936\cdot4\approx10$\,GB, before the log-softmax copy.
+Three standard fixes: (1) compute log-probs with \code{gather} minus \code{logsumexp}
+(\cref{lst:dpo:logps}) and never materialise \code{log\_softmax}; (2) slice to response positions
+\emph{before} the LM head when prompts are long; (3) chunk the LM head and log-prob computation
+over the sequence (the same trick as chunked cross-entropy in \cref{ch:distill}). Fused
+``linear + cross-entropy'' kernels go further by never writing the logits to HBM.
+\end{systemslens}
+
+\begin{systemslens}[Share the prompt: one prefix, two continuations]
+Winner and loser share the prompt, yet the pair batch processes it twice. With $T_p=256$,
+$T_w=T_l=256$, a pair costs $2T_p+T_w+T_l=1024$ tokens; computing the prompt once costs
+$T_p+T_w+T_l=768$, saving \textbf{25\%} of FLOPs and activation memory, and much more for long
+multi-turn prompts. Two implementations: (a) pack prompt, $y_w$ and $y_l$ into one sequence with a
+custom mask in which $y_l$ attends to the prompt but not to $y_w$ (a two-branch tree mask, as in
+tree-attention speculative verification, \cref{ch:efficient}), with $y_l$'s positions restarting
+after the prompt; or (b) prefill the prompt once and run both continuations against its KV cache
+(\cref{ch:serving}), which is natural at inference time and possible at training time with
+attention kernels that accept a shared prefix. Either way, verify against the naive pair batch on
+a few examples: the log-probs must agree to numerical precision.
+\end{systemslens}
+
+\begin{deepdive}[Padding, bucketing and packing pairs]
+Pairs have wildly different lengths, so right-padding a random batch to its longest row wastes
+FLOPs (\cref{ch:classify}). Bucket pairs by $\max(|x|+|y_w|,|x|+|y_l|)$, or pack several pairs into
+fixed-length rows with block-diagonal attention masks and per-segment position ids
+(\cref{sec:instruct:packing}). Packing requires keeping track of which segment is the winner and
+which the loser of which pair, which is just bookkeeping on the \code{loss\_mask}.
+\end{deepdive}
+
+\paragraph{Placement recipes.} (1) \emph{Single GPU, small model}: policy and reference both on the
+GPU, or LoRA-DPO. (2) \emph{Two GPUs}: policy on GPU~0, reference on GPU~1; compute the reference
+log-probs for the next micro-batch while the policy runs backward on the current one. (3)
+\emph{Many GPUs}: FSDP-shard the policy and use a precomputed cache built by an inference job
+beforehand. (4) \emph{Online DPO}: add the generation engine of \cref{ch:serving} or \cref{ch:rlsys}
+on separate GPUs; generation is batched per round, so the simpler synchronous design of
+\cref{ch:rlsys} is usually adequate.
+
+% ======================================================================
+\section{Summary}\label{sec:dpo:summary}
+\begin{itemize}
+\item The KL-regularised RLHF objective has a closed-form optimum $\pi^*\propto\piref e^{r/\beta}$.
+  Inverting it writes the reward as $\beta\log\pi/\piref$ up to a prompt constant that cancels in
+  Bradley--Terry comparisons. Substituting gives the DPO loss, a logistic loss on the difference
+  of log-ratios.
+\item The DPO gradient is likelihood on winners and unlikelihood on losers, weighted by how
+  mis-ranked each pair is under the implicit reward.
+\item Implementation is SFT-like: a $(2B,T)$ pair batch with a response mask, summed response
+  log-probs, a reference that is cached or (with LoRA) the frozen base, and the sanity check that the
+  step-0 loss equals $\ln 2$.
+\item Watch reward accuracy, margins, \emph{and} the raw log-probs of both responses: the chosen
+  log-prob often falls (likelihood displacement). Over-optimising fixed data costs capability.
+\item Variants trade the reference model, pairing and length handling: cDPO and IPO bound the margin,
+  KTO uses unpaired good/bad labels, SimPO, ORPO and CPO drop the reference, and online DPO restores
+  on-policy data.
+\item DPO costs $\approx(6N+2N)$ FLOPs per token of the pair, has no generation in the loop, and
+  scales with the same tools as pretraining. Logit memory and duplicated prompts are the main
+  inefficiencies to engineer away.
+\end{itemize}
+
+% ======================================================================
+\section{Exercises}\label{sec:dpo:exercises}
+
+\begin{exercise}[Gibbs policy, continuous check]
+For a toy ``response space'' of three outcomes with $\piref=(0.5,0.3,0.2)$ and $r=(0,1,2)$,
+compute $\pi^*$ for $\beta\in\{0.1,1,10\}$ and verify numerically that $\pi^*$ maximises
+$\E_\pi[r]-\beta\KL(\pi\|\piref)$ by evaluating the objective at random distributions.
+\end{exercise}
+
+\begin{exercise}[Z cancels]
+Show that adding any function $f(x)$ to the reward leaves the BT likelihood unchanged and does not
+change $\pi^*$ in \eqref{eq:dpo:gibbs}. What does this imply about comparing implicit rewards across
+prompts?
+\end{exercise}
+
+\begin{exercise}[The gradient]
+Derive \eqref{eq:dpo:grad} from \eqref{eq:dpo:loss}. Then show that at initialisation
+($\pi_\theta=\piref$) the DPO gradient equals $\beta/2$ times the gradient of
+$\log\pi_\theta(y_w\mid x)-\log\pi_\theta(y_l\mid x)$.
+\end{exercise}
+
+\begin{exercise}[cDPO's optimum]
+For a single pair, find the margin $h^*$ that minimises
+$-(1-\varepsilon)\log\sigma(h)-\varepsilon\log\sigma(-h)$, and the minimum value. Interpret
+$\varepsilon\to0$.
+\end{exercise}
+
+\begin{exercise}[IPO vs DPO on deterministic data]
+Consider one prompt with two responses where $y_w$ is \emph{always} preferred. Parameterise the
+policy by a single logit $z$, with $\pi(y_w)=\sigma(z)$ and $\piref$ uniform. Write the DPO and IPO
+losses as functions of $z$ and find their minimisers. Which one keeps $\pi$ away from the
+deterministic policy?
+\end{exercise}
+
+\begin{exercise}[Sum vs mean]
+Show that replacing summed with mean log-probs in DPO is equivalent to DPO with a
+per-response $\beta_y=\beta/|y|$. For a winner twice as long as the loser, which side does this
+favour, compared with standard DPO?
+\end{exercise}
+
+\begin{exercise}[Step-0 sanity check, by hand]
+In Lab 26, deliberately build the reference cache with a different truncation length than training
+uses. Predict, then measure, the step-0 loss and reward accuracy. Repeat with dropout left on in
+the policy forward. Write a three-line assertion block for your training script that catches
+both bugs.
+\end{exercise}
+
+\begin{exercise}[Prompt sharing]
+Implement the packed ``one prompt, two continuations'' layout of the second Systems Lens for the toy
+model (Qwen3 uses RoPE, so give $y_l$ positions starting right after the prompt). Verify that the
+log-probs match \ident{sequence_logps} on the pair batch, and measure tokens processed per pair
+for prompt lengths 4, 16, 64.
+\end{exercise}
+
+\begin{exercise}[Logit memory]
+For Qwen3-0.6B ($V=151{,}936$), compute the fp32 logit memory for a DPO micro-batch of $B=4$ pairs
+at $T=2048$. How much is saved by (a) slicing to the response half when $T_p=T_y$, (b) chunking the
+LM head over 8 sequence chunks, (c) bf16 logits with fp32 \code{logsumexp}?
+\end{exercise}
+
+\begin{exercise}[Online DPO loop design]
+Design a 3-round online DPO pipeline for a 7B model on 8 GPUs with a reward model of 1B parameters:
+per round, generate 4 samples for each of 20k prompts, score them, form (best, worst) pairs, train one epoch.
+Estimate generation time with the decode roofline of \cref{ch:inference}, training time with
+the napkin math above, and decide whether generation and training should share GPUs.
+\end{exercise}
+
+% ======================================================================
+\section{Lab 26: Preference optimisation from the data path up}\label{sec:dpo:lab}
+
+\begin{labbox}{26}{Preference optimisation from the data path up}
+\labdir{lab26_dpo}
+\labsection{Goals}
+Implement DPO and five relatives on top of a correct pair-batch data path. Show on a laptop CPU
+that preference optimisation moves a measurable behaviour, and observe likelihood displacement and
+the alignment tax yourself.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+LAB_IMPL=starter  python -m pytest labs/lab26_dpo     # your work
+LAB_IMPL=solution python -m pytest labs/lab26_dpo     # reference
+python labs/lab26_dpo/run.py --out results            # full experiment, minutes on CPU
+\end{lstlisting}
+
+\labsection{Tasks}
+\begin{enumerate}
+\item \ident{build_pair_batch}: the $(2B,T)$ layout of \cref{fig:dpo:batch} with a response mask.
+\item \ident{sequence_logps}: shifted, masked sums using \code{gather} $-$ \code{logsumexp}; also return
+  token counts.
+\item \ident{dpo_loss} with conservative label smoothing; return detached implicit rewards.
+\item \ident{ipo_loss}, \ident{kto_loss}, \ident{simpo_loss}, \ident{orpo_loss}.
+\item \ident{precompute_reference_logps} and \ident{preference_metrics} (ties count one half).
+\item \ident{dpo_train_loop}: shuffled micro-batches, gradient accumulation, clipping, per-step metrics.
+\end{enumerate}
+The tests check exact values, gradient directions, the step-0 $\ln 2$ property, that the cache
+matches on-the-fly log-probs, that disabling LoRA reproduces the base model, and that 25 DPO
+steps raise $P(\texttt{sure})$ substantially.
+
+\labsection{Measurements}
+\begin{itemize}
+\item Run \texttt{run.py}: plot $P(\texttt{sure})$, greedy accuracy and the two log-probs against steps
+  for $\beta\in\{0.05,0.1,0.5\}$. Expect faster behaviour change and larger log-prob drift for
+  small $\beta$.
+\item Compare final $P(\texttt{sure})$, accuracy and wall-clock for DPO, cDPO, IPO, KTO, SimPO, ORPO,
+  CPO and LoRA-DPO. Which reference-free methods damage the reversal skill, and why?
+\item Time the reference cache against one training epoch; relate the ratio to the $2N$ vs $6N$
+  FLOP model.
+\item On a GPU, repeat with Qwen3-0.6B and a public preference set (\ident{load_preference_jsonl}
+  + \ident{tokenize_pair}); log peak memory with full DPO + reference model, full DPO + cache, and
+  LoRA-DPO.
+\end{itemize}
+
+\labsection{Deliverables}
+Passing tests; the plots; a table of final metrics per method; one paragraph explaining
+likelihood displacement in your run using \eqref{eq:dpo:grad}.
+
+\labsection{Stretch goals}
+Add an NLL term on the chosen response (RPO-style) and show it reduces displacement; implement
+online DPO on the toy task (sample from the current policy, label with the exact rule, retrain);
+implement the shared-prefix packed layout and measure the savings.
+\end{labbox}
