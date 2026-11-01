@@ -88,15 +88,15 @@ Work inside this book's repository. \texttt{code/projects/a5/} holds the infrast
 provided for this project; your own package goes next to it:
 \begin{lstlisting}[style=plain,caption={Project layout. Only the files marked (provided) exist at the start.},label={lst:proj5:layout}]
 code/projects/a5/
-  README.md             (provided) quick start for this project
-  env_check.py          (provided) pre-flight check of Python, libraries, GPUs, disk
-  run_matrix.py         (provided) expands a settings x seeds grid into commands
-  seeds_ci.py           (provided) aggregates per-seed JSONL logs into intervals
-  test_a5_infra.py      (provided) tests for the three tools above
-  p5/                   your package: core.py, rollout.py, train_rl.py, evals.py, ...
-  tests/                your tests (the invariants of Part 2)
-  data/                 GSM8K and alignment-track datasets (downloaded, not committed)
-  runs/                 one directory per run (see Chapter 24)
+  README.md          (provided) quick start
+  env_check.py       (provided) checks Python, libraries, GPUs, disk
+  run_matrix.py      (provided) settings x seeds grid -> commands
+  seeds_ci.py        (provided) per-seed JSONL logs -> intervals
+  test_a5_infra.py   (provided) tests for the three tools
+  p5/                yours: core.py, rollout.py, train_rl.py, evals.py
+  tests/             yours: the invariants of Part 2
+  data/              downloaded datasets (not committed)
+  runs/              one directory per run (Chapter 24)
 \end{lstlisting}
 Reuse the book's library freely. \code{llmsys.eval} has answer extraction and a numeric grader
 (\cref{ch:eval}), \code{llmsys.pg} has reference implementations of the chapter-24 building blocks
@@ -110,10 +110,11 @@ project: vLLM's APIs for weight updates and generation change between releases.
 
 \begin{lstlisting}[style=shell,caption={Environment bring-up.},label={lst:proj5:setup}]
 pip install -r code/requirements.txt
-pip install "transformers>=4.50" vllm wandb math-verify   # pin exact versions in a lock file
-pip install flash-attn --no-build-isolation               # optional; install last
+pip install "transformers>=4.50" vllm wandb math-verify   # pin versions
+pip install flash-attn --no-build-isolation     # optional, last
 python code/projects/a5/env_check.py --need-gpus 2 --min-gpu-gb 40
-huggingface-cli download allenai/OLMo-2-0425-1B --local-dir ckpt/olmo2-1b
+huggingface-cli download allenai/OLMo-2-0425-1B \
+    --local-dir ckpt/olmo2-1b
 \end{lstlisting}
 The environment checker reports the Python version, whether torch, transformers, vLLM,
 FlashAttention, wandb and math-verify import, the GPU inventory with bf16 support, free disk, and

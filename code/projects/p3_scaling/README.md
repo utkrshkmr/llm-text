@@ -8,6 +8,7 @@ project.
 |---|---|
 | `training_service.py` | The self-hosted training service (HTTP: /budget, /submit, /experiments, /experiment/{id}, /final_submission, /score). Losses come from a hidden, randomisable loss surface in `llmsys.scaling`. |
 | `ledger.py` | `HTTPClient` (stdlib only; retries 5xx and network errors, never retries 4xx) and `Ledger`, an append-only JSONL record that makes submission idempotent and survives crashes. |
+| `make_warmup_data.py` | Generates the warm-up dataset (finished IsoFLOP runs from a hidden surface; `--reveal` shows the truth afterwards). |
 | `test_p3_infra.py` | Tests: reservation and refund accounting, duplicates, timeouts, ledger replay, scoring. |
 
 ```

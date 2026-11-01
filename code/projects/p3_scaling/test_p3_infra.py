@@ -90,3 +90,13 @@ def test_score_and_randomised_truth(service):
     from llmsys.scaling import GroundTruth
     a, b = GroundTruth.sample(1), GroundTruth.sample(2)
     assert a != b and a == GroundTruth.sample(1)
+
+
+def test_warmup_data_is_deterministic_and_consistent():
+    from make_warmup_data import BUDGETS, make_runs, reveal
+    a, b = make_runs(5), make_runs(5)
+    assert a == b and len(a) == 9 * len(BUDGETS)
+    for r in a:
+        assert r["flops"] == pytest.approx(6 * r["n_params"] * r["tokens"])
+    assert make_runs(5) != make_runs(6)
+    assert set(reveal(5)["optimum"]) == {"1e+21", "1e+22", "1e+23", "1e+24"}

@@ -565,7 +565,7 @@ communication as plain DP while cutting memory by up to $4\times$ and $8\times$.
 frees the non-owned gradient slices immediately after their reduction.
 
 Our teaching implementation (\cref{lst:dist:zero}) assigns whole parameter tensors to owners
-and uses reduce/broadcast, because the gloo backend lacks reduce-scatter; production versions
+and uses reduce/broadcast, because the gloo backend lacked reduce-scatter in older PyTorch versions; production versions
 flatten parameters into one buffer and shard it element-wise for perfect balance.
 
 \begin{lstlisting}[caption={ZeRO-1/2 with parameter-level ownership (\code{llmsys/dist/zero.py}, abridged).},label={lst:dist:zero}]
