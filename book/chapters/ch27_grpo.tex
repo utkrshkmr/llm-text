@@ -143,7 +143,7 @@ generation process and a ``completion'' is its output; the words are used interc
 \label{tab:grpo:vocab}
 \end{table}
 
-\paragraph{The policy-gradient theorem in one line.} We want to maximise the expected
+\paragraph{The policy-gradient theorem in one line.} (\Cref{ch:pg} develops the foundations in full.) We want to maximise the expected
 reward $J(\theta)=\E_{x\sim\mathcal{D}}\,\E_{y\sim\pitheta(\cdot\mid x)}[R(x,y)]$. The
 reward is a non-differentiable function of discrete samples, so we cannot backpropagate
 through it. The \emph{log-derivative trick}

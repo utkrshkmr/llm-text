@@ -1,4 +1,4 @@
-\subsection*{Chapter 32: Project: A Transformer Language Model from Scratch}
+\subsection*{Chapter 32: Project 1: A Transformer Language Model from Scratch}
 
 \paragraph{Exercise 32.1.} The pre-tokens are \verb*|x|, \verb*| |, \verb*| =|, \verb*| 10|,
 \verb*|.|, \verb*|5|, \verb*|;|, \verb*| |, \verb*| y|. \verb*|x| matches the letters alternative.
@@ -29,7 +29,7 @@ and $PV$ over the full $T\times T$ square) add $4TdL$ per token: $0.134$\,GFLOPs
 (22\% of the total $0.611$) and $2.15$\,GFLOPs at $T=32{,}768$ (82\%). A causal kernel that
 skips the masked half cuts the attention term roughly in half.
 
-\paragraph{Exercise 32.4.} One feasible plan in 360 minutes: (1) a coarse sweep of 6 learning
+\paragraph{Exercise 32.4.} One feasible E2 + E3 plan in 360 minutes: (1) a coarse sweep of 6 learning
 rates on a $\sqrt{10}$ grid with 4-minute runs (24 min); (2) a fine sweep of 4 full-budget runs around
 the best value, including one above the stability limit (80 min); (3) for each of 4 batch sizes,
 3 learning rates with short runs (48 min), then one full-budget confirmation per batch size

@@ -27,8 +27,10 @@ def make_runs(seed: int, sizes_per_budget: int = 9, span: float = 30.0, noise: f
     t = GroundTruth.sample(seed)
     rng = np.random.default_rng(seed + 1000)
     runs = []
+    fit = ChinchillaFit(t.E, t.A, t.B, t.alpha, t.beta)
     for c in BUDGETS:
-        mid = math.sqrt(c / 120)
+        # centre each IsoFLOP grid near (but not exactly on) the hidden optimum
+        mid = fit.optimal(c)[0] * math.exp(rng.uniform(-0.6, 0.6))
         for n in np.geomspace(mid / math.sqrt(span), mid * math.sqrt(span), sizes_per_budget):
             n = float(round(n, -3))
             d = c / (6 * n)

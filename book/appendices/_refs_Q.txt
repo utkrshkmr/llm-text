@@ -1,7 +1,7 @@
 Kingma, D. P., Ba, J. (2015). Adam: A Method for Stochastic Optimization. ICLR.
 Loshchilov, I., Hutter, F. (2019). Decoupled Weight Decay Regularization. ICLR.
 Duchi, J., Hazan, E., Singer, Y. (2011). Adaptive Subgradient Methods for Online Learning and Stochastic Optimization. JMLR.
-Tieleman, T., Hinton, G. (2012). RMSProp: Divide the gradient by a running average of its recent magnitude. Neural Networks for Machine Learning, Coursera.
+Tieleman, T., Hinton, G. (2012). RMSProp: Divide the gradient by a running average of its recent magnitude. Neural Networks for Machine Learning (online notes).
 Sutskever, I., Martens, J., Dahl, G., Hinton, G. (2013). On the Importance of Initialization and Momentum in Deep Learning. ICML.
 Shazeer, N., Stern, M. (2018). Adafactor: Adaptive Learning Rates with Sublinear Memory Cost. ICML.
 Gupta, V., Koren, T., Singer, Y. (2018). Shampoo: Preconditioned Stochastic Tensor Optimization. ICML.
