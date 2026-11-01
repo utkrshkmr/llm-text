@@ -41,7 +41,7 @@ reduction in the scarcest resource, HBM bandwidth per generated token.
 \draw[arr] (s4.south) |- ++(0,-0.45) -| (s5.north);
 \draw[arr] (s5)--(s6); \draw[arr] (s6)--(s7);
 \node[font=\scriptsize,text=srcgray,below=0.15cm of s1,align=center] {recap of the\\decode roofline};
-\node[font=\scriptsize,text=srcgray,below=0.15cm of s7,align=center] {RM App.~G};
+\node[font=\scriptsize,text=srcgray,below=0.15cm of s7,align=center] {a minimal\\chat UI};
 \end{tikzpicture}
 \caption{Roadmap of this chapter. Stages 2--4 reduce the cost per generated token;
 stages 5--7 turn an engine into something people can talk to.}
@@ -280,7 +280,7 @@ element and the high nibble the odd element.}
 \label{fig:efficient:pack}
 \end{figure}
 
-\subsection{Weight-only quantization (W8A16, W4A16)}\covers{RM D.5}
+\subsection{Weight-only quantization (W8A16, W4A16)}
 In weight-only schemes the activations stay in bf16 and the weights are dequantized
 \emph{inside} the GEMM: a kernel loads packed integers from HBM, expands them in
 registers, multiplies by the group scale and feeds tensor cores in bf16. Because decode
@@ -461,7 +461,7 @@ In this regime KV quantization alone beats 4-bit weights. And the first row woul
 even fit next to activations and CUDA graphs on an 80\,GB card.
 \end{napkinmath}
 
-\subsection{Did quantization break the model?}\covers{RM D.5}
+\subsection{Did quantization break the model?}
 Measure the quantized model against the reference model, not just against a benchmark
 score:
 \begin{itemize}
@@ -995,7 +995,7 @@ roughly 12\,ms at 50\,GB/s.
 \end{systemslens}
 
 % =====================================================================
-\section{A chat interface for our models}\label{sec:efficient:chat}\covers{RM G}
+\section{A chat interface for our models}\label{sec:efficient:chat}
 
 We now put a browser front end on the from-scratch Qwen3 implementation. It is useful
 for poking at the checkpoints we train later (instruction-tuned in \cref{ch:instruct},
@@ -1004,7 +1004,7 @@ study of everything above: chat templates, streaming, detokenization, event loop
 reuse. We use Chainlit, an open-source Python package that provides a ChatGPT-like web
 UI and calls our Python functions when messages arrive.
 
-\subsection{Installing Chainlit}\covers{RM G.1}
+\subsection{Installing Chainlit}
 Chainlit is a regular PyPI package:
 \begin{lstlisting}[style=shell]
 pip install chainlit          # or, with uv:  uv add chainlit
@@ -1012,7 +1012,7 @@ pip install chainlit          # or, with uv:  uv add chainlit
 It is deliberately \emph{not} in the lab's \code{requirements.txt}: nothing else in the
 book depends on it, and it pulls in a web stack (an ASGI server, websockets).
 
-\subsection{Running an app as a script}\covers{RM G.2}
+\subsection{Running an app as a script}
 A Chainlit app is an ordinary Python file that Chainlit \emph{imports} and inspects
 for decorated handlers: \code{@cl.on\_chat\_start} runs when a browser session opens,
 and \code{@cl.on\_message} runs for every user message. You start the server with
@@ -1026,14 +1026,14 @@ Because \code{chainlit run} owns the process's command line, our scripts cannot 
 also happens exactly once per server process, so that is where the model is loaded and
 shared by all browser sessions.
 
-\subsection{Where the scripts live}\covers{RM G.3}
+\subsection{Where the scripts live}
 Everything is in \ident{code/labs/lab20_quant_specdec/}: \code{chat\_common.py} (model
 loading, streaming, detokenization, history trimming), \code{chat\_single\_turn.py} and
 \code{chat\_multi\_turn.py}. They import only \code{llmsys} and the lab's
 \code{solution.py} (for optional quantized serving and prefix matching), so there is
 nothing to download beyond the Qwen3 weights.
 
-\subsection{The single-turn app}\covers{RM G.4}
+\subsection{The single-turn app}
 \Cref{lst:efficient:single} is the whole single-turn app. Each message is wrapped in the
 ChatML template, tokenized, and streamed back token by token into an initially empty
 message bubble.
@@ -1098,7 +1098,7 @@ async def stream_tokens(model, input_ids, stop_ids, cache=None):
         yield item
 \end{lstlisting}
 
-\subsection{Running it, with your own checkpoints}\covers{RM G.5}
+\subsection{Running it, with your own checkpoints}
 \begin{lstlisting}[style=shell]
 huggingface-cli download Qwen/Qwen3-0.6B --local-dir qwen3-0.6b
 QWEN3_DIR=qwen3-0.6b chainlit run chat_single_turn.py
@@ -1112,7 +1112,7 @@ block; a simple prompt such as ``What is 1+1?'' can trigger several hundred toke
 deliberation, which makes \code{MAX\_NEW\_TOKENS} a real cost knob
 (\cref{ch:scaling}).
 
-\subsection{Multi-turn conversations}\covers{RM G.6}
+\subsection{Multi-turn conversations}
 \paragraph{What multi-turn means.} The single-turn app \emph{displays} a conversation but
 the model sees only the latest message. Ask ``What is 1+1?'' and then ``What did I just
 ask?'' and the model has no idea. A multi-turn chat re-sends the history with every

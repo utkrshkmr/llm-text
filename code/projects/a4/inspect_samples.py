@@ -4,8 +4,8 @@
         --csv annotations.csv --chars 800
 
 Prints each sampled record (URL, length, first ``--chars`` characters) and writes a CSV
-with empty columns (language, domain, page_type, keep?, notes) for manual labelling. Several of
-the assignment's questions ask you to read and annotate samples; doing this into a CSV makes
+with empty columns (language, domain, page_type, keep?, notes) for manual labelling. Several
+steps of Project 4 ask you to read and annotate samples; doing this into a CSV makes
 the annotations reusable as a tiny evaluation set for your classifiers and thresholds.
 
 Uses reservoir sampling, so it streams files of any size in one pass and memory O(n).

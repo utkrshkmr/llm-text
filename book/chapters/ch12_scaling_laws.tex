@@ -48,7 +48,7 @@ the systems side: planning, executing and trusting a study under a wall-clock bu
 \end{figure}
 
 % ======================================================================
-\section{Why do power laws appear?}\label{sec:scalinglaws:why}\covers{CS336 L9}
+\section{Why do power laws appear?}\label{sec:scalinglaws:why}
 
 A \emph{scaling law} is an empirical relation between a resource (data $D$, parameters $N$,
 compute $C$) and a quality metric (usually held-out loss) that is a straight line on log-log axes
@@ -107,7 +107,7 @@ moves the whole line down. Second, data scaling has been observed across modalit
 architectures (Hestness et al., 2017), so the method generalises even when the constants do not.
 
 % ======================================================================
-\section{What scaling laws are used for}\label{sec:scalinglaws:uses}\covers{CS336 L9}
+\section{What scaling laws are used for}\label{sec:scalinglaws:uses}
 
 The scaling-law design procedure has three steps: train a family of small models, fit a law
 to each candidate choice, and pick the choice whose law is best \emph{at the target scale}. The
@@ -128,7 +128,7 @@ lessons from that era are still the default assumptions of modern studies:
 \end{itemize}
 
 % ======================================================================
-\section{Compute accounting: which $N$, which $C$?}\label{sec:scalinglaws:accounting}\covers{CS336 A3 §2.1}
+\section{Compute accounting: which $N$, which $C$?}\label{sec:scalinglaws:accounting}
 
 \Cref{sec:pretrain:scaling} derived $C\approx 6ND$: two FLOPs per parameter per token in the
 forward pass and four in the backward pass. A scaling study needs this more precisely, because
@@ -193,15 +193,16 @@ a fixed startup cost (container start, data-loader warm-up, compilation). Conseq
 \begin{enumerate}
 \item The tiny runs at the bottom of a study cost more device-time per FLOP than the big ones.
       Budget them in seconds, not FLOPs.
-\item The \emph{wall-clock}-optimal model for a fixed number of device-hours is shifted
-      towards shapes with high MFU (wider, larger batch) relative to the FLOP-optimal model
+\item The \emph{wall-clock}-optimal model for a fixed number of device-hours can shift
+      towards shapes with high MFU (wider, larger batch) relative to the FLOP-optimal model.
+      The shift is largest where MFU still changes quickly with shape
       (\cref{fig:scalinglaws:wall}).
 \item Measure MFU for each shape you might pick in the final run. Do not assume it.
 \end{enumerate}
 \end{systemslens}
 
 % ======================================================================
-\section{Kaplan versus Chinchilla}\label{sec:scalinglaws:kaplan}\covers{CS336 L9}
+\section{Kaplan versus Chinchilla}\label{sec:scalinglaws:kaplan}
 
 Given $C$, how should we split it between $N$ and $D$? Two influential answers disagree.
 Kaplan et al.\ (2020) found the loss-optimal model size grows as roughly $N_{\text{opt}}\propto
@@ -245,7 +246,7 @@ is a measured quantity whose value depends on choices you make in the study, so 
 those choices deliberately and consistently.
 
 % ======================================================================
-\section{Three ways to fit an allocation law}\label{sec:scalinglaws:methods}\covers{CS336 L9; CS336 A3 §2.1}
+\section{Three ways to fit an allocation law}\label{sec:scalinglaws:methods}
 
 Hoffmann et al.\ estimated $N_{\text{opt}}(C)$ three ways. All three are worth knowing, because they
 fail differently.
@@ -262,10 +263,9 @@ warmup--stable--decay schedule fixes this (\cref{sec:scalinglaws:wsd}).
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{loglogaxis}[width=0.78\linewidth, height=5.6cm, xmin=1e15, xmax=1e22, ymin=1.95, ymax=6,
+\begin{axis}[xmode=log, width=0.78\linewidth, height=5.6cm, xmin=1e15, xmax=1e22, ymin=1.95, ymax=6,
   xlabel={compute $C$ (FLOPs)}, ylabel={loss}, label style={font=\small},
-  tick label style={font=\scriptsize}, log ticks with fixed point,
-  ytick={2,2.5,3,4,5,6},
+  tick label style={font=\scriptsize},
   legend style={font=\scriptsize, draw=none, at={(1.02,0.5)}, anchor=west}]
 \addplot[thick, black!35] coordinates {(1e+15,6.958) (1.314e+15,6.75) (1.727e+15,6.559) (2.27e+15,6.382) (2.982e+15,6.218) (3.919e+15,6.067) (5.151e+15,5.927) (6.769e+15,5.798) (8.895e+15,5.679) (1.169e+16,5.569) (1.536e+16,5.467) (2.019e+16,5.373) (2.653e+16,5.286) (3.486e+16,5.206) (4.582e+16,5.132) (6.021e+16,5.064) (7.912e+16,5) (1.04e+17,4.942) (1.366e+17,4.888) (1.796e+17,4.838) (2.36e+17,4.792) (3.101e+17,4.75) (4.075e+17,4.71) (5.356e+17,4.674) (7.038e+17,4.64) (9.249e+17,4.609) (1.215e+18,4.581) (1.597e+18,4.554) (2.099e+18,4.53) (2.759e+18,4.507) (3.625e+18,4.486) (4.764e+18,4.467) (6.261e+18,4.449) (8.227e+18,4.433) (1.081e+19,4.418) (1.421e+19,4.404) (1.867e+19,4.391) (2.454e+19,4.379) (3.225e+19,4.368) (4.238e+19,4.357) (5.569e+19,4.348) (7.318e+19,4.339) (9.617e+19,4.331) (1.264e+20,4.324) (1.661e+20,4.317) (2.183e+20,4.311) (2.868e+20,4.305) (3.769e+20,4.299) (4.954e+20,4.294) (6.51e+20,4.29) (8.555e+20,4.285) (1.124e+21,4.281) (1.477e+21,4.278) (1.941e+21,4.274) (2.551e+21,4.271) (3.353e+21,4.268) (4.406e+21,4.266) (5.79e+21,4.263) (7.609e+21,4.261) (1e+22,4.259)};
 \addplot[thick, black!35] coordinates {(1.314e+15,6.941) (1.727e+15,6.673) (2.27e+15,6.426) (2.982e+15,6.197) (3.919e+15,5.986) (5.151e+15,5.791) (6.769e+15,5.611) (8.895e+15,5.445) (1.169e+16,5.291) (1.536e+16,5.149) (2.019e+16,5.018) (2.653e+16,4.897) (3.486e+16,4.785) (4.582e+16,4.681) (6.021e+16,4.586) (7.912e+16,4.497) (1.04e+17,4.416) (1.366e+17,4.34) (1.796e+17,4.271) (2.36e+17,4.206) (3.101e+17,4.147) (4.075e+17,4.092) (5.356e+17,4.041) (7.038e+17,3.995) (9.249e+17,3.951) (1.215e+18,3.911) (1.597e+18,3.874) (2.099e+18,3.84) (2.759e+18,3.809) (3.625e+18,3.78) (4.764e+18,3.753) (6.261e+18,3.728) (8.227e+18,3.705) (1.081e+19,3.684) (1.421e+19,3.664) (1.867e+19,3.646) (2.454e+19,3.629) (3.225e+19,3.614) (4.238e+19,3.6) (5.569e+19,3.586) (7.318e+19,3.574) (9.617e+19,3.563) (1.264e+20,3.552) (1.661e+20,3.543) (2.183e+20,3.534) (2.868e+20,3.526) (3.769e+20,3.518) (4.954e+20,3.511) (6.51e+20,3.505) (8.555e+20,3.499) (1.124e+21,3.493) (1.477e+21,3.488) (1.941e+21,3.483) (2.551e+21,3.479) (3.353e+21,3.475) (4.406e+21,3.471) (5.79e+21,3.468) (7.609e+21,3.465) (1e+22,3.462)};
@@ -275,7 +275,7 @@ warmup--stable--decay schedule fixes this (\cref{sec:scalinglaws:wsd}).
 \addplot[thick, black!35] coordinates {(1.366e+17,5.599) (1.796e+17,5.335) (2.36e+17,5.09) (3.101e+17,4.864) (4.075e+17,4.656) (5.356e+17,4.463) (7.038e+17,4.285) (9.249e+17,4.12) (1.215e+18,3.968) (1.597e+18,3.828) (2.099e+18,3.698) (2.759e+18,3.578) (3.625e+18,3.467) (4.764e+18,3.365) (6.261e+18,3.271) (8.227e+18,3.183) (1.081e+19,3.103) (1.421e+19,3.028) (1.867e+19,2.959) (2.454e+19,2.896) (3.225e+19,2.837) (4.238e+19,2.783) (5.569e+19,2.733) (7.318e+19,2.686) (9.617e+19,2.644) (1.264e+20,2.604) (1.661e+20,2.567) (2.183e+20,2.534) (2.868e+20,2.503) (3.769e+20,2.474) (4.954e+20,2.447) (6.51e+20,2.423) (8.555e+20,2.4) (1.124e+21,2.379) (1.477e+21,2.36) (1.941e+21,2.342) (2.551e+21,2.325) (3.353e+21,2.31) (4.406e+21,2.296) (5.79e+21,2.283) (7.609e+21,2.271) (1e+22,2.259)};
 \addplot[thick, black!35] coordinates {(4.075e+17,5.551) (5.356e+17,5.282) (7.038e+17,5.033) (9.249e+17,4.804) (1.215e+18,4.591) (1.597e+18,4.395) (2.099e+18,4.214) (2.759e+18,4.047) (3.625e+18,3.892) (4.764e+18,3.749) (6.261e+18,3.617) (8.227e+18,3.495) (1.081e+19,3.383) (1.421e+19,3.279) (1.867e+19,3.183) (2.454e+19,3.094) (3.225e+19,3.012) (4.238e+19,2.936) (5.569e+19,2.866) (7.318e+19,2.801) (9.617e+19,2.742) (1.264e+20,2.686) (1.661e+20,2.635) (2.183e+20,2.588) (2.868e+20,2.545) (3.769e+20,2.505) (4.954e+20,2.467) (6.51e+20,2.433) (8.555e+20,2.401) (1.124e+21,2.372) (1.477e+21,2.345) (1.941e+21,2.32) (2.551e+21,2.297) (3.353e+21,2.276) (4.406e+21,2.256) (5.79e+21,2.238) (7.609e+21,2.221) (1e+22,2.205)};
 \addplot[very thick, warnred, dashed] coordinates {(1e+15,6.954) (1.512e+15,6.627) (2.285e+15,6.321) (3.455e+15,6.034) (5.223e+15,5.766) (7.897e+15,5.514) (1.194e+16,5.278) (1.805e+16,5.058) (2.728e+16,4.851) (4.125e+16,4.657) (6.236e+16,4.476) (9.427e+16,4.306) (1.425e+17,4.147) (2.154e+17,3.998) (3.257e+17,3.859) (4.924e+17,3.728) (7.444e+17,3.606) (1.125e+18,3.491) (1.701e+18,3.384) (2.572e+18,3.284) (3.888e+18,3.189) (5.878e+18,3.101) (8.886e+18,3.019) (1.343e+19,2.941) (2.031e+19,2.869) (3.07e+19,2.801) (4.642e+19,2.738) (7.017e+19,2.678) (1.061e+20,2.622) (1.604e+20,2.57) (2.424e+20,2.521) (3.665e+20,2.476) (5.541e+20,2.433) (8.377e+20,2.393) (1.266e+21,2.355) (1.914e+21,2.32) (2.894e+21,2.287) (4.375e+21,2.256) (6.615e+21,2.227) (1e+22,2.2)};
-\end{loglogaxis}
+\end{axis}
 \end{tikzpicture}
 \caption{Method 1. Each grey curve is one model size ($3\times10^6$ to $3\times10^9$ non-embedding
 parameters) trained for longer and longer; the dashed red line is their lower envelope. Data:
@@ -344,15 +344,16 @@ grid was mis-centred, and the right response is to add runs, not to extrapolate 
 \begin{lstlisting}[caption={IsoFLOP minima with a bracketing check (abridged from \code{llmsys/scaling.py}).},label={lst:scalinglaws:isoflop}]
 def isoflop_optima(runs, method="min", rel_tol=0.05):
     out = []
-    for c, group in group_by_budget(runs, rel_tol).items():   # budgets drift slightly
+    for c, group in group_by_budget(runs, rel_tol).items():  # budgets drift
         best = min(group, key=lambda r: r.loss)
         n_opt, loss, used = best.params, best.loss, "min"
         if method == "quadratic" and len(group) >= 3:
             ln = np.log([g.params for g in group]); mu = ln.mean()
             c2, c1, c0 = np.polyfit(ln - mu, [g.loss for g in group], 2)
             v = mu - c1 / (2 * c2)
-            if c2 > 0 and ln.min() <= v <= ln.max():           # convex and bracketed
-                n_opt, loss, used = math.exp(v), c0 - c1**2 / (4*c2), "quadratic"
+            if c2 > 0 and ln.min() <= v <= ln.max():   # convex, bracketed
+                n_opt, loss = math.exp(v), c0 - c1**2 / (4*c2)
+                used = "quadratic"
         ...
 \end{lstlisting}
 
@@ -413,7 +414,8 @@ def fit_chinchilla(n, d, loss, delta=1e-3, inits=None, max_iter=100):
             a, b, e, al, be = (q[:, i:i+1] for i in range(5))
             pred = torch.logsumexp(torch.stack(
                 [a - al*ln, b - be*ld, e.expand(-1, ln.shape[1])]), 0)
-            obj = huber(pred - ll, delta).sum(); obj.backward(); return obj
+            obj = huber(pred - ll, delta).sum()
+            obj.backward(); return obj
         opt.step(closure)
         ...   # keep the start with the lowest objective and alpha, beta > 0
 \end{lstlisting}
@@ -429,7 +431,7 @@ significant digit of anything.
 \end{deepdive}
 
 % ======================================================================
-\section{Hyperparameters across scale}\label{sec:scalinglaws:hparams}\covers{CS336 L9; CS336 L11}
+\section{Hyperparameters across scale}\label{sec:scalinglaws:hparams}
 
 A scaling law describes \emph{well-tuned} models. If every size uses the same learning rate,
 the small models are under-stepped or the large ones over-stepped, and the measured curve
@@ -445,8 +447,8 @@ roughly parabolic basin with a cliff on the high side, where training diverges
 The procedure is direct: sweep the LR at three or four small sizes, take each basin's vertex
 (a quadratic in $\log\text{LR}$, ignoring diverged runs), and fit $\text{lr}^*(N)=kN^{a}$. DeepSeek's
 LLM report (2024) is a public example of fitting both LR and batch size as power laws in compute
-this way, and the StepFun study discussed in CS336 Lecture 11 maps the LR--batch landscape by
-brute-force grids and finds it convex with clean minimisers.
+this way, and a large 2025 hyperparameter study from StepFun mapped the LR--batch landscape by
+brute-force grids and found it convex with clean minimisers.
 
 \begin{figure}[t]
 \centering
@@ -501,9 +503,8 @@ batch size up during training.
 \addplot[very thick, sysblue, domain=1.01:100, samples=200] {1 + 1/(x-1)};
 \addplot[only marks, mark=*, mark size=2.2pt, warnred] coordinates {(2,2)};
 \node[font=\scriptsize, anchor=south west] at (axis cs:2.1,2.1) {$B=B_{\text{crit}}$};
-\node[font=\scriptsize, align=center] at (axis cs:12,30) {small batch:\\few wasted examples,\\many serial steps};
-\node[font=\scriptsize, align=center] at (axis cs:4.5,1.4) {};
-\node[font=\scriptsize, align=left, anchor=west] at (axis cs:1.05,60) {large batch:\\few steps,\\wasted data};
+\node[font=\scriptsize, align=center, anchor=south] at (axis cs:30,1.25) {small batch: few wasted\\examples, many serial steps};
+\node[font=\scriptsize, align=left, anchor=west] at (axis cs:2.6,30) {large batch: few steps,\\much wasted data};
 \end{loglogaxis}
 \end{tikzpicture}
 \caption{The steps--examples trade-off of \cref{eq:scalinglaws:critbatch} (analytic). The
@@ -537,7 +538,7 @@ by $1/n$. Under these rules the LR basin of \cref{fig:scalinglaws:basin} stays p
 grows, so you tune once on a narrow proxy model and transfer (``$\mu$Transfer'').
 
 \begin{keyidea}[Two public recipes]
-CS336 Lecture 11 contrasts two well-documented recipes. \textbf{MiniCPM} (2024) uses
+Two well-documented public recipes make a useful contrast. \textbf{MiniCPM} (2024) uses
 $\mu$P to make hyperparameters width-invariant, fixes the aspect ratio, and fits the
 loss surface (method 3) with cheap WSD branches. \textbf{DeepSeek LLM} (2024) uses standard
 parameterisation, fits optimal LR and batch size as power laws in compute, and sizes the model
@@ -546,7 +547,7 @@ scale-dependent knob is either modelled or parameterised away.
 \end{keyidea}
 
 % ======================================================================
-\section{Making studies cheap: warmup--stable--decay}\label{sec:scalinglaws:wsd}\covers{CS336 L11}
+\section{Making studies cheap: warmup--stable--decay}\label{sec:scalinglaws:wsd}
 
 Method 2 needs a separate run for every (size, token count) pair, because a cosine schedule's
 loss at 50\% of training is not the loss a run of half the length would reach: the LR has not
@@ -608,7 +609,7 @@ intermediate numbers as completed runs biases the fitted data exponent, which is
 pitfall in miniature (\cref{ex:scalinglaws:midrun}).
 
 % ======================================================================
-\section{Beyond the basic law}\label{sec:scalinglaws:beyond}\covers{CS336 L9; CS336 L11}
+\section{Beyond the basic law}\label{sec:scalinglaws:beyond}
 
 \paragraph{Finite data and repetition.} Chinchilla assumes fresh tokens. When unique data runs
 out, repeated epochs are worth less. Muennighoff et al.\ (2023) fit an ``effective data''
@@ -619,8 +620,8 @@ trained on fewer epochs.
 
 \paragraph{Data mixtures.} The proportions of web, code, books and so on can themselves be
 treated as scaling-law inputs. Fitting mixture laws on small proxies is an active research area
-and a hard one: small-scale rankings of mixtures do not always survive scaling. CS336
-Lecture 9 notes that ``just pick the best mixture at small scale'' is a strong baseline.
+and a hard one: small-scale rankings of mixtures do not always survive scaling, and simply
+picking the best mixture at small scale is a strong baseline.
 \Cref{ch:data} covers how the data itself is built.
 
 \paragraph{Inference-aware scaling.} Chinchilla minimises \emph{training} compute. If a model
@@ -640,14 +641,13 @@ experts) as an extra axis. Several recent reports size their MoE models with Iso
 over active parameters.
 
 % ======================================================================
-\section{Designing a budgeted study}\label{sec:scalinglaws:design}\covers{CS336 A3 §3.1--3.3}
+\section{Designing a budgeted study}\label{sec:scalinglaws:design}
 
 Now the systems problem. You have a remote training service that accepts a model and recipe,
 runs it on one accelerator, and returns validation losses. It charges a wall-clock budget
 (say 12 device-hours) for fitting, and you must name the configuration and predict the loss for
-a final run of 48 device-hours. This is exactly the setting of CS336 Assignment~3
-(\cref{ch:proj3}), and also of any team that is allotted a slice of a cluster to decide what to
-train next.
+a final run of 48 device-hours. This is the setting of any team that is allotted a slice of
+a cluster to decide what to train next, and of Project~3 (\cref{ch:proj3}).
 
 \subsection{The service model}\label{sec:scalinglaws:service}
 
@@ -673,7 +673,7 @@ rising with width and batch.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[x=24cm, y=0.36cm, font=\scriptsize]
+\begin{tikzpicture}[x=20cm, y=0.36cm, font=\scriptsize]
 \fill[sysblue!25] (0.0000,-3.15) rectangle (0.0366,-3.85);
 \fill[sysblue!80] (0.0000,-3.15) rectangle (0.0293,-3.85);
 \node[anchor=east] at (0,-3.50) {1e+16};
@@ -711,7 +711,7 @@ rising with width and batch.
 \fill[sysblue!80] (0.3378,-14.15) rectangle (0.5283,-14.85);
 \node[anchor=east] at (0,-14.50) {2e+17};
 
-\draw[->] (0,0.2) -- (0.56,0.2) node[right] {simulated hours};
+\draw[->] (0,0.2) -- (0.56,0.2) node[above left] {simulated hours};
 \foreach \t in {0,0.1,0.2,0.3,0.4,0.5} \draw (\t,0.2) -- (\t,0) node[below] {\t};
 \fill[sysblue!25] (0.36,-2.2) rectangle (0.38,-1.6); \node[anchor=west] at (0.385,-1.9) {reserved, refunded};
 \fill[sysblue!80] (0.36,-3.2) rectangle (0.38,-2.6); \node[anchor=west] at (0.385,-2.9) {actual runtime};
@@ -772,18 +772,18 @@ def plan_isoflop_grid(budgets, sizes_per_budget=5, span=8.0,
                       hardware=SyntheticHardware(), seconds_available=math.inf,
                       safety=1.25, make_config=config_for_params, n_evals=8):
     plan, spent = [], 0.0
-    for c in sorted(budgets):                    # cheapest budgets first
-        n_mid = math.sqrt(c / (6 * 20))          # centre on the 20 tok/param guess
+    for c in sorted(budgets):                 # cheapest budgets first
+        n_mid = math.sqrt(c / (6 * 20))       # centre on 20 tokens/param
         ns = np.geomspace(n_mid / math.sqrt(span), n_mid * math.sqrt(span),
                           sizes_per_budget)
         rows = []
         for n in ns:
-            cfg = make_config(n)                 # shape + fitted LR for this size
+            cfg = make_config(n)              # shape + fitted LR
             cfg = replace(cfg, tokens=tokens_for_budget(cfg, c))
             rows.append((cfg, safety * hardware.runtime(cfg, n_evals)))
         cost = sum(r for _, r in rows)
         if spent + cost > seconds_available:
-            break                                # never plan past the budget
+            break                             # never plan past budget
         plan.extend(rows); spent += cost
     return plan
 \end{lstlisting}
@@ -808,9 +808,10 @@ def choose_final_config(fit, lr_law, seconds, hw, sizes=None,
             cfg = config_for_params(n, batch_size=bs, aspect=aspect)
             n_ne = cfg.non_embedding_params()
             cfg = replace(cfg, lr=k * n_ne ** a)
-            cfg = replace(cfg, tokens=tokens_for_budget(cfg, hw.flops_in(cfg, seconds)))
+            flops = hw.flops_in(cfg, seconds)   # depends on MFU(shape)
+            cfg = replace(cfg, tokens=tokens_for_budget(cfg, flops))
             if hw.runtime(cfg) > seconds:
-                continue                       # must actually finish
+                continue                    # must actually finish
             pred = float(fit.loss(n_ne, cfg.tokens))
             if best is None or pred < best[1]:
                 best = (cfg, pred)
@@ -823,19 +824,21 @@ def choose_final_config(fit, lr_law, seconds, hw, sizes=None,
 \begin{groupplot}[group style={group size=2 by 1, horizontal sep=1.7cm},
   width=0.49\linewidth, height=5cm, xmode=log, label style={font=\small},
   tick label style={font=\scriptsize}, xlabel={non-embedding params $N$}]
-\nextgroupplot[ylabel={true loss}, ymin=2.65, ymax=3.1,
+\nextgroupplot[ymode=log, ylabel={training FLOPs in 48 h}, ymin=1e19, ymax=1e20,
   legend style={font=\scriptsize, draw=none, at={(0.5,1.02)}, anchor=south, legend columns=2}]
-\addplot[very thick, sysblue] coordinates {(2.787e+07,3.21) (3.185e+07,3.166) (3.965e+07,3.098) (4.461e+07,3.066) (5.312e+07,3.019) (7.078e+07,2.952) (8.36e+07,2.918) (9.196e+07,2.901) (1.053e+08,2.876) (1.327e+08,2.841) (1.518e+08,2.822) (1.644e+08,2.813) (1.979e+08,2.793) (2.389e+08,2.776) (2.673e+08,2.767) (3.133e+08,2.757) (3.685e+08,2.749) (4.298e+08,2.745) (5.379e+08,2.741) (6.164e+08,2.741) (6.955e+08,2.743) (8.503e+08,2.748) (1.017e+09,2.756) (1.184e+09,2.765) (1.392e+09,2.777) (1.622e+09,2.79) (1.847e+09,2.804) (2.195e+09,2.823) (2.522e+09,2.841) (2.948e+09,2.863)};
-\addplot[very thick, napkin, dashed] coordinates {(2.787e+07,3.186) (3.185e+07,3.142) (3.965e+07,3.076) (4.461e+07,3.043) (5.312e+07,2.999) (7.078e+07,2.934) (8.36e+07,2.901) (9.196e+07,2.884) (1.053e+08,2.861) (1.327e+08,2.827) (1.518e+08,2.81) (1.644e+08,2.801) (1.979e+08,2.782) (2.389e+08,2.766) (2.673e+08,2.759) (3.133e+08,2.751) (3.685e+08,2.744) (4.298e+08,2.741) (5.379e+08,2.74) (6.164e+08,2.741) (6.955e+08,2.744) (8.503e+08,2.752) (1.017e+09,2.762) (1.184e+09,2.773) (1.392e+09,2.787) (1.622e+09,2.802) (1.847e+09,2.817) (2.195e+09,2.839) (2.522e+09,2.859) (2.948e+09,2.884)};
-\legend{48 h wall-clock, fixed $5.6{\times}10^{19}$ FLOPs}
-\nextgroupplot[ylabel={MFU}, ymin=0.2, ymax=0.4]
-\addplot[very thick, labpurple] coordinates {(2.787e+07,0.24) (3.185e+07,0.24) (3.965e+07,0.25) (4.461e+07,0.25) (5.312e+07,0.2588) (7.078e+07,0.2667) (8.36e+07,0.2737) (9.196e+07,0.2737) (1.053e+08,0.28) (1.327e+08,0.2857) (1.518e+08,0.2909) (1.644e+08,0.2909) (1.979e+08,0.2957) (2.389e+08,0.3) (2.673e+08,0.304) (3.133e+08,0.3077) (3.685e+08,0.3111) (4.298e+08,0.3143) (5.379e+08,0.32) (6.164e+08,0.3226) (6.955e+08,0.325) (8.503e+08,0.3294) (1.017e+09,0.3333) (1.184e+09,0.3351) (1.392e+09,0.3385) (1.622e+09,0.3415) (1.847e+09,0.3429) (2.195e+09,0.3455) (2.522e+09,0.3478) (2.948e+09,0.35)};
+\addplot[very thick, sysblue] coordinates {(8.847e+05,2.304e+19) (1.327e+06,2.304e+19) (1.327e+06,2.304e+19) (2.408e+06,2.764e+19) (2.408e+06,2.764e+19) (2.408e+06,2.764e+19) (3.211e+06,2.764e+19) (4.833e+06,3.141e+19) (4.833e+06,3.141e+19) (7.078e+06,3.455e+19) (8.847e+06,3.455e+19) (8.847e+06,3.455e+19) (1.219e+07,3.721e+19) (1.462e+07,3.721e+19) (1.868e+07,3.949e+19) (2.179e+07,3.949e+19) (2.787e+07,4.146e+19) (3.185e+07,4.146e+19) (3.965e+07,4.319e+19) (5.312e+07,4.472e+19) (6.37e+07,4.607e+19) (7.078e+07,4.607e+19) (9.196e+07,4.728e+19) (1.053e+08,4.837e+19) (1.327e+08,4.936e+19) (1.644e+08,5.026e+19) (1.979e+08,5.108e+19) (2.673e+08,5.252e+19) (3.133e+08,5.316e+19) (3.685e+08,5.375e+19) (4.663e+08,5.481e+19) (5.662e+08,5.528e+19) (6.955e+08,5.615e+19) (8.889e+08,5.691e+19) (1.062e+09,5.759e+19) (1.305e+09,5.819e+19) (1.595e+09,5.874e+19) (2.023e+09,5.946e+19) (2.392e+09,5.989e+19) (2.948e+09,6.047e+19)};
+\addplot[thick, napkin, dashed, domain=1e6:3e9, samples=2] {7.774e+19};
+\legend{achievable, at saturated MFU}
+\nextgroupplot[ylabel={MFU}, ymin=0, ymax=0.45]
+\addplot[very thick, labpurple] coordinates {(8.847e+05,0.1333) (1.327e+06,0.1333) (1.327e+06,0.1333) (2.408e+06,0.16) (2.408e+06,0.16) (2.408e+06,0.16) (3.211e+06,0.16) (4.833e+06,0.1818) (4.833e+06,0.1818) (7.078e+06,0.2) (8.847e+06,0.2) (8.847e+06,0.2) (1.219e+07,0.2154) (1.462e+07,0.2154) (1.868e+07,0.2286) (2.179e+07,0.2286) (2.787e+07,0.24) (3.185e+07,0.24) (3.965e+07,0.25) (5.312e+07,0.2588) (6.37e+07,0.2667) (7.078e+07,0.2667) (9.196e+07,0.2737) (1.053e+08,0.28) (1.327e+08,0.2857) (1.644e+08,0.2909) (1.979e+08,0.2957) (2.673e+08,0.304) (3.133e+08,0.3077) (3.685e+08,0.3111) (4.663e+08,0.3172) (5.662e+08,0.32) (6.955e+08,0.325) (8.889e+08,0.3294) (1.062e+09,0.3333) (1.305e+09,0.3368) (1.595e+09,0.34) (2.023e+09,0.3442) (2.392e+09,0.3467) (2.948e+09,0.35)};
 \end{groupplot}
 \end{tikzpicture}
-\caption{Left: loss of the synthetic ground truth when each size gets either a fixed 48-hour
-slot (blue) or a fixed FLOP budget equal to what the oracle-best config spends in 48 hours (orange,
-dashed). Right: the MFU model behind the difference. Small models are cheap in FLOPs but expensive
-in time, so under a wall-clock budget their curve rises faster to the left. Simulated, not measured.}
+\caption{The synthetic hardware model. Left: training FLOPs each model size can actually spend
+in a 48-hour slot (blue) versus what a constant, saturated MFU would give (orange, dashed).
+Right: the MFU curve behind it. Narrow models lose up to about half their FLOPs to low MFU, so a
+wall-clock budget penalises them relative to a FLOP budget. Near this study's optimum
+(about $5\times10^8$ parameters) the curve has flattened, and the wall-clock and FLOP optima almost
+coincide; for smaller budgets they do not. Simulated, not measured.}
 \label{fig:scalinglaws:wall}
 \end{figure}
 
@@ -879,6 +882,45 @@ method 3. Predict the loss from the fit, then sanity-check it against the trend 
 $L_{\text{opt}}(C)$.
 \end{napkinmath}
 
+\subsection{Reading a study log}\label{sec:scalinglaws:log}
+
+\Cref{lst:scalinglaws:log} is the output of the reference solution of Lab~12 on the default
+synthetic service: 12 simulated hours of fitting budget, a 48-hour target. Read it the way you
+would read a real study.
+
+\begin{lstlisting}[style=plain, caption={Output of \code{run.py study} (synthetic service, seed 0; numbers abridged).},label={lst:scalinglaws:log}]
+lr law      : lr*(N) = 0.341 * N^-0.255
+fit         : E=1.769 A=513.8 B=493.2 alpha=0.356 beta=0.290
+allocation  : N_opt ~ C^0.407   D_opt ~ C^0.749   L_opt ~ C^-0.116
+final config: L=23 d=1472 heads=23 d_ff=3904 batch=512 lr=1.98e-3
+              tokens=1.46e10  (N_ne = 0.60e9, ~24 tokens/param)
+predicted   : 2.7509   (after verification residual)
+budget      : used 32,925 s of 43,200 s
+score       : true 2.7453   oracle 2.7412   regret 0.0041   pred. error +0.0056
+\end{lstlisting}
+
+Four things to notice. The learning-rate law falls with size (exponent $-0.25$; the hidden truth
+uses $-0.30$), so a single LR for all sizes would have been wrong at both ends. The parametric fit
+recovers the hidden exponents to within $0.01$ ($0.35$ and $0.29$ in the truth), while the
+IsoFLOP allocation exponents do not add to one ($0.41+0.75$). That gap is the accounting effect
+of \cref{sec:scalinglaws:accounting}: $D$ was computed with the full FLOP count, including the LM
+head and attention, while $N$ is non-embedding, so the two power laws are fits of different
+identities. The choice itself is excellent (regret $0.004$ nats). Finally, before the
+verification run the same fit predicted $2.711$, an error of $-0.034$. One run at the largest
+affordable scale cut that error by a factor of six, because $E$ was the least constrained
+parameter of the fit and the verification residual corrects it directly. A study without a
+verification run reports a loss it has never seen.
+
+\begin{pitfall}[Five ways scaling studies go wrong]
+\begin{enumerate}
+\item The grid does not bracket the minimum at the largest budget, which is the one that matters most.
+\item One learning rate is used for every size.
+\item Intermediate (mid-schedule) losses are fitted as if they were finished runs.
+\item $ and $ use inconsistent definitions across runs or between the fit and the final config.
+\item The final prediction is reported with no interval and no verification.
+\end{enumerate}
+\end{pitfall}
+
 % ======================================================================
 \section{Running real sweeps}\label{sec:scalinglaws:running}
 
@@ -898,7 +940,7 @@ Three rules make this robust. \textbf{Generate configs from code.} The planner o
 \cref{lst:scalinglaws:plan} writes the files, and its output is versioned with the study.
 \textbf{Make submission idempotent.} Key every run by a hash of its canonical config, and refuse to
 resubmit a key that is already in the ledger. A crashed notebook or a re-run cell then costs
-nothing (the \code{Ledger} in \code{code/projects/a3/ledger.py} does exactly this).
+nothing (the \code{Ledger} in \code{code/projects/p3\_scaling/ledger.py} does exactly this).
 \textbf{Derive all analysis from the ledger}, never from a notebook's in-memory state.
 
 On a Slurm cluster, an IsoFLOP grid is a natural job array: one array per budget, one task per
@@ -1011,7 +1053,7 @@ with the factor that minimises calendar time when at most $R/(s\hat t)$ runs can
 \end{exercise}
 
 \begin{exercise}[Replicate the study]
-Run \code{python labs/lab12\_scaling\_laws/run.py replicate --seeds 10}. Report the
+Run Lab 12's \code{run.py replicate --seeds 10}. Report the
 distribution of regret and prediction error. Which stage of your plan would you change to
 reduce the spread, and what would it cost?
 \end{exercise}
@@ -1046,8 +1088,9 @@ The service is \code{llmsys.scaling.SyntheticTrainingAPI}; it is provided, not a
 \item \ident{fit_lr_optimum}, \ident{fit_lr_scaling}: LR basin vertex and $\text{lr}^*(N)$.
 \item \ident{bootstrap_ci}: percentile intervals for any fitted quantity.
 \item \ident{choose_final_config}: best config that finishes in the time limit.
-\item \ident{run_study}: the staged plan of \cref{sec:scalinglaws:stages}, within budget, ending
-      with \code{api.submit\_final}. The test requires low regret against the oracle.
+\item \ident{run_study}: the staged plan of \cref{sec:scalinglaws:stages}, within budget,
+      including a verification run whose residual corrects the loss prediction, ending with
+      \code{api.submit\_final}. The test requires low regret against the oracle.
 \end{enumerate}
 
 \labsection{Measurements}

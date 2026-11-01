@@ -52,7 +52,7 @@ uses them to accept or reject revisions; stage 8 is the systems view.}
 
 % ======================================================================
 \section{Scoring and iteratively improving responses}\label{sec:refine:overview}
-\covers{RM 5.1}
+
 
 \Cref{fig:refine:three} places self-refinement next to the two methods we already have. They differ
 in the \emph{axis} along which they spend extra compute: chain-of-thought spends it on a longer
@@ -107,7 +107,7 @@ probabilities, external verifiers (\cref{ch:eval}), and learned reward models or
 
 % ======================================================================
 \section{Loading a model whose logits we can see}\label{sec:refine:load}
-\covers{RM 5.2}
+
 
 We load Qwen3-0.6B exactly as in \cref{sec:eval:load}. One requirement is new: the confidence scorers
 need the model's full next-token distributions, not just sampled text. With local weights that is
@@ -126,7 +126,7 @@ tokens, as ours do, keeps them deployable.
 
 % ======================================================================
 \section{A rule-based score}\label{sec:refine:rule}
-\covers{RM 5.3}
+
 
 The simplest scorer encodes preferences as rules. For math responses we prefer, in this order, a
 response with a final boxed answer, then one that at least contains a number; and among those, shorter
@@ -170,7 +170,7 @@ but they should never be the only signal of quality.
 
 % ======================================================================
 \section{Token probabilities}\label{sec:refine:tokprob}
-\covers{RM 5.4}
+
 
 A more informative signal is the model's own \emph{confidence}: how probable does the model find
 the tokens of a given answer? Recall from \cref{sec:scaling:select} that at every position the model
@@ -253,7 +253,7 @@ services that batch many candidates together.
 
 % ======================================================================
 \section{From probabilities to log-probabilities}\label{sec:refine:logprob}
-\covers{RM 5.5}
+
 
 Multiplying hundreds of probabilities in \cref{eq:refine:chain} quickly produces numbers too small to
 represent. We work with logarithms instead: the log of a product is a sum,
@@ -326,7 +326,7 @@ cross-entropy'' kernels).
 
 % ======================================================================
 \section{Scoring confidence with log-probabilities}\label{sec:refine:confidence}
-\covers{RM 5.6}
+
 
 Two adjustments turn the joint log-probability into a usable confidence score.
 
@@ -439,7 +439,7 @@ H100 at a realistic 50\% of peak --- small next to generating those rollouts, bu
 
 % ======================================================================
 \section{Self-refinement through iterative feedback}\label{sec:refine:selfrefine}
-\covers{RM 5.7}
+
 
 Self-refinement (Madaan et al., 2023, ``Self-Refine'') uses one model in three roles, each a plain
 generation call with a different prompt (\cref{fig:refine:loop}):
@@ -505,7 +505,7 @@ signal you can afford.
 
 % ======================================================================
 \section{Coding the refinement loop}\label{sec:refine:loopcode}
-\covers{RM 5.8}
+
 
 \Cref{lst:refine:loop} packages the procedure into a function with an iteration count and an optional
 scorer. Without a scorer every revision is accepted. With one, a revision replaces the current answer

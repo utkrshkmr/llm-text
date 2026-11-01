@@ -1,6 +1,7 @@
 torch>=2.3
 numpy
 tiktoken
+regex
 tokenizers
 safetensors
 huggingface_hub

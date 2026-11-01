@@ -1,4 +1,4 @@
-"""Pre-flight check for an RL-on-LLMs project (e.g. the CS336 A5 setup): run it on the
+"""Pre-flight check for an RL-on-LLMs project (e.g. Project 5's two-GPU setup): run it on the
 machine that will do the work *before* burning GPU hours.
 
     python code/projects/a5/env_check.py --need-gpus 2 --min-gpu-gb 40

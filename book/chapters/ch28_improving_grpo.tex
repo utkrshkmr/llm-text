@@ -48,7 +48,7 @@ survey the family of algorithms that grew out of GRPO (5--6).}
 \end{figure}
 
 % ======================================================================
-\section{From a working loop to a robust one}\label{sec:grpo2:intro}\covers{RM 7.1}
+\section{From a working loop to a robust one}\label{sec:grpo2:intro}
 
 It helps to name what we implemented in \cref{ch:grpo}. With summed log-probabilities, no
 ratio, no clipping and no KL, the update is REINFORCE with a group-normalised baseline. Its
@@ -61,9 +61,9 @@ address the first two weaknesses and make the third (reusing rollouts) safe. The
 chapter adds them one at a time and watches what changes.
 
 % ======================================================================
-\section{Tracking GRPO performance metrics}\label{sec:grpo2:metrics}\covers{RM 7.2}
+\section{Tracking GRPO performance metrics}\label{sec:grpo2:metrics}
 
-\subsection{Executing a training run}\label{sec:grpo2:exec}\covers{RM 7.2.1}
+\subsection{Executing a training run}\label{sec:grpo2:exec}
 
 Long RL runs belong in scripts, not notebooks. A script survives a dropped SSH session
 (run it under \code{tmux} or a job scheduler), writes structured logs that can be plotted
@@ -93,7 +93,7 @@ generated per second, tokens trained per second, sampler idle fraction). An RL r
 learns correctly but uses its GPUs at 15\% is a bug too, just a more expensive one.
 \end{systemslens}
 
-\subsection{Inspecting the run}\label{sec:grpo2:inspect}\covers{RM 7.2.2}
+\subsection{Inspecting the run}\label{sec:grpo2:inspect}
 
 RL metrics are noisy step to step, so we always plot the raw series faintly and a trailing
 moving average on top:
@@ -130,10 +130,10 @@ length can mean the policy found a shortcut.
 expensive (\cref{ch:eval}). A reward that keeps rising while held-out accuracy falls is the
 signature of reward hacking or overfitting to the training prompts.
 \end{itemize}
-In the source book's MATH runs of plain GRPO on Qwen3-0.6B, reward and held-out accuracy
-both rose for roughly the first 50 steps. Over the following hundreds of steps the loss
-began to spike more often, response length first grew and then fell, and MATH-500
-accuracy declined from its peak, although it was measured on the same 500 problems
+A typical long run of plain GRPO on Qwen3-0.6B with MATH looks like this: reward and held-out
+accuracy both rise for the first few dozen steps. Over the following hundreds of steps the loss
+begins to spike more often, response length first grows and then falls, and MATH-500
+accuracy declines from its peak, even though it is measured on the same 500 problems
 throughout. A decline on a fixed evaluation set cannot be explained by later training
 prompts being harder. It points at the algorithm.
 
@@ -148,13 +148,13 @@ bars ($\pm$10 points at 95\% confidence for accuracies near 50\%).
 \end{napkinmath}
 
 % ======================================================================
-\section{Tracking more advanced metrics}\label{sec:grpo2:advanced}\covers{RM 7.3}
+\section{Tracking more advanced metrics}\label{sec:grpo2:advanced}
 
 Two quantities computed inside the GRPO step are worth logging even though they never
 appear in the loss: summary statistics of the advantages, and the entropy of the policy's
 next-token distributions.
 
-\subsection{Advantage statistics}\label{sec:grpo2:advstats}\covers{RM 7.3.1}
+\subsection{Advantage statistics}\label{sec:grpo2:advstats}
 
 \begin{lstlisting}[caption={Advantage statistics.},label={lst:grpo2:advstats}]
 def advantage_stats(rewards):
@@ -195,7 +195,7 @@ DAPO's dynamic sampling) matters as much as $G$.}
 \label{fig:grpo2:zerovar}
 \end{figure}
 
-\subsection{Entropy}\label{sec:grpo2:entropy}\covers{RM 7.3.2}
+\subsection{Entropy}\label{sec:grpo2:entropy}
 
 Entropy measures how spread out the policy's next-token distribution is,
 \begin{equation}
@@ -262,7 +262,7 @@ the temporary to \code{chunk}$\times|\mathcal V|$), under \code{no\_grad}, and o
 subset of positions for entropy, which is fine for a metric.
 \end{systemslens}
 
-\subsection{Plotting the additional metrics}\label{sec:grpo2:plotadv}\covers{RM 7.3.3}
+\subsection{Plotting the additional metrics}\label{sec:grpo2:plotadv}
 
 \Cref{fig:grpo2:baseline} shows the advanced metrics of our baseline run (\cref{ch:grpo}'s
 algorithm, seed 0). The average advantage stays at zero throughout, as it must. The other
@@ -304,9 +304,9 @@ by all 8 rollouts, fewer groups carry signal. Entropy falls as the policy sharpe
 \end{figure}
 
 % ======================================================================
-\section{Stabilising updates with clipped policy ratios}\label{sec:grpo2:clip}\covers{RM 7.4}
+\section{Stabilising updates with clipped policy ratios}\label{sec:grpo2:clip}
 
-\subsection{Where the ratio comes from}\label{sec:grpo2:ratio}\covers{RM 7.4.1}
+\subsection{Where the ratio comes from}\label{sec:grpo2:ratio}
 
 The policy-gradient estimator of \cref{eq:grpo:pg} assumes the rollouts were sampled from the
 \emph{current} policy $\pitheta$. After one optimiser step that is no longer true: the
@@ -423,7 +423,7 @@ means clipping is idle and $\varepsilon$ or the reuse can be increased. One abov
 means most of the batch is being ignored and updates are too aggressive.
 \end{keyidea}
 
-\subsection{Training with clipped ratios: three snapshots of one policy}\label{sec:grpo2:clipstrain}\covers{RM 7.4.2}
+\subsection{Training with clipped ratios: three snapshots of one policy}\label{sec:grpo2:clipstrain}
 
 Clipping only does something if the same rollouts are seen by more than one optimiser step,
 so implementing it forces an explicit choice about \emph{which version} of the policy each
@@ -533,7 +533,7 @@ falls towards zero and every group becomes uniformly wrong. Clipping bounds the 
 \end{figure}
 
 % ======================================================================
-\section{Controlling drift with a KL penalty}\label{sec:grpo2:kl}\covers{RM 7.5}
+\section{Controlling drift with a KL penalty}\label{sec:grpo2:kl}
 
 If you know classical RL you will recognise what we have so far. The update of \cref{ch:grpo}
 is REINFORCE with a group baseline, and with the ratio and clip it becomes PPO without a
@@ -550,7 +550,7 @@ protection against reward hacking, keeping the policy in the region where the re
 trustworthy. With verifiable rewards there is no reward model to fool, which is one reason
 recent work questions the term (below).
 
-\subsection{Implementing the KL term}\label{sec:grpo2:klimpl}\covers{RM 7.5.1}
+\subsection{Implementing the KL term}\label{sec:grpo2:klimpl}
 
 We can only evaluate the KL on the samples we have, so we need a Monte Carlo
 \emph{estimator}. Writing $r=\piref(y_t)/\pitheta(y_t)$ for a sampled token, three estimators
@@ -584,7 +584,7 @@ deviations are penalised gently.}
 \label{fig:grpo2:klest}
 \end{figure}
 
-The source book's first implementation, and our \code{kl\_kind="seq\_simple"}, is the
+The most direct implementation, our \code{kl\_kind="seq\_simple"}, is the
 simplest possible \emph{sequence-level} surrogate: $\beta\cdot\operatorname{mean}_i\big(\log\pitheta(y_i)-\log\piref(y_i)\big)$
 with summed log-probabilities, i.e.\ $k_1$ summed over the sequence. It needs one extra
 forward pass of a frozen model copy per batch:
@@ -614,10 +614,10 @@ training step's $6N$. For large models, reference log-probs are often computed b
 disabled.
 \end{napkinmath}
 
-\subsection{Training with a KL term}\label{sec:grpo2:kltrain}\covers{RM 7.5.2}
+\subsection{Training with a KL term}\label{sec:grpo2:kltrain}
 
-The source book reports an instructive failure when this simple surrogate is added to a long
-GRPO run on Qwen3-0.6B ($\beta=0.02$). Accuracy first improves as usual. Then the loss explodes,
+This simple surrogate can fail instructively when it is added to a long GRPO run on a small
+model such as Qwen3-0.6B (with $\beta$ around $0.02$). Accuracy first improves as usual. Then the loss explodes,
 rewards collapse to zero, MATH-500 accuracy follows, and inspecting the samples shows random
 code-like token salad. Understanding \emph{why} is more useful than the fix:
 \begin{enumerate}
@@ -634,8 +634,7 @@ which flattens the distributions and raises entropy. That feeds more garbage int
 batch, a self-reinforcing collapse.
 \end{enumerate}
 
-Several remedies follow from that diagnosis: a much smaller $\beta$ (not enough on its own,
-per the source book's experiments); length-normalised (per-token) log-probabilities; the
+Several remedies follow from that diagnosis: a much smaller $\beta$ (often not enough on its own); length-normalised (per-token) log-probabilities; the
 unbiased $k_3$ estimator computed per token; the importance-weighted form of DeepSeek-V3.2,
 $\beta\,\E_{\piold}[\rho\cdot(\log\pitheta-\log\piref)]$, which corrects for sampling from
 $\piold$; or a small auxiliary reward (\cref{sec:grpo2:format}) so the policy term never
@@ -659,7 +658,7 @@ another.
 
 
 % ======================================================================
-\section{Adding an explicit format reward}\label{sec:grpo2:format}\covers{RM 7.6}
+\section{Adding an explicit format reward}\label{sec:grpo2:format}
 
 So far the only reward has been correctness, with the \verb|\boxed{}| requirement as an
 implicit format check. That is sufficient for training reasoning models. Most recipes also add
@@ -668,7 +667,7 @@ implicit format check. That is sufficient for training reasoning models. Most re
 reward asks the model to put its reasoning between \verb|<think>| and \verb|</think>| and the
 final answer after it.
 
-\subsection{Thinking tokens}\label{sec:grpo2:think}\covers{RM 7.6.1}
+\subsection{Thinking tokens}\label{sec:grpo2:think}
 
 \verb|<think>| and \verb|</think>| are ordinary vocabulary entries that delimit the
 reasoning. They are useful because they let a serving system hide, truncate, or budget the
@@ -735,20 +734,20 @@ format credit on correctness removes that incentive.}
 \label{fig:grpo2:formatfig}
 \end{figure}
 
-\subsection{Training a model to emit thinking tokens}\label{sec:grpo2:formattrain}\covers{RM 7.6.2}
+\subsection{Training a model to emit thinking tokens}\label{sec:grpo2:formattrain}
 
 Two practical caveats come first. You cannot reasonably RL-train a model to emit tokens it
 has never produced. If the probability of \verb|<think>| is $10^{-9}$, no rollout will contain it,
 the format reward is always 0 and its gradient is always zero. Format rewards therefore
 \emph{reinforce} a behaviour the model already has at some rate, from SFT or from its reasoning
-variant's training. The source book accordingly applies its format-reward experiment to the
+variant's training. Format-reward experiments are therefore best run on the
 Qwen3 reasoning variant, not the base model.
 
 Second, every auxiliary reward is a new way to be rewarded without being right. With weight 1,
 a well-formatted wrong answer earns as much as an unformatted right one
-(\cref{fig:grpo2:formatfig}). In the source book's run on the reasoning variant, the format
-reward climbed to near-saturation while MATH-500 accuracy fell and responses got shorter: the
-model learned that the tags were the cheapest reward on offer. Three fixes are standard:
+(\cref{fig:grpo2:formatfig}). A run of this kind on the reasoning variant can show the failure clearly: the format
+reward climbs to near-saturation while MATH-500 accuracy falls and responses get shorter: the
+model learns that the tags were the cheapest reward on offer. Three fixes are standard:
 \begin{itemize}
 \item \textbf{Down-weight} the auxiliary reward (e.g.\ $w=0.1$) so it breaks ties without
 competing with correctness.
@@ -775,7 +774,7 @@ because the combined signal is a sum of z-scores, a reminder to log raw componen
 whatever the optimiser sees.
 
 
-\subsection{More GRPO modifications}\label{sec:grpo2:more}\covers{RM 7.6.3}
+\subsection{More GRPO modifications}\label{sec:grpo2:more}
 
 We now have the original GRPO objective in full: clipped ratios, a KL term and composite
 rewards. Since DeepSeek-R1, a stream of papers has modified almost every term of

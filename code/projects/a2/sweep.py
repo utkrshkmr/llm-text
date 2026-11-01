@@ -16,6 +16,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -29,7 +30,9 @@ def expand(grid: Dict[str, list]) -> Iterator[Dict[str, object]]:
 
 
 def render(template: List[str], setting: Dict[str, object]) -> List[str]:
-    return [t.format(**setting) for t in template]
+    """Substitute ``{name}`` for grid keys only (other braces, e.g. in inline code, survive)."""
+    sub = lambda m: str(setting[m.group(1)]) if m.group(1) in setting else m.group(0)
+    return [re.sub(r"\{(\w+)\}", sub, t) for t in template]
 
 
 def done_settings(path: str) -> set:

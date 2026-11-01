@@ -1,4 +1,4 @@
-"""Tests for the generic A3 infrastructure (mock service + client + ledger). No network."""
+"""Tests for the Project 3 infrastructure (training service + client + ledger). No network."""
 import os
 import sys
 import threading
@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ledger import HTTPClient, Ledger  # noqa: E402
-from mock_api_server import serve  # noqa: E402
+from training_service import serve  # noqa: E402
 
 
 def body(layers=4, hidden=256, tokens=512 * 64 * 200, lr=3e-3, max_rt=3600.0):
@@ -77,3 +77,16 @@ def test_timeout_is_charged_in_full(service):
     assert e["status"]["status_type"] == "failed"
     assert e["status"]["reason"]["reason"] == "timeout"
     assert e["status"]["used_runtime_seconds"] == pytest.approx(60.0)
+
+
+def test_score_and_randomised_truth(service):
+    url, svc = service
+    client = HTTPClient(url, "00000000", backoff=0.01)
+    with pytest.raises(RuntimeError, match="400"):
+        client._call("GET", "/score?hours=2")
+    client.final_submission({"training_config": body(), "predicted_final_loss": 3.0})
+    sc = client._call("GET", "/score?hours=2")
+    assert sc["regret"] >= 0 and "oracle_loss" in sc
+    from llmsys.scaling import GroundTruth
+    a, b = GroundTruth.sample(1), GroundTruth.sample(2)
+    assert a != b and a == GroundTruth.sample(1)

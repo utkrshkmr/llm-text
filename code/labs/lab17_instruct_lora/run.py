@@ -2,8 +2,8 @@
 
 Run on your own machine (needs internet once for weights/data; GPU recommended):
   huggingface-cli download gpt2-medium --local-dir gpt2-medium
-  # an Alpaca-style list of {"instruction","input","output"} records, e.g. the ~1.1k-example
-  # instruction-data.json used by the LLMs-from-scratch repository, or any Alpaca subset.
+  # an Alpaca-style list of {"instruction","input","output"} records, e.g. a ~1k-example
+  # subset of the Alpaca data (Taori et al., 2023) saved as instruction-data.json.
   python run.py --data instruction-data.json --gpt2-dir gpt2-medium --epochs 2
   python run.py --data instruction-data.json --gpt2-dir gpt2-medium --lora-rank 16 --lr 3e-4
   ollama serve & ollama pull llama3

@@ -30,8 +30,8 @@ def request_key(body: dict) -> str:
 class HTTPClient:
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None,
                  retries: int = 4, backoff: float = 0.5, timeout: float = 30.0):
-        self.base = (base_url or os.environ.get("A3_BASE_URL", "http://127.0.0.1:8765")).rstrip("/")
-        self.key = api_key if api_key is not None else os.environ.get("A3_API_KEY", "")
+        self.base = (base_url or os.environ.get("TRAIN_API_URL", "http://127.0.0.1:8765")).rstrip("/")
+        self.key = api_key if api_key is not None else os.environ.get("TRAIN_API_KEY", "")
         self.retries, self.backoff, self.timeout = retries, backoff, timeout
 
     def _call(self, method: str, path: str, body: Optional[dict] = None):

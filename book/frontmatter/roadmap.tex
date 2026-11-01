@@ -1,5 +1,5 @@
-\chapter*{Roadmap and Coverage Map}
-\addcontentsline{toc}{chapter}{Roadmap and Coverage Map}
+\chapter*{Roadmap}
+\addcontentsline{toc}{chapter}{Roadmap}
 \markboth{Roadmap}{Roadmap}
 
 \begin{figure}[h]
@@ -78,14 +78,14 @@
 \node[reason] (nVI10) at (10.90,-8.00) {31 Alignment \& VLMs};
 \draw[arr] (nVI9) -- (nVI10);
 \node[partlbl] at (-0.2,-9.22) {Part VII\\Projects};
-\node[proj] (nVII0) at (1.10,-9.22) {32 A1 Basics};
-\node[proj] (nVII1) at (3.55,-9.22) {33 A2 Systems};
+\node[proj] (nVII0) at (1.10,-9.22) {32 LM from scratch};
+\node[proj] (nVII1) at (3.55,-9.22) {33 Fast \& distributed};
 \draw[arr] (nVII0) -- (nVII1);
-\node[proj] (nVII2) at (6.00,-9.22) {34 A3 Scaling};
+\node[proj] (nVII2) at (6.00,-9.22) {34 Scaling study};
 \draw[arr] (nVII1) -- (nVII2);
-\node[proj] (nVII3) at (8.45,-9.22) {35 A4 Data};
+\node[proj] (nVII3) at (8.45,-9.22) {35 Web data};
 \draw[arr] (nVII2) -- (nVII3);
-\node[proj] (nVII4) at (10.90,-9.22) {36 A5 Alignment};
+\node[proj] (nVII4) at (10.90,-9.22) {36 Reasoning RL};
 \draw[arr] (nVII3) -- (nVII4);
 \node[partlbl] at (-0.2,-10.44) {Appendices};
 \node[found] (nApp0) at (1.10,-10.44) {A Triton};
@@ -95,115 +95,9 @@
 \node[found] (nApp4) at (10.90,-10.44) {E Solutions};
 \end{tikzpicture}}
 \caption{How the book fits together. Each row is a part of the book, read left to right. Part~VII
-turns the material into five end-to-end projects modelled on Stanford CS336's assignments, and
+turns the material into five end-to-end capstone projects, and
 Chapter~29 combines the serving engine of Part~V with the distributed trainers of Part~III to run
 RL at scale.}
 \label{fig:roadmap:book}
 \end{figure}
 
-\section*{Coverage of the source books}
-
-The table below maps every chapter and appendix section of the two source books to the place
-where this book covers it. \textsf{LLM} is \emph{Build a Large Language Model (From Scratch)}
-(Raschka, 2024); \textsf{RM} is \emph{Build a Reasoning Model (From Scratch)} (Raschka). The
-material is reorganised so that overlapping topics appear once. For example, LLM~5.3 (temperature
-and top-$k$) and RM~4.4--4.5 (temperature and top-$p$) are both developed in
-\cref{ch:pretrain,ch:scaling}, and each later chapter builds on the earlier one. The margin tags
-inside the chapters give the precise locations.
-
-{\small
-\begin{longtable}{@{}p{0.11\linewidth}p{0.52\linewidth}p{0.31\linewidth}@{}}
-\toprule
-\textbf{Source} & \textbf{Topic} & \textbf{Covered in}\\
-\midrule\endhead
-\multicolumn{3}{@{}l}{\emph{Build a Large Language Model (From Scratch)}}\\
-LLM 1.1--1.7 & What an LLM is, applications, stages, transformer, datasets, GPT, roadmap & \cref{ch:landscape}\\
-LLM 2.1--2.8 & Embeddings, tokenisation, token IDs, special tokens, BPE, sliding-window sampling, token \& positional embeddings & \cref{ch:text}\\
-LLM 3.1--3.6 & Long-sequence problem, attention, simplified and trainable self-attention, causal masking, dropout, multi-head attention & \cref{ch:attention}\\
-LLM 4.1--4.7 & GPT architecture, LayerNorm, GELU MLP, shortcuts, transformer block, GPT model, generation & \cref{ch:gpt}\\
-LLM 5.1--5.2 & Generation loss, cross entropy, perplexity, train/val losses, training loop & \cref{ch:pretrain}\\
-LLM 5.3 & Temperature, top-$k$, modified generation function & \cref{ch:pretrain} (and \cref{ch:scaling})\\
-LLM 5.4--5.5 & Saving/loading weights, loading OpenAI GPT-2 weights & \cref{ch:pretrain}\\
-LLM 6.1--6.8 & Fine-tuning categories, spam dataset, loaders, classification head, loss/accuracy, training, inference & \cref{ch:classify}\\
-LLM 7.1--7.9 & Instruction data, prompt format, batching/collate, loaders, fine-tuning, response extraction, LLM-judge evaluation & \cref{ch:instruct}\\
-LLM App.\ A & PyTorch: tensors, autograd, models, data loaders, training loop, save/load, GPUs, DDP & \cref{ch:pytorch}\\
-LLM App.\ B & References and further reading & \cref{app:refs}\\
-LLM App.\ C & Exercise solutions & \cref{app:solutions} (our own exercises)\\
-LLM App.\ D & Warmup, cosine decay, gradient clipping, modified training function & \cref{ch:pretrain}\\
-LLM App.\ E & LoRA: idea, dataset, initialisation, parameter-efficient fine-tuning & \cref{ch:instruct}\\
-\midrule
-\multicolumn{3}{@{}l}{\emph{Build a Reasoning Model (From Scratch)}}\\
-RM 1.1--1.7 & Defining reasoning, training pipeline, training vs inference techniques, pattern matching vs logic, roadmap & \cref{ch:landscape}\\
-RM 2.1--2.9 & Text generation, environment, hardware, inputs, loading models, sequential generation, KV cache, compilation & \cref{ch:inference}\\
-RM 3.1--3.9 & Math verifier, answer extraction, normalisation, symbolic equivalence, grading, MATH-500 evaluation & \cref{ch:eval}\\
-RM 4.1--4.6 & Inference-time scaling, chain-of-thought, temperature, top-$p$, self-consistency & \cref{ch:scaling}\\
-RM 5.1--5.8 & Scoring, rule-based scores, token probabilities, log-probs, confidence, self-refinement & \cref{ch:refine}\\
-RM 6.1--6.12 & RLHF vs RLVR, GRPO, rollouts, rewards, advantages, log-probs, loss, training loop, checkpoints & \cref{ch:grpo}\\
-RM 7.1--7.6 & Metrics, advantage/entropy tracking, clipped ratios, KL term, format reward, GRPO variants & \cref{ch:grpo2}\\
-RM 8.1--8.10 & Distillation data, formatting, filtering, training, evaluation, future directions & \cref{ch:distill}\\
-RM App.\ A & References and further reading & \cref{app:refs}\\
-RM App.\ B & Exercise solutions & \cref{app:solutions} (our own exercises)\\
-RM App.\ C & Qwen3 source code: RMSNorm, FFN, RoPE, GQA, block, model, KV cache, tokenizer & \cref{ch:modern}\\
-RM App.\ D & Larger dense Qwen3 models, checkpoints, reasoning variants & \cref{ch:modern}\\
-RM App.\ E & Batching: padding, masks, batched evaluation/sampling/rollouts/distillation & \cref{ch:serving}\\
-RM App.\ F & Evaluation methods: answer-choice accuracy, verifiers, leaderboards, LLM-as-a-judge & \cref{ch:eval}\\
-RM App.\ G & Chat interface: single-turn and multi-turn & \cref{ch:efficient}\\
-\midrule
-\multicolumn{3}{@{}l}{\emph{New systems material (not in either source book)}}\\
---- & GPU architecture, roofline, numerics, profiling & \cref{ch:pytorch}\\
---- & FlashAttention, data pipelines, activation memory, MoE, context extension & \cref{ch:text,ch:attention,ch:gpt,ch:modern}\\
---- & Mixed precision, checkpointing, scaling laws, MFU & \cref{ch:pretrain}\\
---- & Collectives, DDP, ZeRO/FSDP, tensor/pipeline/sequence/expert parallelism & \cref{ch:distributed}\\
---- & Packing, QLoRA, multi-LoRA serving & \cref{ch:instruct}\\
---- & Continuous batching, PagedAttention, prefix caching, chunked prefill, disaggregation & \cref{ch:serving}\\
---- & Quantisation, speculative decoding, parallel inference, deployment & \cref{ch:efficient}\\
---- & RL frameworks, async RL, weight sync, rollout systems & \cref{ch:rlsys}\\
---- & Triton kernels & \cref{app:triton}\\
-\bottomrule
-\end{longtable}}
-
-\section*{Coverage of Stanford CS336 (Spring 2026)}
-
-Part~VII is built around the five assignments of Stanford's \emph{CS336: Language Modeling from
-Scratch} (\url{https://cs336.stanford.edu}). Every lecture topic that the two source books leave
-out has a chapter of its own. Margin tags of the form \textsf{CS336 L$n$} (lecture) and
-\textsf{CS336 A$k$ \S$m$} (assignment section) mark the coverage. The project guides deliberately
-stop short of solutions: they describe each assignment in our own words, explain how to set it up,
-and point, problem by problem, to the chapters and labs that teach what you need.
-
-{\small
-\begin{longtable}{@{}p{0.2\linewidth}p{0.45\linewidth}p{0.29\linewidth}@{}}
-\toprule
-\textbf{CS336} & \textbf{Topic} & \textbf{Covered in}\\
-\midrule\endhead
-L1 & Overview, tokenisation & \cref{ch:landscape,ch:text}\\
-L2 & PyTorch, einops, resource accounting & \cref{ch:pytorch,ch:archdesign,ch:gpt}\\
-L3 & Architectures, hyperparameters & \cref{ch:modern,ch:archdesign}\\
-L4 & Attention alternatives, mixture of experts & \cref{ch:attnalt,ch:modern}\\
-L5 & GPUs, TPUs & \cref{ch:pytorch,ch:perf,app:accel}\\
-L6 & Kernels, Triton & \cref{app:triton,ch:perf}\\
-L7--L8 & Parallelism & \cref{ch:distributed,ch:sharding}\\
-L9, L11 & Scaling laws & \cref{ch:scalinglaws}\\
-L10 & Inference & \cref{ch:inference,ch:serving,ch:efficient}\\
-L12 & Evaluation & \cref{ch:eval,ch:alignment}\\
-L13--L14 & Data: sources, filtering, deduplication, mixing, synthetic data & \cref{ch:data}\\
-L15 & Post-training: SFT, RLHF & \cref{ch:instruct,ch:pg,ch:rlhf,ch:dpo}\\
-L16 & Post-training: RLVR & \cref{ch:pg,ch:grpo,ch:grpo2,ch:rlsys}\\
-L17 & Alignment, multimodality & \cref{ch:alignment}\\
-A1 Basics & BPE tokenizer, Transformer LM, AdamW, training loop, decoding, ablations & \cref{ch:proj1}\\
-A2 Systems & Profiling, mixed precision, memory, FlashAttention-2 in Triton, DDP, sharding, FSDP & \cref{ch:proj2}\\
-A3 Scaling & IsoFLOP profiles, budgeted scaling-law fitting & \cref{ch:proj3}\\
-A4 Data & Common Crawl filtering, PII, quality, deduplication, training & \cref{ch:proj4}\\
-A5 Alignment & Prompting baselines, GRPO and variants, off-policy RL, SFT, DPO, safety & \cref{ch:proj5}\\
-\bottomrule
-\end{longtable}}
-
-\section*{Coverage of the preference-optimization primer}
-
-The treatment of preference optimization follows the structure of the primer by Aman Chadha
-(\url{https://aman.ai/primers/preference-optimization/}), tagged \textsf{PO \S$n$} in the margins:
-the RL refresher and the notation mapping between classical RL and language modelling, REINFORCE,
-TRPO and PPO with GAE (\cref{ch:pg}); RLHF with reward and value models, the roles of the four models,
-RLAIF and agentic RL (\cref{ch:rlhf}); DPO, KTO, IPO, ORPO, SimPO and related methods (\cref{ch:dpo});
-GRPO and its successors DAPO, Dr.~GRPO, GSPO and CISPO (\cref{ch:grpo,ch:grpo2}); and the comparative
-analysis across methods (\cref{ch:dpo}).

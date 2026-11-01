@@ -46,7 +46,7 @@ video and study what that does to the serving system.}
 
 % =====================================================================
 \section{From specialist to generalist}\label{sec:align:generalist}
-\covers{CS336 A5s §2; CS336 L15}
+
 
 \Cref{ch:instruct} fine-tuned GPT-2 on a single Alpaca-style dataset, and
 \cref{ch:rlhf,ch:dpo,ch:grpo} optimised preferences and verifiable rewards. A generalist
@@ -119,7 +119,7 @@ reported number.
 
 % =====================================================================
 \section{Instruction data for generalist models}\label{sec:align:data}
-\covers{CS336 A5s §4.1}
+
 
 A generalist SFT corpus is a \emph{mixture}. Typical ingredients are multi-turn chat
 transcripts (often distilled from a stronger model, as in UltraChat-style corpora), task data
@@ -211,7 +211,7 @@ Overlap tests miss paraphrases and translations, so they are a lower bound on co
 
 % =====================================================================
 \section{Packed SFT for corpora that do not fit in memory}\label{sec:align:packing}
-\covers{CS336 A5s §4.2}
+
 
 \Cref{sec:instruct:packing} packed examples by first-fit bin packing: load every example,
 sort by length, and fill fixed-length rows, with a block-diagonal attention mask so that documents in the
@@ -340,7 +340,7 @@ sweep rather than as constants. \Cref{ch:optim} explains why each of them matter
 
 % =====================================================================
 \section{Evaluating a generalist model}\label{sec:align:evalfamilies}
-\covers{CS336 L12; CS336 A5s §3, §5}
+
 
 \Cref{ch:eval} built the machinery for evaluating reasoning models: answer extraction,
 symbolic verification, multiple-choice scoring, Elo and Bradley--Terry ratings, and rubric
@@ -575,7 +575,7 @@ models usually write longer answers and stop more reliably than base models.
 
 % =====================================================================
 \section{Safety: measuring both ways to fail}\label{sec:align:safety}
-\covers{CS336 L12; CS336 A5s §3.4, §5.4}
+
 
 ``Safety'' covers a wide range of concerns: helping with clearly harmful activities, hallucinating
 confidently, sycophancy, privacy leaks, and harms that depend on jurisdiction and culture. Many
@@ -690,7 +690,7 @@ network hop. Guard calls should be batched and prefix-cached like any other mode
 (\cref{ch:serving}).
 \end{systemslens}
 
-\subsection{Red-teaming}\covers{CS336 A5s §5.5}
+\subsection{Red-teaming}
 
 Red-teaming is adversarial evaluation: deliberately trying to elicit bad behaviour in order to
 find failure modes before users do (Ganguli et al., 2022). The engineering side of a red-team
@@ -721,7 +721,7 @@ and partly about not exposing people to large volumes of disturbing text.
 
 % =====================================================================
 \section{Multimodal models: everything becomes tokens}\label{sec:align:mm}
-\covers{CS336 L17}
+
 
 The long-term goal is an \emph{omni} model that takes any mix of text, images, audio and
 video as input and can produce any of them as output. The transformer gives a uniform answer

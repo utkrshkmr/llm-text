@@ -53,7 +53,7 @@ row implements GRPO stage by stage and trains a model with it.}
 \end{figure}
 
 % ======================================================================
-\section{Reinforcement learning for LLMs}\label{sec:grpo:rl}\covers{RM 6.1}
+\section{Reinforcement learning for LLMs}\label{sec:grpo:rl}
 
 There are two independent dials for buying reasoning accuracy with compute
 (\cref{fig:grpo:dials}). \emph{Inference-time scaling} spends more FLOPs on each answer:
@@ -171,7 +171,7 @@ reduce its variance dramatically. Every algorithm in this chapter and the next i
 of (i) how to estimate the baseline, (ii) how to weight and clip each token's contribution,
 and (iii) how far the policy may move per update.
 
-\subsection{The original pipeline: RL from human feedback}\label{sec:grpo:rlhf}\covers{RM 6.1.1}
+\subsection{The original pipeline: RL from human feedback}\label{sec:grpo:rlhf}
 
 RL entered mainstream LLM training through InstructGPT (Ouyang et al., 2022),
 the recipe that turned GPT-3 into the first ChatGPT. Its RL from human feedback (RLHF)
@@ -245,7 +245,7 @@ and RLVR drops the reward model (a program replaces it). What remains is the pol
 plus, optionally, the reference: $\approx128+16=144$\,GB, roughly half.
 \end{napkinmath}
 
-\subsection{From human feedback to verifiable rewards}\label{sec:grpo:rlvr}\covers{RM 6.1.2}
+\subsection{From human feedback to verifiable rewards}\label{sec:grpo:rlvr}
 
 Training a reward model is expensive, and a learned scorer is also \emph{exploitable}:
 push hard enough and the policy finds outputs the reward model likes but humans do not
@@ -294,7 +294,7 @@ small distributed system of its own (\cref{ch:rlsys}). The RL algorithm is ident
 way, so we stay with math.
 
 % ======================================================================
-\section{RLVR with GRPO}\label{sec:grpo:grpo}\covers{RM 6.2}
+\section{RLVR with GRPO}\label{sec:grpo:grpo}
 
 RLVR fixes \emph{where the learning signal comes from}. We still need a policy optimiser
 that turns rewards into weight updates. PPO is the classic choice. GRPO, introduced in
@@ -334,7 +334,7 @@ GRPO is not free, though: it moves cost from \emph{memory} (no critic) to \emph{
 (\cref{sec:grpo:loop}), that trade is worth understanding precisely, and much of
 \cref{ch:rlsys} is about making it cheaper.
 
-\subsection{An intuition: practising a climbing route}\label{sec:grpo:analogy}\covers{RM 6.2.1}
+\subsection{An intuition: practising a climbing route}\label{sec:grpo:analogy}
 
 GRPO has many moving parts and a lot of RL jargon, so before the equations here is a
 picture to hang them on. Imagine a climber training on an indoor bouldering wall.
@@ -361,7 +361,7 @@ Notice what is \emph{absent}: no one trained a separate judge to predict how goo
 attempt will be halfway up the wall. That judge would be PPO's value model, and GRPO does
 without it by comparing whole attempts on the same route.
 
-\subsection{The GRPO procedure}\label{sec:grpo:procedure}\covers{RM 6.2.2}
+\subsection{The GRPO procedure}\label{sec:grpo:procedure}
 
 Formally, for a prompt $x$ GRPO samples a group $\{y_1,\dots,y_G\}\sim\piold(\cdot\mid x)$,
 scores each with the verifier to get $r_1,\dots,r_G$, and forms the advantages
@@ -394,7 +394,7 @@ this chapter. Keep it at hand; every section below fills in one box.
 % (figure fig:grpo:step is defined in the worked-example section below)
 
 % ======================================================================
-\section{Loading a pretrained model}\label{sec:grpo:load}\covers{RM 6.3}
+\section{Loading a pretrained model}\label{sec:grpo:load}
 
 GRPO needs a policy that \emph{sometimes} succeeds. If every rollout gets reward 0, every
 advantage in \cref{eq:grpo:adv} is 0 and nothing is learned (\cref{sec:grpo:adv}). That is
@@ -442,7 +442,7 @@ gradient tracking without tagging the outputs.
 \end{pitfall}
 
 % ======================================================================
-\section{Loading a MATH training subset}\label{sec:grpo:data}\covers{RM 6.4}
+\section{Loading a MATH training subset}\label{sec:grpo:data}
 
 The MATH dataset (Hendrycks et al., 2021) has about \num{12500} competition problems.
 Five hundred of them form MATH-500, the evaluation set of \cref{ch:eval}. For training we
@@ -490,7 +490,7 @@ train and evaluate on the same prompts and read evaluation as \emph{in-distribut
 accuracy; the code also supports a held-out split for the exercises.
 
 % ======================================================================
-\section{Sampling rollouts}\label{sec:grpo:rollouts}\covers{RM 6.5}
+\section{Sampling rollouts}\label{sec:grpo:rollouts}
 
 Stage 1 of GRPO samples $G$ completions per prompt from the current policy.
 \Cref{lst:grpo:sample} is the whole sampler: prefill the prompt into a KV cache
@@ -554,7 +554,7 @@ rather than in the trainer.
 \end{systemslens}
 
 % ======================================================================
-\section{Calculating rewards}\label{sec:grpo:rewards}\covers{RM 6.6}
+\section{Calculating rewards}\label{sec:grpo:rewards}
 
 Stage 2 scores each rollout. Our reward is the verifier of \cref{ch:eval} in its strictest
 mode: the answer must appear inside \verb|\boxed{}|, and the boxed content must match the
@@ -591,7 +591,7 @@ verifier against adversarial strings before any long run.
 \end{pitfall}
 
 % ======================================================================
-\section{From rewards to advantages}\label{sec:grpo:adv}\covers{RM 6.7}
+\section{From rewards to advantages}\label{sec:grpo:adv}
 
 A reward says how good one rollout is in absolute terms. An \emph{advantage} says how much
 better or worse it is than its siblings for the same prompt (\cref{eq:grpo:adv}):
@@ -660,7 +660,7 @@ baselines (RLOO) remove it. Dividing by the group std is a separate heuristic th
 \end{keyidea}
 
 % ======================================================================
-\section{Scoring rollouts with sequence log-probabilities}\label{sec:grpo:logprobs}\covers{RM 6.8}
+\section{Scoring rollouts with sequence log-probabilities}\label{sec:grpo:logprobs}
 
 Stage 4 asks how likely the current policy was to produce each rollout. In
 \cref{ch:refine} we scored answers by their \emph{average} per-token log-probability,
@@ -742,7 +742,7 @@ trainer's anyway (\cref{ch:rlsys}).
 \end{systemslens}
 
 % ======================================================================
-\section{From advantages to a policy update: the GRPO loss}\label{sec:grpo:loss}\covers{RM 6.9}
+\section{From advantages to a policy update: the GRPO loss}\label{sec:grpo:loss}
 
 Stage 5 combines the two branches. Multiply each rollout's sequence log-probability by its
 advantage, average over the group, and negate (\cref{eq:grpo:pg_loss}):
@@ -840,7 +840,7 @@ updates, which is exactly when clipping becomes necessary.
 \end{deepdive}
 
 % ======================================================================
-\section{Putting the stages into one function}\label{sec:grpo:onefn}\covers{RM 6.10}
+\section{Putting the stages into one function}\label{sec:grpo:onefn}
 
 \Cref{lst:grpo:compute} packages stages 1--5 for one prompt. It interleaves stages 2 and 4
 inside the sampling loop (score each rollout and compute its log-probability as soon as it
@@ -892,7 +892,7 @@ constant for the other aggregations of \cref{ch:grpo2}).
 \end{systemslens}
 
 % ======================================================================
-\section{The GRPO training loop}\label{sec:grpo:loop}\covers{RM 6.11}
+\section{The GRPO training loop}\label{sec:grpo:loop}
 
 With the loss in hand, the outer loop is an ordinary PyTorch training loop
 (\cref{fig:grpo:loop}). Only one box, the loss, is specific to RL.
@@ -957,10 +957,10 @@ per-step reward can only take the values $0,\frac14,\frac12,\frac34,1$, and step
 reward 0 or 1 print a loss of exactly zero because their advantages vanish. Large loss
 magnitudes simply mean that the group disagreed strongly. They do not signal trouble. The
 quantities to watch are the \emph{moving averages} of reward and response length and,
-periodically, accuracy on held-out data. On Qwen3-0.6B with MATH, the source book's
-reference runs show that a few dozen GRPO steps with 4--8 rollouts of $\le512$ tokens move
-MATH-500 accuracy from the mid-teens to the mid-forties, approaching the official reasoning
-variant of the same model. The model mostly learns to finish its reasoning with a boxed
+periodically, accuracy on held-out data. On a small base model such as Qwen3-0.6B with MATH, you should expect
+a few dozen GRPO steps with 4--8 rollouts of $\le512$ tokens to raise MATH-500 accuracy
+substantially, moving it towards the official reasoning variant of the same model; measure it
+yourself with the Lab~27 \code{run.py} on a GPU. The model mostly learns to finish its reasoning with a boxed
 answer inside the budget, and secondarily to reason better.
 
 \Cref{fig:grpo:curves} shows the same dynamics on our toy task with the batched trainer
@@ -1040,7 +1040,7 @@ of them in one padded forward pass, and is the version used for every experiment
 and \cref{ch:rlsys} distributes the sampler and trainer across GPUs.
 
 % ======================================================================
-\section{Loading and evaluating checkpoints}\label{sec:grpo:ckpt}\covers{RM 6.12}
+\section{Loading and evaluating checkpoints}\label{sec:grpo:ckpt}
 
 The loop saves \code{model.state\_dict()} every few steps and on keyboard interrupt, so a
 long run can be stopped at any point without losing work. Restoring is the usual one-liner,

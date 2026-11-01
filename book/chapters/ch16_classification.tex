@@ -50,7 +50,7 @@ stage.}
 \end{figure}
 
 % =====================================================================================
-\section{The fine-tuning landscape}\label{sec:classify:landscape}\covers{LLM 6.1}
+\section{The fine-tuning landscape}\label{sec:classify:landscape}
 
 Once pretraining (\cref{ch:pretrain}) is done, there are two classic ways to adapt a
 language model to a task.
@@ -126,7 +126,7 @@ GPU hosts dozens of task-specific classifiers, it decides whether the job fits.
 \end{napkinmath}
 
 % =====================================================================================
-\section{Preparing the dataset}\label{sec:classify:data}\covers{LLM 6.2}
+\section{Preparing the dataset}\label{sec:classify:data}
 
 Our running example is the \emph{SMS Spam Collection}, a public corpus of 5{,}574 short
 text messages. Each is labelled \code{ham} (legitimate, 4{,}827 messages) or
@@ -220,7 +220,7 @@ much larger contamination problem in LLM evaluation (\cref{ch:eval}).
 \end{pitfall}
 
 % =====================================================================================
-\section{Creating data loaders}\label{sec:classify:loaders}\covers{LLM 6.3}
+\section{Creating data loaders}\label{sec:classify:loaders}
 
 Text messages vary in length, but a tensor is a rectangle. The SMS messages, tokenised
 with the GPT-2 BPE tokenizer (\cref{ch:text}), run from a handful of tokens to well over
@@ -235,7 +235,7 @@ safe as long as the model never reads the hidden states at padded positions; see
 \cref{sec:classify:head}.
 \end{enumerate}
 
-The simplest padding policy, and the one used in the LLM book, fixes $T_{\max}$ to the
+The simplest padding policy fixes $T_{\max}$ to the
 longest training message (120 tokens for this dataset) and pads the validation and test
 sets to the same length, truncating anything longer. Every batch then has the same
 shape, which is convenient for debugging and for compilers that specialise on shapes.
@@ -380,7 +380,7 @@ mega-batches of $50\times$ the batch size removes nearly all of the waste.}
 \end{figure}
 
 % =====================================================================================
-\section{Initializing a model with pretrained weights}\label{sec:classify:init}\covers{LLM 6.4}
+\section{Initializing a model with pretrained weights}\label{sec:classify:init}
 
 We start from GPT-2 small (124M) and load the released weights into the
 \code{GPTModel} of \cref{ch:gpt} with \code{load\_gpt2\_hf\_state\_dict}
@@ -460,7 +460,7 @@ bytes $\approx\SI{39}{MB}$, small because only one position per message is kept.
 \Cref{ex:classify:probe} asks you to produce the curve for GPT-2 small on the SMS data.
 
 % =====================================================================================
-\section{Adding a classification head}\label{sec:classify:head}\covers{LLM 6.5}
+\section{Adding a classification head}\label{sec:classify:head}
 
 The pretrained \code{out\_head} maps the final 768-dimensional hidden state to 50{,}257
 vocabulary logits. We replace it with \code{nn.Linear(768, 2)}: one logit for \code{ham}
@@ -591,7 +591,7 @@ information from the whole sequence, so its output is the one we classify.}
 \end{figure}
 
 With \emph{right} padding, the last position of a padded row is a padding token, not the
-last real token. The LLM book reads \code{logits[:, -1, :]} anyway. That works
+last real token. A naive implementation reads \code{logits[:, -1, :]} anyway. That works
 reasonably well, because the padding token at the end still attends to every real
 token before it. But it makes the prediction depend on \emph{how much} padding follows
 the message, which in turn depends on which other messages happen to share the batch.
@@ -629,7 +629,7 @@ chapter.
 \end{deepdive}
 
 % =====================================================================================
-\section{Calculating the classification loss and accuracy}\label{sec:classify:loss}\covers{LLM 6.6}
+\section{Calculating the classification loss and accuracy}\label{sec:classify:loss}
 
 For a message $x$ with selected logits $\vect{z}\in\R^{C}$, the predicted class
 distribution is $p(c\mid x) = \softmax(\vect{z})_c$. The predicted label is
@@ -678,11 +678,11 @@ before \code{cross\_entropy} costs nothing here and matters a lot in
 \end{pitfall}
 
 % =====================================================================================
-\section{Fine-tuning the model on supervised data}\label{sec:classify:train}\covers{LLM 6.7}
+\section{Fine-tuning the model on supervised data}\label{sec:classify:train}
 
 The training loop is the pretraining loop of \cref{ch:pretrain} with three changes: the
 loss is computed on the selected logits, only trainable parameters are passed to the
-optimizer, and we track accuracy alongside loss. Following the LLM book we use AdamW
+optimizer, and we track accuracy alongside loss. We use AdamW
 with learning rate $5\times10^{-5}$ and weight decay $0.1$ for about five epochs. On a
 modern laptop CPU this takes several minutes for GPT-2 small; on a GPU, well under a
 minute.
@@ -724,8 +724,8 @@ read it once per logging interval (\cref{ch:pytorch}).
 2-layer, 64-dimensional GPT trained from scratch, measured on CPU in this environment.
 The shape is what you will see with real GPT-2 on real SMS data. The loss falls
 quickly, training accuracy saturates near 100\%, and validation accuracy plateaus a few
-points lower. With a pretrained GPT-2 on the SMS data, the LLM book reports training
-and validation accuracies in the high 90s and test accuracy in the mid 90s.
+points lower. With a pretrained GPT-2 on the SMS data, expect training and validation
+accuracies in the high 90s and test accuracy in the mid 90s.
 
 \begin{figure}[ht]
 \centering
@@ -771,7 +771,7 @@ are the relevant levers.
 \end{napkinmath}
 
 % =====================================================================================
-\section{Using the LLM as a spam classifier}\label{sec:classify:use}\covers{LLM 6.8}
+\section{Using the LLM as a spam classifier}\label{sec:classify:use}
 
 To classify a new message we tokenise it, truncate it to the model's context
 length (or to the training $T_{\max}$, if we trained with global padding and want
@@ -844,7 +844,7 @@ label words. \Cref{ch:refine} develops this kind of probability-based scoring.
 % =====================================================================================
 \section{From one classifier to a fleet}\label{sec:classify:fleet}
 
-The LLM book stops once the spam classifier works. In production a single classifier is
+Getting one spam classifier to work is only the beginning. In production a single classifier is
 rarely the whole story: you need to decide where to put the decision threshold, you may
 run several classifiers on every request, and you will want an expensive model to see
 only the inputs the cheap one is unsure about. This section collects the systems

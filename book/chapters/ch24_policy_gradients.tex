@@ -18,7 +18,7 @@ gradients bit-for-bit equal to the full-batch gradient} as on the mathematics. B
 mistake are silent: an RL run with a wrong normaliser or a misaligned response mask still
 trains, it just optimises something else. The chapter ends with the engineering loop that
 wires a rollout engine, a reward function, and a trainer into a working system. That loop
-is exactly what the CS336 reasoning-RL assignment (\cref{ch:proj5}) asks you to build at
+is exactly what the reasoning-RL capstone project (\cref{ch:proj5}) asks you to build at
 scale.
 
 \begin{figure}[t]
@@ -48,7 +48,6 @@ everything into the system that later chapters scale up.}
 
 % =====================================================================
 \section{Reinforcement learning, and why language models fit it}\label{sec:pg:rl}
-\covers{PO §3; PO §4.1; CS336 L16}
 
 \paragraph{The classical setting.} A reinforcement-learning problem is a Markov decision
 process (MDP): a set of states $\mathcal{S}$, a set of actions $\mathcal{A}$, an initial-state
@@ -108,7 +107,6 @@ simulators for free, and sparse terminal rewards.}
 \end{figure}
 
 \subsection{The notation map between classical RL and language modelling}\label{sec:pg:notation}
-\covers{PO §5 (notation map); CS336 A5 §2.3, §4.1.1--4.1.3}
 
 The two communities use different words for the same objects, and papers mix them freely.
 \Cref{tab:pg:notation} is the dictionary we use for the rest of the book; it extends the
@@ -184,7 +182,6 @@ whole path as a single bandit action; critic-based methods estimate a value at e
 \end{figure}
 
 \subsection{Online and offline, on-policy and off-policy}\label{sec:pg:online}
-\covers{PO §3.1}
 
 Two distinctions organise the whole landscape of post-training methods, and they are often
 confused.
@@ -228,7 +225,6 @@ DPO, IPO, KTO & offline (or iterated) & off & a KL-anchored closed form (\cref{c
 
 % =====================================================================
 \section{The REINFORCE gradient, from first principles}\label{sec:pg:reinforce}
-\covers{PO §3.2; PO §4.2; CS336 A5 §4.1.4}
 
 We want $\nabla_\theta J$ for $J(\theta)=\E_{x\sim\rho}\E_{y\sim\pitheta(\cdot\mid x)}[r(x,y)]$.
 The reward is a black box: a regex, a SymPy check, a unit-test runner, or a reward model whose
@@ -291,7 +287,6 @@ def reinforce_step(model, prompts, responses, rewards, opt):
 
 % =====================================================================
 \section{Baselines and the variance of the estimator}\label{sec:pg:baselines}
-\covers{PO §3.2; CS336 A5 §4.1.5; CS336 L16}
 
 \Cref{eq:pg:reinforce} is unbiased but noisy. Its noise has a simple source. With binary
 rewards, an incorrect response contributes nothing and a correct response pushes up
@@ -409,7 +404,6 @@ For the algorithm: filter or resample prompts to keep $p$ near the middle (dynam
 \end{napkinmath}
 % =====================================================================
 \section{Normalisation changes the objective}\label{sec:pg:normalisation}
-\covers{CS336 A5 §4.1.6--4.1.7, §5; CS336 L16}
 
 Baselines are the only modification that provably leaves the expected gradient alone. GRPO
 (\cref{ch:grpo}) makes two more: it divides each group's centred rewards by the group's
@@ -508,7 +502,6 @@ tokens of the long one; the other two weight all tokens equally.}
 
 % =====================================================================
 \section{From text to tensors: the RL batch}\label{sec:pg:batch}
-\covers{CS336 A5 §4.2.1}
 
 Everything so far assumed we can evaluate $\log\pitheta(y_t\mid x,y_{<t})$ for the sampled
 tokens. Doing this correctly, and in bounded memory, is the first real engineering task of an
@@ -627,7 +620,6 @@ numerical mismatch.
 
 % =====================================================================
 \section{Aggregation and gradient accumulation, done exactly}\label{sec:pg:aggregation}
-\covers{CS336 A5 §4.2.3--4.2.4}
 
 A rollout batch of $256$ long responses does not fit through the backward pass at once, so the
 trainer splits it into micro-batches and accumulates gradients (\cref{ch:pretrain}). The
@@ -686,7 +678,6 @@ micro-batches to keep the GPU busy.
 
 % =====================================================================
 \section{Reusing samples: importance weights, TRPO and PPO}\label{sec:pg:offpolicy}
-\covers{PO §3.3--3.4; PO §4.2--4.3; PO §4.5--4.6; CS336 A5 §6; CS336 L16}
 
 Rollouts are the expensive part of LLM-RL: decoding is memory-bound and suffers from the long
 tail (\cref{ch:inference,ch:rlsys}). Taking a single gradient step per rollout batch leaves
@@ -847,7 +838,6 @@ are compared with these in \cref{ch:dpo}.}
 \end{table}
 % =====================================================================
 \section{Learning only from successes: rejection fine-tuning}\label{sec:pg:rft}
-\covers{CS336 A5 §5.2; CS336 L16}
 
 The simplest way to improve a model with a verifier needs no policy-gradient machinery at all.
 Sample several responses per prompt, keep the ones the verifier accepts, and fine-tune on them
@@ -877,11 +867,10 @@ justify its extra machinery.
 
 % =====================================================================
 \section{The engineering loop}\label{sec:pg:loop}
-\covers{CS336 A5 §4.2.2, §4.3; CS336 L16}
 
 We now have every mathematical piece. This section assembles them into the system that
 \cref{ch:grpo,ch:grpo2} use on a single GPU, that \cref{ch:rlsys} scales out, and that the
-CS336 assignment (\cref{ch:proj5}) asks you to build with a 1B-parameter model on two GPUs.
+capstone project of \cref{ch:proj5} asks you to build with a 1B-parameter model on two GPUs.
 
 \subsection{Architecture: who runs where}
 

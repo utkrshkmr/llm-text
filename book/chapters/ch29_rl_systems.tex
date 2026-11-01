@@ -10,8 +10,7 @@ inference engine that produces millions of tokens per step, a training engine th
 them, a fleet of reward workers that execute untrusted code, and the plumbing that moves
 weights, tokens and log-probabilities between them without leaving expensive hardware idle.
 
-This chapter is about that plumbing. It is the only chapter in Part~VI without a counterpart in
-the source books, so it is written as a graduate systems lecture: we derive cost models, build
+This chapter is about that plumbing. It is written as a graduate systems lecture: we derive cost models, build
 a simulator, and study the design space spanned by today's open frameworks (OpenRLHF,
 veRL/HybridFlow, TRL, NeMo-Aligner and several newer asynchronous systems). The ecosystem moves
 quickly; treat the framework descriptions as a snapshot of designs that were public as of 2025,

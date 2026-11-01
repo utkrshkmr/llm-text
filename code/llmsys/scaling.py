@@ -11,7 +11,7 @@ Three layers, from the bottom up:
 3. **A synthetic training API** -- ``SyntheticTrainingAPI`` hides a ground-truth loss surface
    (with learning-rate, batch-size and aspect-ratio effects plus seed noise) behind a
    submit / poll / budget interface that charges *wall-clock* seconds, the way a shared
-   cluster or a course training service does. It lets you practise designing a budgeted
+   cluster or a hosted training service does. It lets you practise designing a budgeted
    scaling study end to end without a GPU, and it can score your final prediction against the
    hidden truth.
 
@@ -405,6 +405,15 @@ class GroundTruth:
     k_aspect: float = 0.012
     noise_std: float = 0.006
     schedule_bump: float = 0.10     # mid-run cosine losses sit above an annealed run
+
+    @classmethod
+    def sample(cls, seed: int) -> "GroundTruth":
+        """A randomly perturbed truth, so a study cannot be won by reading these constants."""
+        r = np.random.default_rng(seed)
+        u = lambda lo, hi: float(r.uniform(lo, hi))
+        return cls(E=u(1.6, 2.0), A=u(300, 700), alpha=u(0.30, 0.40), B=u(300, 800),
+                   beta=u(0.25, 0.35), lr_ref=u(1.5e-3, 6e-3), lr_exp=u(-0.40, -0.20),
+                   bcrit_ref=u(5e5, 2e6), aspect_opt=u(48, 128))
 
     def lr_star(self, n: float) -> float:
         return self.lr_ref * (n / 1e8) ** self.lr_exp

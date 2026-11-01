@@ -40,7 +40,7 @@ optimise it (amber).}
 \end{figure}
 
 % =====================================================================
-\section{The problem with modeling long sequences}\label{sec:attention:long}\covers{LLM 3.1}
+\section{The problem with modeling long sequences}\label{sec:attention:long}
 
 Consider translating a sentence. Word-by-word substitution fails immediately: languages reorder
 words, split one word into several, and resolve meanings from context far away in the sentence.
@@ -107,7 +107,7 @@ $\vect{c}$. Right: with attention, each decoder step forms its own weighted comb
 \end{figure}
 
 % =====================================================================
-\section{Capturing data dependencies with attention}\label{sec:attention:deps}\covers{LLM 3.2}
+\section{Capturing data dependencies with attention}\label{sec:attention:deps}
 
 Bahdanau et al.\ (2015) removed the bottleneck by letting the decoder, at every output step,
 compute a fresh set of weights over \emph{all} encoder hidden states and use their weighted sum as
@@ -131,7 +131,7 @@ three roles.
 \end{keyidea}
 
 % =====================================================================
-\section{Self-attention without trainable weights}\label{sec:attention:simple}\covers{LLM 3.3}
+\section{Self-attention without trainable weights}\label{sec:attention:simple}
 
 To isolate the mechanism, we first drop all learned parameters. Take a six-token input whose
 3-dimensional embeddings we simply write down (real models use $d$ in the hundreds or thousands
@@ -147,7 +147,7 @@ inputs = torch.tensor(
    [0.20, 0.70, 0.40]])  # chip      (x6)
 \end{lstlisting}
 
-\subsection{One query at a time}\covers{LLM 3.3.1}
+\subsection{One query at a time}
 Pick the third token, ``keep'', as the \emph{query}, $\vect{q}=\vect{x}^{(3)}$. Self-attention
 computes its \emph{context vector} $\vect{z}^{(3)}$ in three steps.
 \begin{enumerate}
@@ -203,7 +203,7 @@ hand-written kernel. The running maximum is also the key to the online softmax o
 \cref{sec:attention:flash}.
 \end{pitfall}
 
-\subsection{All queries at once}\covers{LLM 3.3.2}
+\subsection{All queries at once}
 Repeating the procedure for every query is just three matrix operations on the input matrix
 $\mat{X}\in\R^{T\times d}$:
 \begin{equation}
@@ -262,7 +262,7 @@ future positions are masked and each row is renormalised over the visible prefix
 \end{figure}
 
 % =====================================================================
-\section{Self-attention with trainable weights}\label{sec:attention:trainable}\covers{LLM 3.4}
+\section{Self-attention with trainable weights}\label{sec:attention:trainable}
 
 The weight-free version has no parameters to learn: what a token attends to is fixed by raw
 embedding similarity, and what it retrieves is the raw embedding itself. \emph{Scaled dot-product
@@ -278,7 +278,7 @@ The terminology comes from databases and key--value stores: a query is matched a
 the matching entries' values are returned---except that here matching is soft and every value is
 returned with some weight.
 
-\subsection{Computing the attention weights step by step}\covers{LLM 3.4.1}
+\subsection{Computing the attention weights step by step}
 For the full input,
 \begin{equation}
 \mat{Q}=\mat{X}\mat{W}_q,\quad \mat{K}=\mat{X}\mat{W}_k,\quad \mat{V}=\mat{X}\mat{W}_v,\qquad
@@ -323,7 +323,7 @@ nearly vanishes. Dividing by $\sqrt{d_k}$ restores unit variance at initialisati
 softmax in a regime where gradients flow. (Some newer models instead normalise $\vect{q}$ and
 $\vect{k}$ directly---the QK-norm of Qwen3, \cref{ch:modern}.)
 
-\subsection{A compact self-attention class}\covers{LLM 3.4.2}
+\subsection{A compact self-attention class}
 Wrapping the computation in an \code{nn.Module} gives us trainable parameters, device movement and
 state-dict serialisation for free:
 
@@ -350,14 +350,14 @@ useful test. Second, \code{nn.Linear} uses a scaled (Kaiming-uniform) initialisa
 training less stable.
 
 % =====================================================================
-\section{Hiding future words with causal attention}\label{sec:attention:causal}\covers{LLM 3.5}
+\section{Hiding future words with causal attention}\label{sec:attention:causal}
 
 A language model is trained to predict token $t+1$ from tokens $1..t$. If position $t$ could attend
 to position $t+1$ during training, the task would be trivial (copy the answer) and the model would
 learn nothing useful for generation, where the future does not yet exist. \emph{Causal} (or
 \emph{masked}) attention restricts query $i$ to keys $j\le i$.
 
-\subsection{Applying a causal attention mask}\covers{LLM 3.5.1}
+\subsection{Applying a causal attention mask}
 There are two equivalent ways to apply the mask (\cref{fig:attention:mask}).
 \begin{enumerate}
   \item \emph{Mask after softmax, then renormalise}: compute $\mat{A}=\softmax(\mat{S})$, zero the entries
@@ -409,7 +409,7 @@ def mask_after_softmax(scores):                 # route 1: zero, renormalise
     return w / w.sum(dim=-1, keepdim=True)
 \end{lstlisting}
 
-\subsection{Masking additional attention weights with dropout}\covers{LLM 3.5.2}
+\subsection{Masking additional attention weights with dropout}
 \emph{Dropout} zeroes a random subset of activations during training (each with probability $p$)
 and scales the survivors by $1/(1-p)$ so expected values are unchanged; at evaluation time it is
 the identity. In GPT-2, dropout is applied in three places, one of them to the attention weight
@@ -449,7 +449,7 @@ set to 0 anyway; with trillions of tokens and a single epoch, overfitting is not
 the extra RNG work is wasted.
 \end{systemslens}
 
-\subsection{Implementing a compact causal attention class}\covers{LLM 3.5.3}
+\subsection{Implementing a compact causal attention class}
 Two practical changes turn the above into a reusable layer: it must accept batches of shape
 $(B,T,d_{\text{in}})$, and the mask should be created once and moved with the module. Registering the
 mask with \code{register\_buffer} does the latter: buffers are moved by \code{.to(device)} with the
@@ -483,7 +483,7 @@ A good test of causality (Lab 4) perturbs the inputs at positions $\ge t$ and ch
 positions $<t$ are bit-for-bit unchanged.
 
 % =====================================================================
-\section{Extending single-head attention to multi-head attention}\label{sec:attention:mha}\covers{LLM 3.6}
+\section{Extending single-head attention to multi-head attention}\label{sec:attention:mha}
 
 A single head computes one attention pattern per query. But a token typically needs several
 kinds of information at once---the subject it agrees with, the noun a pronoun refers to, the
@@ -497,7 +497,7 @@ subspace, concatenates their outputs, and mixes them with an output projection $
 The total parameter count and FLOPs match one big head of width $d_{\text{out}}$; what changes is
 that the model gets $H$ independent attention distributions per token.
 
-\subsection{Stacking multiple single-head attention layers}\covers{LLM 3.6.1}
+\subsection{Stacking multiple single-head attention layers}
 The literal implementation keeps a list of \code{CausalAttention} modules and concatenates their
 outputs along the feature dimension. With $d_{\text{out}}=2$ per head and $H=2$ heads, the output is
 $(B,T,4)$.
@@ -515,7 +515,7 @@ class MultiHeadAttentionWrapper(nn.Module):
         return torch.cat([h(x) for h in self.heads], dim=-1)   # (B, T, H*d_out)
 \end{lstlisting}
 
-\subsection{Implementing multi-head attention with weight splits}\covers{LLM 3.6.2}
+\subsection{Implementing multi-head attention with weight splits}
 The wrapper runs the heads one after another: $3H$ small projection GEMMs, $H$ score GEMMs, $H$
 softmaxes and $H$ value GEMMs, each a separate kernel launch on a GPU. The standard implementation
 instead uses \emph{one} $d_{\text{in}}\times d_{\text{out}}$ projection each for $\mat{Q},\mat{K},\mat{V}$ and

@@ -45,7 +45,7 @@ removes redundant work and builds the performance model we use for the rest of t
 \end{figure}
 
 % =====================================================================
-\section{From a prompt to a response}\label{sec:inference:pipeline}\covers{RM 2.1}
+\section{From a prompt to a response}\label{sec:inference:pipeline}
 
 A pretrained \emph{base} model has only seen next-token prediction on web-scale text. It has not
 been instruction-tuned (\cref{ch:instruct}) or trained to reason (\cref{ch:grpo}), yet it already
@@ -114,7 +114,7 @@ read left to right.
 \end{keyidea}
 
 % =====================================================================
-\section{Setting up the environment}\label{sec:inference:env}\covers{RM 2.2}
+\section{Setting up the environment}\label{sec:inference:env}
 
 All code for the book lives in the \ident{code/} directory: the importable package
 \ident{llmsys} plus one directory per lab. Two setup paths work equally well.
@@ -144,7 +144,7 @@ reduction orders, TF32 defaults), and ``the same code'' can produce different gr
 across PyTorch releases.
 
 % =====================================================================
-\section{Hardware: what you need and why}\label{sec:inference:hardware}\covers{RM 2.3}
+\section{Hardware: what you need and why}\label{sec:inference:hardware}
 
 Training a frontier base model is out of reach for individuals. DeepSeek-V3, one of the few
 recent models with a detailed compute disclosure, reports about 2.79 million H800 GPU-hours for its
@@ -202,7 +202,7 @@ same reason.
 \end{systemslens}
 
 % =====================================================================
-\section{Preparing inputs: tokenizers and chat templates}\label{sec:inference:tokenizer}\covers{RM 2.4}
+\section{Preparing inputs: tokenizers and chat templates}\label{sec:inference:tokenizer}
 
 Every prompt, every reasoning trace and every answer must become a list of integers before
 the model can see it. Qwen3 uses a byte-level BPE tokenizer (the algorithm we implemented in
@@ -265,7 +265,7 @@ uses to terminate, and pass all of them to the stopping logic.
 \end{pitfall}
 
 % =====================================================================
-\section{Loading pretrained weights}\label{sec:inference:loading}\covers{RM 2.5}
+\section{Loading pretrained weights}\label{sec:inference:loading}
 
 We use Qwen3-0.6B for three reasons: it is small enough for consumer hardware, it is architecturally
 identical to its much larger siblings (\cref{ch:modern}), and it ships both as a \emph{base}
@@ -345,7 +345,7 @@ seconds, which matters for autoscaling and for RL systems that reload weights fr
 \end{systemslens}
 
 % =====================================================================
-\section{The autoregressive loop, one step at a time}\label{sec:inference:loop}\covers{RM 2.6}
+\section{The autoregressive loop, one step at a time}\label{sec:inference:loop}
 
 LLMs generate one token at a time. At each iteration the model sees the prompt plus everything
 generated so far, predicts one new token, and the token is appended to the input of the next
@@ -451,7 +451,7 @@ from scores to an id.
 \end{deepdive}
 
 % =====================================================================
-\section{A minimal streaming generator}\label{sec:inference:generator}\covers{RM 2.7}
+\section{A minimal streaming generator}\label{sec:inference:generator}
 
 Wrapping the single step in a loop gives a complete generator. We write it as a Python
 \emph{generator function} that \code{yield}s every token as soon as it exists. Streaming is not
@@ -537,7 +537,7 @@ On a laptop CPU, \cref{lst:inference:nocache} with Qwen3-0.6B produces a handful
 and it gets slower as the answer gets longer. The rest of the chapter explains why, and fixes it.
 
 % =====================================================================
-\section{KV caching}\label{sec:inference:kvcache}\covers{RM 2.8}
+\section{KV caching}\label{sec:inference:kvcache}
 
 Look again at \cref{fig:inference:unrolled}. In iteration $i$ the model recomputes the hidden
 states of all earlier tokens, although they are bit-for-bit identical to those of iteration $i-1$:
@@ -647,7 +647,7 @@ memory is reserved for the maximum length up front, even if the request stops ea
 \end{systemslens}
 
 % =====================================================================
-\section{Compiling the model}\label{sec:inference:compile}\covers{RM 2.9}
+\section{Compiling the model}\label{sec:inference:compile}
 
 Eager PyTorch executes one Python operator at a time: each \code{nn.Linear}, each RMSNorm, each
 elementwise multiply dispatches through the Python interpreter, the dispatcher, and finally launches

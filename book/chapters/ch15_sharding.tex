@@ -41,7 +41,6 @@ parallelism and pays for it with a precisely accountable amount of communication
 
 % ======================================================================
 \section{A distributed development environment}\label{sec:sharding:env}
-\covers{CS336 L7; CS336 A2 §5.1}
 
 \subsection{Processes, ranks and process groups}
 
@@ -189,7 +188,6 @@ a few kilobytes) is a bad idea. Across nodes $\alpha$ is larger and the knee mov
 
 % ======================================================================
 \section{The DDP progression}\label{sec:sharding:ddp}
-\covers{CS336 A2 §5.2--5.3}
 
 Plain data parallelism has one job: after every backward pass, replace each rank's local gradient
 by the average over ranks. Since every rank starts from the same weights (broadcast from rank 0)
@@ -310,7 +308,6 @@ bandwidth time plus one latency.
 
 % ======================================================================
 \section{Optimizer-state sharding, element-wise}\label{sec:sharding:zero}
-\covers{CS336 A2 §6}
 
 With mixed-precision AdamW every parameter costs 16 bytes of model state (\cref{ch:pretrain}):
 2 for the bf16 weight, 2 for the bf16 gradient, and 12 for the fp32 master copy and the two Adam
@@ -414,7 +411,6 @@ optimizer & must work tensor-by-tensor & any \code{torch.optim} class, unmodifie
 
 % ======================================================================
 \section{Fully sharded data parallelism from scratch}\label{sec:sharding:fsdp}
-\covers{CS336 A2 §7; CS336 L8}
 
 ZeRO-1 still replicates the bf16 weights and gradients: $4\Psi$ bytes per GPU, 32\,GB for an
 8B-parameter model, before a single activation is stored. FSDP (ZeRO stage 3) shards those too.
@@ -672,7 +668,6 @@ those last-bit differences in the first steps.
 
 % ======================================================================
 \section{FSDP2, DTensor and hybrid sharding in production}\label{sec:sharding:fsdp2}
-\covers{CS336 L8}
 
 PyTorch's current FSDP (``FSDP2'', \code{torch.distributed.fsdp.fully\_shard}) keeps the
 semantics we built but changes the data structure. Instead of one flat parameter per unit, every
@@ -733,7 +728,6 @@ multi-node runs.
 
 % ======================================================================
 \section{Parallelism accounting: a reusable method}\label{sec:sharding:accounting}
-\covers{CS336 A2 §8; CS336 L7; CS336 L8}
 
 How many GPUs can a strategy use before communication, not compute, sets the step time? The
 question has a clean answer once we commit to a simple model and apply it systematically. The

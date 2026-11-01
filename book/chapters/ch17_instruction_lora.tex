@@ -54,7 +54,7 @@ base, and show how adapted models are deployed.}
 \end{figure}
 
 % =====================================================================================
-\section{Introduction to instruction fine-tuning}\label{sec:instruct:intro}\covers{LLM 7.1}
+\section{Introduction to instruction fine-tuning}\label{sec:instruct:intro}
 
 Pretraining (\cref{ch:pretrain}) teaches a model the statistics of web text. Web text
 contains questions followed by answers, but also questions followed by more questions,
@@ -104,10 +104,10 @@ previewing the evaluation machinery of \cref{ch:eval}.
 \end{enumerate}
 
 % =====================================================================================
-\section{Preparing a dataset for supervised instruction fine-tuning}\label{sec:instruct:data}\covers{LLM 7.2}
+\section{Preparing a dataset for supervised instruction fine-tuning}\label{sec:instruct:data}
 
-Our dataset is a JSON list of 1{,}100 records in the style popularised by Stanford
-Alpaca. Each record has an \code{instruction}, an optional \code{input} that provides
+Our dataset is a JSON list of 1{,}100 records in the style popularised by
+Alpaca (Taori et al., 2023). Each record has an \code{instruction}, an optional \code{input} that provides
 context, and the reference \code{output}:
 
 \begin{lstlisting}[style=plain]
@@ -196,7 +196,7 @@ because we will spend real effort on it (generation plus LLM judging). Validatio
 used only to monitor loss.
 
 % =====================================================================================
-\section{Organizing data into training batches}\label{sec:instruct:batches}\covers{LLM 7.3}
+\section{Organizing data into training batches}\label{sec:instruct:batches}
 
 In \cref{ch:classify}, the collate function only padded inputs. For SFT it has to do
 more work. \Cref{fig:instruct:collate} shows the steps:
@@ -307,8 +307,7 @@ filtering the example out instead, since it then contributes only prompt tokens.
 \subsection{Masking the instruction}\label{sec:instruct:maskprompt}
 
 By default the loss covers prompt tokens too, so the model is also trained to predict
-the instruction text and the Alpaca preamble. A common variant, explored as an exercise
-in the LLM book, masks every target that predicts a prompt token, so only the response
+the instruction text and the Alpaca preamble. A common variant masks every target that predicts a prompt token, so only the response
 is learned (\cref{fig:instruct:maskprompt}). The trade-offs:
 \begin{itemize}
 \item \emph{Response-only loss} puts all gradient signal on what we want the model to
@@ -462,7 +461,7 @@ them, so do it properly.
 \end{systemslens}
 
 \begin{systemslens}[Where should the device transfer happen?]
-The LLM book moves each batch to the GPU inside the collate function, which is
+A simple implementation moves each batch to the GPU inside the collate function, which is
 convenient for single-process loading. With \code{num\_workers>0}, collate runs in
 worker processes. Those should not touch CUDA: initialising CUDA in forked processes is
 unsafe, and every worker would get its own CUDA context, costing hundreds of megabytes
@@ -473,7 +472,7 @@ asynchronous DMA that overlaps with the previous step's compute (\cref{ch:pytorc
 \end{systemslens}
 
 % =====================================================================================
-\section{Creating data loaders for an instruction dataset}\label{sec:instruct:loaders}\covers{LLM 7.4}
+\section{Creating data loaders for an instruction dataset}\label{sec:instruct:loaders}
 
 The collate function has configuration (\code{pad\_id}, \code{allowed\_max\_length},
 \code{mask\_prompt}) but \code{DataLoader} calls it with a single argument, the batch.
@@ -503,7 +502,7 @@ batch widths vary (for example $8\times61$, $8\times76$, $8\times73$), each batc
 wide as its longest example.
 
 % =====================================================================================
-\section{Loading a pretrained LLM}\label{sec:instruct:load}\covers{LLM 7.5}
+\section{Loading a pretrained LLM}\label{sec:instruct:load}
 
 GPT-2 small (124M) is too weak to follow instructions well after a short SFT run. We
 use \emph{GPT-2 medium} (355M parameters, 24 layers, $d=1024$, 16 heads) and load it
@@ -523,11 +522,11 @@ alone. That is where \cref{sec:instruct:lora} begins.
 \end{napkinmath}
 
 % =====================================================================================
-\section{Fine-tuning the LLM on instruction data}\label{sec:instruct:train}\covers{LLM 7.6}
+\section{Fine-tuning the LLM on instruction data}\label{sec:instruct:train}
 
 The training loop is the one from \cref{ch:pretrain}. The only change is that the loss
 uses \code{ignore\_index=-100}, which is \code{F.cross\_entropy}'s default, so the
-pretraining \code{loss\_batch} works unchanged. Following the LLM book we train for two
+pretraining \code{loss\_batch} works unchanged. We train for two
 epochs with AdamW (learning rate $5\times10^{-5}$, weight decay $0.1$), evaluating
 train and validation loss every few steps on a few batches.
 
@@ -560,7 +559,7 @@ roughly 20\%.
 \end{systemslens}
 
 % =====================================================================================
-\section{Extracting and saving responses}\label{sec:instruct:extract}\covers{LLM 7.7}
+\section{Extracting and saving responses}\label{sec:instruct:extract}
 
 To evaluate, we generate a response for every test instruction and store it next to the
 reference. We format the prompt without the response, decode greedily with the KV-cached
@@ -602,7 +601,7 @@ continuous-batching engine. The SFT and RL pipelines of later chapters
 \end{systemslens}
 
 % =====================================================================================
-\section{Evaluating the fine-tuned LLM}\label{sec:instruct:eval}\covers{LLM 7.8}
+\section{Evaluating the fine-tuned LLM}\label{sec:instruct:eval}
 
 There are three broad ways to evaluate an instruction-following model
 (\cref{ch:eval} treats each in depth):
@@ -663,7 +662,7 @@ def parse_score(text, lo=0, hi=100):
 The judge prompt (\code{build\_judge\_prompt} in \ident{llmsys/finetune.py}) shows the
 instruction, the reference and the model answer, and asks for an integer only. We
 average the parsed scores over the test set and count unparseable replies separately
-rather than dropping them silently. The LLM book's fine-tuned GPT-2 medium scores
+rather than dropping them silently. A fine-tuned GPT-2 medium typically scores
 around 50 on this scale. That is respectable for 355M parameters and far behind a
 modern 8B instruct model.
 
@@ -687,9 +686,9 @@ raises throughput several-fold at the same per-request latency.
 \end{napkinmath}
 
 % =====================================================================================
-\section{Conclusions and what comes next}\label{sec:instruct:conclusions}\covers{LLM 7.9}
+\section{Conclusions and what comes next}\label{sec:instruct:conclusions}
 
-At this point the LLM book's pipeline is complete: tokenisation and data sampling
+At this point the from-scratch pipeline is complete: tokenisation and data sampling
 (\cref{ch:text}), attention and the GPT architecture (\cref{ch:attention,ch:gpt}),
 pretraining (\cref{ch:pretrain}), and two kinds of fine-tuning (this chapter and
 \cref{ch:classify}). Modern assistants add a third training stage after SFT:
@@ -705,7 +704,7 @@ best way to absorb them is the one this book follows: re-implement the core idea
 small model, measure it, and only then reach for a framework.
 
 % =====================================================================================
-\section{Parameter-efficient fine-tuning with LoRA}\label{sec:instruct:lora}\covers{LLM E.1}
+\section{Parameter-efficient fine-tuning with LoRA}\label{sec:instruct:lora}
 
 Full fine-tuning updates every weight matrix $\mat{W}\in\R^{d_\text{out}\times d_\text{in}}$
 by a dense $\Delta\mat{W}$. Low-rank adaptation (Hu et al., 2021) assumes the
@@ -730,8 +729,8 @@ pretrained model, and the first gradient step reaches $\mat{B}$ through a non-ze
 $\mat{A}$.
 \item[Scaling $\alpha/r$.] The update is scaled by $\alpha/r$ so that changing $r$ does
 not require re-tuning the learning rate. A common default is $\alpha = r$ or
-$\alpha=2r$. The LLM book's implementation multiplies by $\alpha$ directly, without
-dividing by $r$, so its $\alpha=16, r=16$ corresponds to our $\alpha/r=16$. Watch for
+$\alpha=2r$. Some implementations multiply by $\alpha$ directly, without
+dividing by $r$, so their $\alpha=16, r=16$ corresponds to our $\alpha/r=16$. Watch for
 this when porting hyperparameters between codebases. Our \code{LoRALinear} supports
 both conventions through \code{scale\_by\_rank}.
 \item[Placement.] The original paper adapted only the attention projections $W_q,W_v$.
@@ -806,25 +805,25 @@ class LoRALinear(nn.Module):
             self.base.weight -= self.delta_weight(); self.merged = False
 \end{lstlisting}
 
-\subsection{Preparing the dataset}\covers{LLM E.2}
+\subsection{Preparing the dataset}
 
-The LLM book demonstrates LoRA on the spam classification task of \cref{ch:classify},
-not on instruction data. That makes the comparison with full fine-tuning clean: the
+We demonstrate LoRA on the spam classification task of \cref{ch:classify}
+rather than on instruction data. That makes the comparison with full fine-tuning clean: the
 same balanced SMS splits, the same dynamic-padding loaders, and the same accuracy
 metric. Nothing about the data changes. The data pipeline is independent of how many
 parameters are trained, so the loaders from \cref{lst:classify:collate} are reused
 verbatim.
 
-\subsection{Initializing the model}\covers{LLM E.3}
+\subsection{Initializing the model}
 
 We load pretrained GPT-2 small, swap in the two-class head
 (\cref{lst:classify:head}), and check that the untrained classifier sits at chance
-(about 46--49\% on the balanced splits in the LLM book's run). Then we freeze
+(about 46--49\% on the balanced splits). Then we freeze
 \emph{every} parameter, the new head included. LoRA will supply all trainable
 parameters. Counting trainable parameters before and after freezing (124M, then zero)
 is a cheap guard against the most common bug, accidentally training the base.
 
-\subsection{Parameter-efficient fine-tuning with LoRA}\covers{LLM E.4}
+\subsection{Parameter-efficient fine-tuning with LoRA}
 
 \code{apply\_lora} walks the module tree and replaces every \code{nn.Linear} with a
 \code{LoRALinear} wrapping it. A predicate can restrict which layers are adapted.
@@ -857,7 +856,7 @@ attention projections and $16\times(768+3072)\times2=122{,}880$ for the MLP, tim
 blocks, plus $16\times(768+2)$ for the head. That is about 2.1\% of the model and
 $47\times$ fewer than full fine-tuning. Training uses the same loop as
 \cref{lst:classify:train}. With a learning rate around $5\times10^{-5}$ and five epochs,
-the LLM book reaches accuracy comparable to fine-tuning the last block, in somewhat more
+LoRA reaches accuracy comparable to fine-tuning the last block, in somewhat more
 wall-clock time. LoRA does not reduce compute much on a model this small (see the
 next Systems Lens), and its benefits appear at scale.
 

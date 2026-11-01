@@ -51,7 +51,7 @@ costs and how to spend a compute budget.}
 \end{figure}
 
 % ======================================================================
-\section{Evaluating generative text models}\label{sec:pretrain:eval}\covers{LLM 5.1}
+\section{Evaluating generative text models}\label{sec:pretrain:eval}
 
 Before we can improve a model we need a number that says how bad it currently is. For
 classification, accuracy is the obvious choice; for a generative model it is not, because the
@@ -59,7 +59,7 @@ model's job is to put probability on \emph{all} plausible continuations, not to 
 label. The standard metric is the average negative log-likelihood of held-out text, which is
 also exactly the quantity we minimize during training.
 
-\subsection{Generating text with an untrained model}\label{sec:pretrain:untrained}\covers{LLM 5.1.1}
+\subsection{Generating text with an untrained model}\label{sec:pretrain:untrained}
 
 We reuse \code{GPTModel} from \cref{ch:gpt} with one change: the context window is reduced
 from 1{,}024 to 256 tokens. Attention cost grows quadratically with the window
@@ -94,7 +94,7 @@ With random weights the output distribution over the 50{,}257-token vocabulary i
 uniform, so the generated continuation is a sequence of unrelated word pieces. Our goal is to
 make the probability of the \emph{actual} next token large.
 
-\subsection{The text generation loss: cross-entropy and perplexity}\label{sec:pretrain:loss}\covers{LLM 5.1.2}
+\subsection{The text generation loss: cross-entropy and perplexity}\label{sec:pretrain:loss}
 
 Take a batch of inputs $\mat{X}\in\{0,\dots,V-1\}^{B\times T}$ and the targets $\mat{Y}$, which
 are the same token sequences shifted left by one position (\cref{ch:text}). The model maps
@@ -198,7 +198,7 @@ Always cast logits to fp32 before the log-sum-exp; bf16 has only 8 bits of manti
 normalizer of a 50k-way softmax loses most of its precision otherwise.
 \end{systemslens}
 
-\subsection{Training and validation losses}\label{sec:pretrain:trainval}\covers{LLM 5.1.3}
+\subsection{Training and validation losses}\label{sec:pretrain:trainval}
 
 Our first corpus is deliberately tiny: Edith Wharton's 1908 short story ``The Verdict'' (public
 domain), the same text used to build the tokenizer pipeline in \cref{ch:text}. It is about
@@ -249,7 +249,7 @@ training set. Our corpus is one afternoon of reading---so the model will memoriz
 \end{napkinmath}
 
 % ======================================================================
-\section{Training an LLM}\label{sec:pretrain:train}\covers{LLM 5.2}
+\section{Training an LLM}\label{sec:pretrain:train}
 
 The pretraining loop is the ordinary deep-learning loop (\cref{ch:pytorch}) applied to the
 next-token loss. \Cref{fig:pretrain:loop} shows its structure: an outer loop over epochs, an
@@ -361,7 +361,7 @@ diminish quickly (Muennighoff et al., 2023).
 \end{keyidea}
 
 % ======================================================================
-\section{Decoding strategies to control randomness}\label{sec:pretrain:decoding}\covers{LLM 5.3}
+\section{Decoding strategies to control randomness}\label{sec:pretrain:decoding}
 
 The trained model outputs a distribution over the next token; \emph{decoding} decides which
 token to emit. So far we used greedy decoding (\code{argmax}): deterministic and, for a model
@@ -370,7 +370,7 @@ distribution instead adds diversity, and two simple knobs control how adventurou
 are. \Cref{ch:scaling} returns to these knobs (and adds top-$p$) when we use sampling
 deliberately to make reasoning models more accurate.
 
-\subsection{Temperature scaling}\label{sec:pretrain:temp}\covers{LLM 5.3.1}
+\subsection{Temperature scaling}\label{sec:pretrain:temp}
 
 Replacing \code{argmax} with \code{torch.multinomial(softmax(z))} samples tokens in proportion
 to their probabilities. \emph{Temperature} $\tau>0$ divides the logits before the softmax,
@@ -403,7 +403,7 @@ gets sampled about 3\% of the time.}
 \label{fig:pretrain:temperature}
 \end{figure}
 
-\subsection{Top-$k$ sampling}\label{sec:pretrain:topk}\covers{LLM 5.3.2}
+\subsection{Top-$k$ sampling}\label{sec:pretrain:topk}
 
 High temperatures give diversity but also give the long tail of nonsense tokens a real chance.
 \emph{Top-$k$} sampling restricts the choice to the $k$ highest-scoring tokens by setting all
@@ -438,7 +438,7 @@ zero probability.\\[2pt]
 \label{fig:pretrain:topk}
 \end{figure}
 
-\subsection{A generation function with temperature, top-$k$ and EOS}\label{sec:pretrain:gen}\covers{LLM 5.3.3}
+\subsection{A generation function with temperature, top-$k$ and EOS}\label{sec:pretrain:gen}
 
 \Cref{lst:pretrain:generate} folds both knobs into the generation loop and adds an optional
 end-of-sequence ID so generation can stop early. \code{temperature=0} keeps the old greedy
@@ -483,7 +483,7 @@ sampling over a pivot. Two other systems properties matter more than speed:
 \end{systemslens}
 
 % ======================================================================
-\section{Saving and loading model weights}\label{sec:pretrain:save}\covers{LLM 5.4}
+\section{Saving and loading model weights}\label{sec:pretrain:save}
 
 Training runs end, crash, and get pre-empted, so persisting state is part of the loop, not an
 afterthought. PyTorch's recommended unit of persistence is the \code{state\_dict}: an ordered
@@ -547,7 +547,7 @@ $\approx \SI{1.1}{TB}$---written every few hundred steps by thousands of ranks.
 \end{systemslens}
 
 % ======================================================================
-\section{Loading pretrained weights from OpenAI}\label{sec:pretrain:gpt2}\covers{LLM 5.5}
+\section{Loading pretrained weights from OpenAI}\label{sec:pretrain:gpt2}
 
 Training a GPT-2-class model on a web-scale corpus costs far more than a laptop can deliver,
 but OpenAI released the weights of all four GPT-2 sizes. Loading them into our own
@@ -667,7 +667,7 @@ reference output, not just ``it runs''.
 \end{pitfall}
 
 % ======================================================================
-\section{Bells and whistles for the training loop}\label{sec:pretrain:bells}\covers{LLM App.\ D}
+\section{Bells and whistles for the training loop}\label{sec:pretrain:bells}
 
 The simple loop of \cref{lst:pretrain:simple} works for a toy, but real pretraining is
 fragile: early updates can blow up the network before the adaptive optimizer has calibrated its
@@ -675,7 +675,7 @@ statistics, late updates with a large step size keep the model bouncing around a
 single unlucky batch can produce a gradient large enough to undo hours of progress. Three
 techniques address these, and every serious LLM run uses all three.
 
-\subsection{Learning-rate warmup}\label{sec:pretrain:warmup}\covers{LLM D.1}
+\subsection{Learning-rate warmup}\label{sec:pretrain:warmup}
 
 At initialization, Adam's second-moment estimate $v$ is built from only a few gradients and is a
 noisy, typically too-small denominator; at the same time the gradients of a randomly
@@ -690,7 +690,7 @@ is common regardless of total length. Implementation-wise the schedule lives \em
 the optimizer: before each step, write the desired value into every
 \code{optimizer.param\_groups[i]["lr"]}.
 
-\subsection{Cosine decay}\label{sec:pretrain:cosine}\covers{LLM D.2}
+\subsection{Cosine decay}\label{sec:pretrain:cosine}
 
 After warmup, the learning rate should shrink so that late updates refine rather than
 overshoot. Cosine decay follows half a cosine period from the peak to a floor
@@ -738,7 +738,7 @@ rate for most of training and decay linearly or with a $1-\sqrt{\cdot}$ shape ov
 which makes scaling-law studies far cheaper (Hu et al., 2024, MiniCPM; H\"agele et al., 2024).
 \end{deepdive}
 
-\subsection{Gradient clipping}\label{sec:pretrain:clip}\covers{LLM D.3}
+\subsection{Gradient clipping}\label{sec:pretrain:clip}
 
 Rare batches produce gradients far larger than typical (an unusual document, a numerical
 outlier in attention logits). \emph{Global-norm clipping} bounds the size of every update by
@@ -784,7 +784,7 @@ a run that clips on every step is effectively running at a lower, norm-dependent
 and a steadily rising gradient norm is often the first sign of an impending loss spike.
 \end{pitfall}
 
-\subsection{The modified training function}\label{sec:pretrain:trainfn}\covers{LLM D.4}
+\subsection{The modified training function}\label{sec:pretrain:trainfn}
 
 \Cref{lst:pretrain:trainmodel} combines everything: warmup + cosine, gradient clipping,
 gradient accumulation, optional bf16 autocast (\cref{sec:pretrain:mixed}), periodic evaluation

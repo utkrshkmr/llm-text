@@ -53,7 +53,6 @@ caches and the hardware scheduler is planned explicitly by the programmer or the
 
 % ======================================================================
 \section{One roofline, many machines}\label{sec:accel:roofline}
-\covers{CS336 L5}
 
 The roofline of \cref{ch:pytorch} applies to every design. A kernel with arithmetic intensity
 $I$ (FLOPs per byte of off-chip traffic) runs at most at $\min(C, I\cdot B)$ FLOP/s, where $C$
@@ -98,7 +97,6 @@ stream. Capacity and bandwidth are separate purchases.
 
 % ======================================================================
 \section{Systolic arrays}\label{sec:accel:systolic}
-\covers{CS336 L5}
 
 A systolic array is a grid of multiply-accumulate processing elements (PEs) that pass operands
 to their neighbours every cycle, like blood pulsing through a body. Each operand fetched from
@@ -220,7 +218,6 @@ activations.
 
 % ======================================================================
 \section{TPUs}\label{sec:accel:tpu}
-\covers{CS336 L5; CS336 L8}
 
 \subsection{The chip}
 
@@ -442,6 +439,34 @@ Galaxy & rack server with 32 chips in a 2-D Ethernet mesh\\
 Blackhole, adds more cores, more GDDR and large general-purpose RISC-V cores on chip.}
 \label{tab:accel:tt}
 \end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=0.42cm, y=0.42cm,
+  tx/.style={draw=black!40, fill=fcompute!18, minimum size=0.36cm, inner sep=0pt},
+  dr/.style={draw=black!40, fill=fdata!35, minimum size=0.36cm, inner sep=0pt},
+  et/.style={draw=black!40, fill=fcomm!35, minimum size=0.36cm, inner sep=0pt}]
+\foreach \x in {0,...,9} \node[et] at (\x,0) {};
+\foreach \y in {1,...,8} {
+  \node[dr] at (0,-\y) {};
+  \foreach \x in {1,...,8} \node[tx] at (\x,-\y) {};
+  \node[dr] at (9,-\y) {};
+}
+\foreach \x in {0,...,9} \node[et] at (\x,-9) {};
+\draw[fcomm, thick, -{Stealth[length=1.4mm]}] (1,-4) -- (6,-4);
+\draw[fcomm, thick, -{Stealth[length=1.4mm]}] (6,-4) -- (6,-7);
+\node[tx, label={[font=\scriptsize]right:Tensix core}] at (12,-1.5) {};
+\node[dr, label={[font=\scriptsize]right:DRAM (GDDR6) controller}] at (12,-3.0) {};
+\node[et, label={[font=\scriptsize]right:Ethernet core (chip-to-chip)}] at (12,-4.5) {};
+\draw[fcomm, thick, -{Stealth[length=1.4mm]}] (11.6,-6.0) -- (12.6,-6.0) node[right, font=\scriptsize] {NoC route ($x$ then $y$)};
+\node[font=\scriptsize, align=left, anchor=west, text=srcgray] at (11.5,-7.6) {schematic: real grids are larger,\\with harvested rows and extra\\router/PCIe tiles};
+\end{tikzpicture}
+\caption{Schematic floor plan of a Wormhole-class chip: a grid of Tensix cores on two torus NoCs,
+DRAM controllers and Ethernet cores at the edges. A data-movement kernel reads a tile from any
+DRAM bank or any core's SRAM by NoC address; dimension-ordered routing makes the hop count, and
+therefore the latency, depend on placement.}
+\label{fig:accel:wormhole}
+\end{figure}
 
 \subsection{Programming model: reader, compute, writer}
 
@@ -781,7 +806,6 @@ raises total throughput until compute or cache capacity binds.}
 
 % ======================================================================
 \section{Interconnects compared}\label{sec:accel:interconnect}
-\covers{CS336 L8}
 
 Chips differ less in how they multiply matrices than in how they talk to each other.
 \Cref{fig:accel:topologies} contrasts the three topologies of this appendix, and the cost model of
@@ -952,6 +976,55 @@ Porting an LLM workload to a new accelerator follows the same steps every time.
 \end{enumerate}
 
 % ======================================================================
+\section{Using non-GPU hardware with this book's labs}\label{sec:accel:labs}
+
+The labs are written against PyTorch on CPU or CUDA, but most of their \emph{measurement} sections can be
+repeated on other hardware, and doing so is the best way to make this appendix concrete.
+
+\begin{itemize}
+  \item \textbf{GB10 / DGX Spark.} It runs the CUDA stack, so every lab runs unchanged. Use it for
+    the long-context and large-model variants (Qwen3-8B and 14B inference in Lab~18,
+    LoRA/QLoRA in Lab~17, GRPO on 1.7B in Lab~27), and use the planning numbers of
+    \cref{tab:accel:gb10} to predict decode speed before measuring it.
+  \item \textbf{Tenstorrent (n150/n300, TT-QuietBox).} Repeat the decode-roofline experiment of Lab~18
+    with a TT-NN model demo: measure batch-1 tokens/s with DRAM-resident weights, then with block-fp8
+    weights, and compare with \code{decode\_tokens\_per\_s\_bound}. Port the Qwen3 block of Lab~6
+    op by op using \cref{tab:accel:ttnn}, checking per-block correlation against the PyTorch
+    reference. On a multi-chip box, measure an all-gather's time against message size, as in
+    \cref{lst:sharding:bench}, to obtain your mesh's $\alpha$ and $\beta$ for the TP napkin math of
+    \cref{sec:accel:tt}.
+  \item \textbf{TPU VMs.} Re-implement the Lab~9 training loop in JAX with the sharding annotations of
+    \cref{lst:accel:jax} and measure MXU utilisation against batch size to reproduce
+    \cref{fig:accel:util}. The Lab~15 accounting functions apply with $W$ set to the ICI bandwidth of the
+    axis you shard over.
+\end{itemize}
+
+In each case the method is the book's: predict with a cost model, measure, then explain the gap.
+The gap usually comes from fixed overheads (kernel launch or dispatch, collective latency,
+format conversion such as tilize/untilize) that the roofline leaves out. Measuring them on your own
+hardware is what turns these models into engineering tools.
+
+% ======================================================================
+\section{Summary}\label{sec:accel:summary}
+
+\begin{itemize}
+  \item Every accelerator is compute units, on-chip memory, off-chip memory and an interconnect;
+    designs differ in who schedules data movement (hardware, compiler or programmer) and in how chips
+    are connected.
+  \item Systolic arrays build operand reuse into the dataflow. Utilisation is $M/(M+R+C-2)$ per tile,
+    so decode (small $M$) wastes the array and shapes should be multiples of the array size.
+  \item TPUs pair systolic MXUs with compiler-managed memory and a torus interconnect. Programs are
+    compiled whole for static shapes, and parallelism is expressed as sharding annotations on a mesh.
+  \item Tenstorrent's Tensix mesh exposes five RISC-V processors per core, explicit SRAM and NoC data
+    movement through reader/compute/writer kernels, $32\times32$ tiles, and Ethernet scale-out.
+    Placement is the program, and per-token collective latency limits multi-chip decode.
+  \item SRAM-only and wafer-scale designs remove off-chip bandwidth from decode at the cost of chip
+    count; unified-memory machines such as GB10 buy capacity, not bandwidth.
+  \item Decode is memory-bound everywhere. Bytes per token (weights plus KV cache) and the batch that
+    fits are the levers on every machine.
+\end{itemize}
+
+% ======================================================================
 \section{Exercises}\label{sec:accel:exercises}
 
 \begin{exercise}[Utilisation formula]
@@ -967,9 +1040,11 @@ $256\times256$ array. What does this imply for the batch sizes TPU serving syste
 \end{exercise}
 
 \begin{exercise}[Padding waste]
-Compute the padding efficiency of every weight matrix of Qwen3-0.6B (vocabulary 151,936) on a
-$128\times128$ array and with $32\times32$ tiles. Which matrix wastes the most, and how would you
-change the vocabulary size to fix it?
+Compute the padding efficiency of every weight matrix of Qwen3-0.6B (vocabulary 151,936) and of
+GPT-2 small (vocabulary 50,257) on a $128\times128$ array and with $32\times32$ tiles
+(\code{report.py} prints the table). Why does Qwen3 waste nothing? GPT-2-reproduction codebases pad the
+vocabulary to 50,304; check that this fixes both layouts, and explain why the padded rows cost
+nothing at inference.
 \end{exercise}
 
 \begin{exercise}[Torus all-reduce]

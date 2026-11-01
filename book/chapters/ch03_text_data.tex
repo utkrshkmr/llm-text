@@ -44,7 +44,7 @@ is engineered when the corpus has $10^{13}$ tokens.}
 \end{figure}
 
 % =====================================================================
-\section{From symbols to vectors: embeddings}\label{sec:text:embeddings}\covers{LLM 2.1}
+\section{From symbols to vectors: embeddings}\label{sec:text:embeddings}
 
 Neural networks compute with real-valued tensors; text is a sequence of discrete symbols. The
 bridge is an \emph{embedding}: a map from a discrete object to a point in $\R^d$. The same idea is
@@ -107,10 +107,10 @@ embeddings, and why the embedding table is a natural candidate for sharding by r
 \end{systemslens}
 
 % =====================================================================
-\section{Tokenizing text}\label{sec:text:tokenizing}\covers{LLM 2.2}
+\section{Tokenizing text}\label{sec:text:tokenizing}
 
 To build intuition we start with the simplest useful tokenizer: split on whitespace and
-punctuation. Our sample text is a short story---the original book uses Edith Wharton's
+punctuation. Our sample text is a short story: Edith Wharton's
 public-domain story \emph{The Verdict} (1908), about twenty thousand characters long, which is
 small enough to train on a laptop yet long enough to be interesting. Any plain-text file works.
 
@@ -168,7 +168,7 @@ built from the training text.}
 \end{figure}
 
 % =====================================================================
-\section{Converting tokens into token IDs}\label{sec:text:ids}\covers{LLM 2.3}
+\section{Converting tokens into token IDs}\label{sec:text:ids}
 
 A \emph{vocabulary} is a bijection between token strings and integers. For a word-level tokenizer
 we build it by collecting the unique tokens of the training corpus, sorting them (so the mapping
@@ -209,7 +209,7 @@ emoji, combining characters, and invalid UTF-8 boundaries.
 \end{pitfall}
 
 % =====================================================================
-\section{Adding special context tokens}\label{sec:text:special}\covers{LLM 2.4}
+\section{Adding special context tokens}\label{sec:text:special}
 
 Two problems remain: words outside the vocabulary, and the boundaries between unrelated documents.
 Both are solved by reserving vocabulary entries that never occur as ordinary text.
@@ -255,7 +255,7 @@ replaced by \code{<|unk|>}; the document boundary is made explicit with \code{<|
 \end{figure}
 
 % =====================================================================
-\section{Byte pair encoding}\label{sec:text:bpe}\covers{LLM 2.5}
+\section{Byte pair encoding}\label{sec:text:bpe}
 
 Word-level vocabularies have two fatal flaws for open-domain text: they cannot represent unseen
 words without \code{<|unk|>}, and to cover a large corpus they need hundreds of thousands of entries.
@@ -524,7 +524,7 @@ choosing or extending a tokenizer.
 \end{napkinmath}
 
 % =====================================================================
-\section{Data sampling with a sliding window}\label{sec:text:sliding}\covers{LLM 2.6}
+\section{Data sampling with a sliding window}\label{sec:text:sliding}
 
 An LLM is trained to predict the next token. Given a tokenized corpus $t_1,t_2,\dots,t_N$, a
 training example is a window of $T$ consecutive tokens as input, $x=(t_{s+1},\dots,t_{s+T})$, and the
@@ -628,7 +628,7 @@ or \code{.clone()} each window before returning it.
 \end{pitfall}
 
 % =====================================================================
-\section{Creating token embeddings}\label{sec:text:tokemb}\covers{LLM 2.7}
+\section{Creating token embeddings}\label{sec:text:tokemb}
 
 The last step converts a batch of IDs into vectors with \code{nn.Embedding(V, d)}---a trainable
 $\vocab\times d$ matrix whose forward pass is a row gather. A $(B,T)$ \code{long} tensor becomes a
@@ -685,7 +685,7 @@ $(8,1024,768)$ tensor of 6.3M floats (25\,MB in fp32). In a real model the table
 randomly and learned; our tests initialise it with a fixed seed so results are reproducible.
 
 % =====================================================================
-\section{Encoding word positions}\label{sec:text:positions}\covers{LLM 2.8}
+\section{Encoding word positions}\label{sec:text:positions}
 
 Self-attention, which we build in \cref{ch:attention}, is \emph{permutation-equivariant}: shuffling
 the input vectors shuffles the outputs the same way. Without extra information the model cannot

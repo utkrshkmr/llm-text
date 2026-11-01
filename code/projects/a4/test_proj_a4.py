@@ -39,3 +39,19 @@ def test_runner_aggregates_and_resumes():
 def test_reservoir_is_uniform_size():
     s = inspect_samples.reservoir(iter(range(1000)), 25, seed=1)
     assert len(s) == 25 and len(set(s)) == 25
+
+
+def test_fixed_recipe_trainer_learns_on_cpu():
+    import numpy as np
+    import train_on_bin
+    rng = np.random.default_rng(0)
+    # a learnable stream: repeating "documents" with an EOT separator (id 511)
+    doc = rng.integers(0, 500, size=40)
+    stream = np.concatenate([np.append(doc, 511) for _ in range(300)]).astype(np.uint16)
+    with tempfile.TemporaryDirectory() as d:
+        tr, va = os.path.join(d, "train.bin"), os.path.join(d, "val.bin")
+        stream.tofile(tr); stream[:4000].tofile(va)
+        res = train_on_bin.train("tiny", tr, va, os.path.join(d, "run"), eval_every=30, log=lambda s: None)
+        logs = [json.loads(x) for x in open(os.path.join(d, "run", "log.jsonl"))]
+        assert len(logs) == 2 and logs[-1]["val_loss"] < logs[0]["val_loss"] < 6.3
+        assert os.path.exists(os.path.join(d, "run", "best.pt")) and res["best_val_loss"] == logs[-1]["val_loss"]

@@ -17,7 +17,7 @@ We then cover exact and near-duplicate removal with hashing, Bloom filters, MinH
 locality-sensitive hashing; decontamination against benchmarks; and how to mix sources. Throughout, we treat the pipeline
 as a \emph{system}: what each stage costs per document, what has to be global versus per-shard,
 how to parallelise it over thousands of cores, and how to make it restartable and auditable.
-\Cref{ch:proj4} turns this material into a guided version of the CS336 data assignment.
+\Cref{ch:proj4} turns this material into a capstone project: build a filtered corpus and train on it.
 
 \begin{figure}[t]
 \centering
@@ -57,7 +57,7 @@ losing work or visibility.}
 \end{figure}
 
 % =====================================================================
-\section{Where pretraining data comes from}\label{sec:data:sources}\covers{CS336 L13}
+\section{Where pretraining data comes from}\label{sec:data:sources}
 
 ``Trained on the internet'' is a convenient slogan and a poor description. The web is a set of
 live servers; you cannot train on a server. Between the live web and a training set sit three
@@ -128,7 +128,7 @@ conversations and reinforcement learning. The trend across phases is from large 
 lower-quality data to small amounts of higher-quality data, and the boundaries are blurry.
 
 % =====================================================================
-\section{The Common Crawl container: WARC, WAT and WET}\label{sec:data:warc}\covers{CS336 A4 \S2.1}
+\section{The Common Crawl container: WARC, WAT and WET}\label{sec:data:warc}
 
 Common Crawl publishes each crawl as tens of thousands of \emph{segments}, each holding three
 parallel record files (\cref{fig:data:warc}):
@@ -207,7 +207,7 @@ Data is unfiltered web content and can be offensive; skip records you would rath
 \end{pitfall}
 
 % =====================================================================
-\section{From HTML to text}\label{sec:data:extract}\covers{CS336 A4 \S2.2; CS336 L14}
+\section{From HTML to text}\label{sec:data:extract}
 
 Extraction converts raw bytes into a Unicode string containing the page's main content. It
 has two independent sub-problems: decoding bytes into characters, and deciding which characters
@@ -264,7 +264,7 @@ measurably changed downstream accuracy, so this is not merely a speed question.
 \end{systemslens}
 
 % =====================================================================
-\section{Language identification}\label{sec:data:langid}\covers{CS336 A4 \S2.3}
+\section{Language identification}\label{sec:data:langid}
 
 Most curated corpora restrict themselves to a fixed set of languages, often just English, so the
 next stage estimates $p(\ell\mid x)$ for each language $\ell$. The standard tool is fastText's
@@ -314,7 +314,7 @@ borderline documents for review rather than silently dropping them.
 \end{pitfall}
 
 % =====================================================================
-\section{Personal information and harmful content}\label{sec:data:pii}\covers{CS336 A4 \S2.4--2.5}
+\section{Personal information and harmful content}\label{sec:data:pii}
 
 \paragraph{PII masking.} Emails, phone numbers and IP addresses can identify or reach people.
 Pipelines typically mask them with placeholder tokens rather than dropping whole documents.
@@ -353,7 +353,7 @@ documents that are predominantly pornographic, hateful or otherwise toxic. Two t
 dominate: word lists (C4 dropped any page containing a term from a public list of offensive
 words) and classifiers trained on human labels. Dolma, for example, trained fastText
 classifiers for NSFW and hate speech on the Jigsaw toxic-comment dataset of annotated Wikipedia
-talk-page comments, and the CS336 assignment uses these models. Both approaches have documented
+talk-page comments, and these models are publicly available. Both approaches have documented
 biases. Word lists remove medical and LGBTQ+ health content (Dodge et al., 2021) that happens to use anatomical or
 identity terms. Classifiers trained on one register (Wikipedia comments) misfire on others and
 over-flag dialects such as African-American English (Sap et al., 2019). Thresholds should therefore be set by looking at
@@ -362,7 +362,7 @@ that can \emph{recognise} harmful content, for example to refuse or to moderate
 (\cref{ch:alignment}).
 
 % =====================================================================
-\section{Heuristic quality rules}\label{sec:data:rules}\covers{CS336 A4 \S2.6}
+\section{Heuristic quality rules}\label{sec:data:rules}
 
 After language and safety filtering, most surviving pages are still poor training text: login
 walls, placeholder pages, product grids, keyword spam, pages whose content was images. The
@@ -425,7 +425,7 @@ quality scores, to avoid baking a classifier's biases into the corpus. Their wea
 capture syntax, not substance: a fluent page of SEO filler passes every rule.
 
 % =====================================================================
-\section{Model-based quality filtering}\label{sec:data:quality}\covers{CS336 A4 \S2.7; CS336 L14}
+\section{Model-based quality filtering}\label{sec:data:quality}
 
 Learned quality filters all instantiate one recipe. Given a small set of \textbf{target}
 documents $T$ that look like what we want, and a huge pool of \textbf{raw} documents $R$, find a
@@ -523,7 +523,7 @@ have an LLM label a few hundred thousand pages and distil the labels into a chea
 \end{napkinmath}
 
 % =====================================================================
-\section{Deduplication}\label{sec:data:dedup}\covers{CS336 A4 \S3; CS336 L14}
+\section{Deduplication}\label{sec:data:dedup}
 
 The web is full of repetition. Some of it is exact: mirrors, forks and default server pages.
 Much more is partial: every page of a forum shares its header and footer, licence texts are
@@ -540,7 +540,7 @@ time.
 
 Replace each item by a fixed-size hash and compare hashes. For document-level exact dedup, keep
 the first document with each (normalised) hash. For \emph{line-level} dedup as described in the
-CS336 assignment, make two passes: count each line's hash across the corpus, then rewrite every
+Project~4, make two passes: count each line's hash across the corpus, then rewrite every
 document keeping only lines that occur exactly once (\cref{lst:data:lines}). This removes
 site-wide boilerplate (menus, footers, cookie notices) from \emph{all} pages, leaving each page's
 unique content. Hashing to 64 bits makes the counter's keys 8 bytes regardless of line length;
@@ -827,13 +827,13 @@ class Decontaminator:
                    for g in grams if len(g.split()) == self.n)
 \end{lstlisting}
 
-The same machinery protects \emph{validation} sets during data work. The CS336 data assignment
+The same machinery protects \emph{validation} sets during data work. Project~4
 evaluates filtered data by perplexity on a held-out benchmark; you may use that benchmark to
 \emph{design} filters, but no validation text may enter the training set
 (\cref{ch:proj4}).
 
 % =====================================================================
-\section{Mixing sources and data schedules}\label{sec:data:mixing}\covers{CS336 L14}
+\section{Mixing sources and data schedules}\label{sec:data:mixing}
 
 A corpus is a mixture of sources (web, code, papers, books, math, conversations). With token
 counts $n_s$ and a training budget of $N$ tokens, a mixture $p$ implies
@@ -898,7 +898,7 @@ annealing or mid-training phase on high-quality and domain data while the learni
 which is cheap and effective (\cref{ch:optim,ch:scalinglaws}).
 
 % =====================================================================
-\section{Synthetic and post-training data}\label{sec:data:synthetic}\covers{CS336 L14}
+\section{Synthetic and post-training data}\label{sec:data:synthetic}
 
 Two uses of model-generated data now appear throughout the pipeline. In pretraining, a strong
 model can \emph{rephrase} low-quality pages into cleaner prose and turn high-quality pages into
@@ -914,7 +914,7 @@ models trained on unlicensed data is unclear. Second, synthetic data inherits it
 blind spots, so it needs the same filtering, deduplication and decontamination as web text.
 
 % =====================================================================
-\section{Engineering the pipeline}\label{sec:data:engineering}\covers{CS336 A4 \S4}
+\section{Engineering the pipeline}\label{sec:data:engineering}
 
 \paragraph{Order stages by cost and selectivity.} Each stage runs only on what earlier stages
 kept, so put cheap, highly selective stages first: empty and length checks, then rules, then
@@ -1021,7 +1021,7 @@ per-document stages cost 5\,ms per page per core (compiled extractor plus a few 
 the job needs $2.5\times10^{9}\times5\,\text{ms}\approx3.5\times10^{3}$ core-hours: about 3.5 hours on
 1{,}000 cores, or nine days on one 16-core machine. Pure-Python stages at 50\,ms per page multiply
 both numbers by ten. Measure seconds per shard on a sample of shards, multiply by the number of shards,
-and divide by the number of cores before committing to a design. The CS336 assignment asks exactly this
+and divide by the number of cores before committing to a design. Project~4 asks exactly this
 question for its subset and for a full crawl.
 \end{napkinmath}
 

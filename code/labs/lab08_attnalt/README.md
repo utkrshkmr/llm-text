@@ -11,5 +11,6 @@ LAB_IMPL=starter  python -m pytest -q labs/lab08_attnalt
 LAB_IMPL=solution python -m pytest -q labs/lab08_attnalt
 python labs/lab08_attnalt/bench.py --device cpu          # decode cost vs context length
 python labs/lab08_attnalt/bench.py --device cuda --d 1024 --heads 16 --lens 1024 4096 16384 65536
+python labs/lab08_attnalt/recall.py --patterns AA LL MM LA --pairs 8 32   # associative recall
 ```
 Tests use float64 so the three linear-attention forms can be compared to 1e-10.

@@ -45,7 +45,7 @@ judged by the validation loss of a model trained with a fixed recipe.}
 \end{figure}
 
 % =====================================================================
-\section{What the assignment asks and why}\label{sec:proj4:overview}\covers{CS336 A4 \S1}
+\section{What the assignment asks and why}\label{sec:proj4:overview}
 
 The assignment has three movements. First, you implement the per-document primitives
 of \cref{ch:data}: HTML-to-text extraction with encoding detection, language identification,
@@ -178,7 +178,7 @@ train\_model & train the fixed model, report the best validation loss and learni
 \end{longtable}}
 
 % =====================================================================
-\section{Guidance for Part 1: per-document primitives}\label{sec:proj4:part1}\covers{CS336 A4 \S2.1--2.6}
+\section{Guidance for Part 1: per-document primitives}\label{sec:proj4:part1}
 
 \paragraph{Look before you build.} Use \code{zcat ... | less} or the sample inspector, and keep
 your 25 annotations in a CSV with columns for language, domain, page type and a keep/drop verdict.
@@ -235,7 +235,7 @@ threshold, which is where a mistake would change what gets kept (\cref{ch:eval} 
 more depth).
 
 % =====================================================================
-\section{Guidance for Part 2: the quality classifier and deduplication}\label{sec:proj4:part2}\covers{CS336 A4 \S2.7, \S3}
+\section{Guidance for Part 2: the quality classifier and deduplication}\label{sec:proj4:part2}
 
 \paragraph{Positives are a data-collection project.} The URL list is huge; subsample it. Fetching
 pages yourself means dealing with timeouts, dead links, redirects and non-HTML responses. Use a
@@ -276,7 +276,7 @@ than reading them into memory.
 \end{pitfall}
 
 % =====================================================================
-\section{Guidance for Part 3: building the dataset}\label{sec:proj4:part3}\covers{CS336 A4 \S4}
+\section{Guidance for Part 3: building the dataset}\label{sec:proj4:part3}
 
 \paragraph{Design the pipeline on paper first.} Draw your funnel (\cref{fig:data:funnel}): which
 stages run per file, which are global, in what order, and with which thresholds. Order stages by
@@ -361,7 +361,7 @@ FineWeb (\cref{sec:data:engineering}) at the scale of one student; the scale cav
 \end{systemslens}
 
 % =====================================================================
-\section{Background: selecting data toward a target distribution}\label{sec:proj4:selection}\covers{CS336 L14}
+\section{Background: selecting data toward a target distribution}\label{sec:proj4:selection}
 
 Part~3 is a \emph{targeted} data-selection problem: choose, from a large raw pool $R$, the training
 set that minimises loss on a specific evaluation distribution $T$. \Cref{sec:data:quality}

@@ -57,7 +57,7 @@ steps 9--12 place it among its relatives and cost it out.}
 \end{figure}
 
 % ======================================================================
-\section{Why skip the reward model?}\label{sec:dpo:why}\covers{PO §7; CS336 L15}
+\section{Why skip the reward model?}\label{sec:dpo:why}
 
 Recall the three-stage pipeline of \cref{ch:rlhf} (\cref{fig:dpo:pipelines}, top). After
 supervised fine-tuning (SFT) produces $\pi_{\text{SFT}}$, annotators compare pairs of responses
@@ -117,7 +117,7 @@ cost profile is that of supervised fine-tuning.}
 \end{figure}
 
 % ======================================================================
-\section{Deriving DPO}\label{sec:dpo:derive}\covers{PO §7; CS336 A5s §6.1}
+\section{Deriving DPO}\label{sec:dpo:derive}
 
 \subsection{The optimal policy of the KL-regularised objective}
 
@@ -190,7 +190,7 @@ $y_w\succ y_l$ is a logistic function of a reward difference. (2) We want the op
 is the source of both DPO's simplicity and most of its failure modes (\cref{sec:dpo:failures}).
 \end{keyidea}
 
-\subsection{How DPO uses Bradley--Terry implicitly}\covers{PO §7}
+\subsection{How DPO uses Bradley--Terry implicitly}
 
 Compare DPO with explicit reward modelling term by term. A reward model is an LM trunk with a
 scalar head (\cref{ch:rlhf}), trained by \eqref{eq:dpo:bt}, after which the head is thrown away
@@ -210,7 +210,7 @@ class for $r$: functions of the form $\beta\log\pi_\theta/\piref$. Two consequen
   you can see \emph{which} tokens the update promoted or suppressed.
 \end{itemize}
 
-\subsection{The gradient: a weighted likelihood update}\label{sec:dpo:grad}\covers{PO §7}
+\subsection{The gradient: a weighted likelihood update}\label{sec:dpo:grad}
 
 Differentiate \eqref{eq:dpo:loss}. With $\frac{d}{dh}[-\log\sigma(h)]=-\sigma(-h)$,
 \begin{equation}
@@ -259,7 +259,7 @@ prompt terms no longer cancel and the loss is silently wrong. Summing over respo
 \end{pitfall}
 
 % ======================================================================
-\section{Preference data in practice}\label{sec:dpo:data}\covers{CS336 A5s §6.2}
+\section{Preference data in practice}\label{sec:dpo:data}
 
 A DPO dataset is a list of triples. On disk, the most portable format is JSON Lines with one
 record per comparison:
@@ -357,7 +357,7 @@ and debuggable, and lets you re-score without re-generating.
 \end{systemslens}
 
 % ======================================================================
-\section{Implementing DPO}\label{sec:dpo:impl}\covers{CS336 A5s §6.3}
+\section{Implementing DPO}\label{sec:dpo:impl}
 
 \subsection{The pair batch}
 
@@ -650,7 +650,7 @@ essentially perfect, drops, an alignment tax in miniature caused by over-optimis
 dataset with a large learning rate.
 
 % ======================================================================
-\section{Failure modes}\label{sec:dpo:failures}\covers{PO §7}
+\section{Failure modes}\label{sec:dpo:failures}
 
 \paragraph{Likelihood displacement.} \Cref{eq:dpo:grad} only constrains the \emph{difference}
 of log-ratios, so both log-probabilities may fall while the margin grows. Probability mass freed
@@ -692,7 +692,7 @@ you go online (sample new pairs every round), you inherit the RL-systems problem
 \end{systemslens}
 
 % ======================================================================
-\section{The family: cDPO, IPO, KTO, SimPO, ORPO, CPO and online variants}\label{sec:dpo:family}\covers{PO §8; PO §15}
+\section{The family: cDPO, IPO, KTO, SimPO, ORPO, CPO and online variants}\label{sec:dpo:family}
 
 DPO kicked off a large literature of ``direct alignment'' losses. Nearly all of them are
 functions of the same few per-pair quantities: summed or averaged log-probs of the winner and
@@ -891,7 +891,7 @@ metrics = preference_metrics(a, c)
 \end{lstlisting}
 
 % ======================================================================
-\section{DPO vs PPO vs GRPO}\label{sec:dpo:compare}\covers{PO §11; PO §3.8}
+\section{DPO vs PPO vs GRPO}\label{sec:dpo:compare}
 
 \begin{table}[t]
 \centering\small

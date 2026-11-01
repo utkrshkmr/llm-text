@@ -45,7 +45,7 @@ stages 5--8 are the plumbing that turns an update rule into a training run you c
 \end{figure}
 
 % =====================================================================
-\section{The training loop as a system}\label{sec:optim:loop}\covers{CS336 L2}
+\section{The training loop as a system}\label{sec:optim:loop}
 
 Every training step does the same seven things (\cref{fig:optim:loop}): fetch a batch,
 compute logits, reduce them to a scalar loss, backpropagate, possibly clip the gradient, update
@@ -125,7 +125,7 @@ fundamental cost.
 \end{systemslens}
 
 % =====================================================================
-\section{The objective, numerically}\label{sec:optim:loss}\covers{CS336 A1 \S4.1}
+\section{The objective, numerically}\label{sec:optim:loss}
 
 The language-modelling loss is the average negative log-likelihood of the next token,
 \begin{equation}
@@ -166,7 +166,7 @@ Production code therefore computes the loss in chunks over the sequence, or uses
 chunked cross-entropy for long reasoning traces.
 
 % =====================================================================
-\section{Writing an optimizer in PyTorch}\label{sec:optim:api}\covers{CS336 A1 \S4.2}
+\section{Writing an optimizer in PyTorch}\label{sec:optim:api}
 
 PyTorch's \code{torch.optim.Optimizer} base class does three jobs for us. It stores
 \emph{parameter groups} (lists of tensors that share hyperparameters), it keeps a per-tensor
@@ -237,7 +237,7 @@ wisdom that the best learning rate sits just below the ``edge of stability''
 \end{pitfall}
 
 % =====================================================================
-\section{From SGD to Adam and AdamW}\label{sec:optim:adam}\covers{CS336 L2; CS336 A1 \S4.3}
+\section{From SGD to Adam and AdamW}\label{sec:optim:adam}
 
 Each classic optimizer adds one idea to SGD. Writing $g_t$ for the gradient at step $t$:
 
@@ -341,7 +341,7 @@ tiny; if you keep $v$ in bf16, $\epsilon=10^{-8}$ underflows relative to $\sqrt{
 behaves like zero.
 
 % =====================================================================
-\section{What an optimizer step costs}\label{sec:optim:cost}\covers{CS336 A1 \S4.3}
+\section{What an optimizer step costs}\label{sec:optim:cost}
 
 The forward and backward passes are compute-bound matrix multiplies. The optimizer step is the
 opposite: a long chain of elementwise operations with an arithmetic intensity below one FLOP per
@@ -430,7 +430,7 @@ releases 14\,GB of bf16 weights but writes 112\,GB of training checkpoint.
 \end{systemslens}
 
 % =====================================================================
-\section{Accounting for memory and compute in a training run}\label{sec:optim:account}\covers{CS336 A1 \S4.3; CS336 L2}
+\section{Accounting for memory and compute in a training run}\label{sec:optim:account}
 
 Before launching a run you should be able to predict whether it fits in memory, how long a step
 takes, and how many hours the whole run needs. The method has four parts, each a sum over
@@ -496,7 +496,7 @@ and later GPUs.
 \end{pitfall}
 
 % =====================================================================
-\section{Learning-rate schedules}\label{sec:optim:sched}\covers{CS336 A1 \S4.4}
+\section{Learning-rate schedules}\label{sec:optim:sched}
 
 A schedule is a function $\eta(t)$ evaluated every step and written into
 \code{group["lr"]}. Three shapes cover almost all LLM training (\cref{fig:optim:sched}).
@@ -599,7 +599,7 @@ much of the benefit usually credited to a schedule's shape comes from annealing 
 \end{figure}
 
 % =====================================================================
-\section{Gradient clipping}\label{sec:optim:clip}\covers{CS336 A1 \S4.5}
+\section{Gradient clipping}\label{sec:optim:clip}
 
 Occasionally a batch produces a gradient far larger than usual: a rare token, a pathological
 document, or the model entering a sharp region. One such step can undo hours of progress.
@@ -769,7 +769,7 @@ before comparing.}
 
 
 % =====================================================================
-\section{Feeding the loop: batches from a memory-mapped token array}\label{sec:optim:data}\covers{CS336 A1 \S5.1}
+\section{Feeding the loop: batches from a memory-mapped token array}\label{sec:optim:data}
 
 Pretraining data is tokenised once, offline, into one long array of token ids with an
 end-of-text separator between documents, and stored as raw little-endian integers
@@ -843,7 +843,7 @@ offline.
 \end{napkinmath}
 
 % =====================================================================
-\section{Checkpointing everything}\label{sec:optim:ckpt}\covers{CS336 A1 \S5.2}
+\section{Checkpointing everything}\label{sec:optim:ckpt}
 
 A checkpoint is correct when \emph{loading it and continuing produces the same run as never
 stopping}. That requires more than the weights (\cref{fig:optim:ckpt}):
@@ -915,7 +915,7 @@ about $\sqrt{2CM}$. \Cref{sec:pretrain:efficiency} returns to async checkpointin
 \end{systemslens}
 
 % =====================================================================
-\section{Experiment management}\label{sec:optim:explog}\covers{CS336 A1 \S5.3; CS336 A1 \S7.1}
+\section{Experiment management}\label{sec:optim:explog}
 
 You will run dozens of variants of every experiment, so the infrastructure for launching and comparing
 them pays for itself within a day. \ident{llmsys/explog.py} implements the minimum we have found
@@ -968,7 +968,7 @@ human-readable \emph{experiment log} next to the runs: what you changed, why, wh
 and what happened. Six weeks later the plots alone will not tell you why a run exists.
 
 % =====================================================================
-\section{Debugging the loop and tuning the learning rate}\label{sec:optim:debug}\covers{CS336 A1 \S7.2.3}
+\section{Debugging the loop and tuning the learning rate}\label{sec:optim:debug}
 
 When a model does not learn, work from cheapest to most expensive check:
 

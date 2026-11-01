@@ -56,7 +56,7 @@ covers the other evaluation families.}
 
 % ======================================================================
 \section{Four ways to measure a language model}\label{sec:eval:families}
-\covers{RM 3.1; RM F.1}
+
 
 Papers, model cards and leaderboards report many numbers, but almost all of them come from one
 of four procedures (\cref{fig:eval:taxonomy}):
@@ -118,7 +118,7 @@ designing a serving workload; budget it the way you would budget production traf
 
 % ======================================================================
 \section{Verifiers: grading by computation}\label{sec:eval:verifiers}
-\covers{RM 3.1}
+
 
 A verifier answers one question: \emph{is the final answer in this response equivalent to the
 reference answer?} For math the response is free-form text that typically ends with a
@@ -163,7 +163,7 @@ silently corrupts all of them --- which is why we test every stage in isolation.
 
 % ======================================================================
 \section{Loading a pretrained model to generate answers}\label{sec:eval:load}
-\covers{RM 3.2}
+
 
 The model under test throughout Part~VI is Qwen3-0.6B, built from scratch in \cref{ch:modern}
 and loaded from the official weights in \cref{ch:inference}. Qwen3 ships in two flavours that
@@ -218,7 +218,7 @@ device, dtype, batch size and library versions with every result
 
 % ======================================================================
 \section{A generation wrapper}\label{sec:eval:wrapper}
-\covers{RM 3.3}
+
 
 The evaluation code should not care whether text comes from a cached streaming loop, a batched
 engine, or a remote server. We therefore hide generation behind a function with the narrowest
@@ -256,7 +256,7 @@ without touching the evaluation logic.
 
 % ======================================================================
 \section{Extracting the final answer}\label{sec:eval:extract}
-\covers{RM 3.4}
+
 
 The first verifier stage turns a long response into a short candidate string. By convention the
 answer is the content of the \emph{last} \bx{} --- models frequently box intermediate results
@@ -347,7 +347,7 @@ for judging things a program cannot (\cref{sec:eval:judge}).
 
 % ======================================================================
 \section{Normalizing the extracted answer}\label{sec:eval:normalize}
-\covers{RM 3.5}
+
 
 The same value can be written in dozens of ways: \texttt{\textbackslash dfrac\{14\}\{3\}},
 \texttt{\textbackslash frac\{14\}\{3\}}, \texttt{14/3}, \texttt{4\textbackslash frac\{2\}\{3\}},
@@ -422,7 +422,7 @@ differ. When comparing to a number in a paper, use \emph{their} grader or report
 
 % ======================================================================
 \section{Verifying mathematical equivalence}\label{sec:eval:sympy}
-\covers{RM 3.6}
+
 
 After normalization, string equality catches the easy cases but misses \texttt{(28)/(6)} versus
 \texttt{14/3}, \texttt{2sqrt(3)} versus \texttt{sqrt(12)}, or \texttt{x**2+1} versus
@@ -499,7 +499,7 @@ def grade_many_safe(pairs, timeout_s=5.0, workers=2):
 
 % ======================================================================
 \section{Grading answers}\label{sec:eval:grade}
-\covers{RM 3.7}
+
 
 The last piece handles answers with several components: ordered pairs such as $(7, 3)$, lists
 of solutions, and intervals such as $(-1, 4)$ or $[2, 5)$. \texttt{equality\_check} sees
@@ -584,7 +584,7 @@ Prediction & Reference & Graded & Why \\
 
 % ======================================================================
 \section{The MATH-500 benchmark}\label{sec:eval:math500}
-\covers{RM 3.8}
+
 
 We evaluate on \textbf{MATH-500}, a 500-problem subset of the MATH competition dataset
 (Hendrycks et al., 2021) selected by OpenAI for the PRM800K process-supervision study (Lightman et
@@ -630,7 +630,7 @@ book, but it does make absolute numbers hard to interpret.
 
 % ======================================================================
 \section{Evaluating the model end to end}\label{sec:eval:run}
-\covers{RM 3.9}
+
 
 \subsection{A prompt template}
 Our extractor prefers boxed answers, so the prompt should ask for one.
@@ -785,7 +785,7 @@ configuration identical between arms.
 
 % ======================================================================
 \section{Multiple-choice accuracy}\label{sec:eval:mcq}
-\covers{RM F.2; RM F.2.1; RM F.2.2}
+
 
 Multiple-choice benchmarks such as MMLU (Hendrycks et al., 2021) --- 57 subjects from
 elementary mathematics to professional law, four options per question --- test knowledge recall.
@@ -874,7 +874,7 @@ prefix length to total prompt length --- often more than 80\% for 5-shot prompts
 
 % ======================================================================
 \section{Verifiers beyond math}\label{sec:eval:beyond}
-\covers{RM F.3}
+
 
 The verifier pattern generalizes to any domain where correctness can be computed:
 
@@ -902,7 +902,7 @@ property that RL with verifiable rewards exploits in \cref{ch:grpo}.
 
 % ======================================================================
 \section{Preferences and leaderboards}\label{sec:eval:leaderboards}
-\covers{RM F.4}
+
 
 For open-ended tasks --- write an email, explain a concept --- there is no reference answer to
 check. Leaderboards such as LMArena (formerly Chatbot Arena; Chiang et al., 2024) instead show a
@@ -1000,7 +1000,7 @@ several, with their confidence intervals, never as a precise measurement.
 
 % ======================================================================
 \section{LLM-as-a-judge}\label{sec:eval:judge}
-\covers{RM F.5; RM F.5.1; RM F.5.2}
+
 
 An LLM judge replaces the human voter (or the reference-matching program) with a strong model
 prompted to grade. It can grade open-ended answers like a human and runs at the speed of

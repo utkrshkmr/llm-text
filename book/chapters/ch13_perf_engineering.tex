@@ -1,0 +1,465 @@
+\chapter{Performance Engineering on One GPU}\label{ch:perf}
+
+A distributed training job is a single-GPU program replicated thousands of times, with
+communication added. Every inefficiency inside one device multiplies across the cluster:
+a step that leaves half of each GPU idle wastes half the cluster, however clever the
+parallelism. This chapter is about making a single device do as much useful work as possible,
+and about the measurements you need before you change anything.
+
+The tools come first: honest timers, the Nsight Systems profiler with NVTX annotations, the
+PyTorch memory snapshot, and saved-tensor hooks that show exactly what autograd keeps for the
+backward pass. With those in hand we take apart a training step: where the time goes, where the
+memory goes, what mixed precision and \code{torch.compile} change, and how activation
+checkpointing trades FLOPs for bytes. The chapter ends with the largest single optimisation for
+long-context training, a FlashAttention-2 kernel in Triton with \emph{both} the forward and the
+backward pass, wired into autograd. It builds directly on the derivation in
+\cref{sec:attention:flash} and on the forward-only kernel of \cref{sec:triton:flash}.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  st/.style={draw, rounded corners=3pt, minimum height=1.05cm, text width=2.35cm, align=center,
+    font=\small, line width=0.6pt},
+  num/.style={circle, fill=sysblue, text=white, font=\bfseries\scriptsize, inner sep=1.6pt},
+  arr/.style={-{Stealth[length=2mm]}, line width=0.7pt, draw=black!60}]
+\node[st, fill=fdata!15, draw=keygreen] (a) at (0,0) {Workbench \&\\honest timing};
+\node[st, fill=fdata!15, draw=keygreen] (b) at (3.0,0) {Nsight Systems\\\& NVTX};
+\node[st, fill=fcompute!15, draw=sysblue] (c) at (6.0,0) {Where time goes;\\mixed precision};
+\node[st, fill=fmemory!18, draw=napkin] (d) at (9.0,0) {Memory snapshots\\\& residuals};
+\node[st, fill=fmemory!18, draw=napkin] (e) at (9.0,-1.75) {Checkpointing,\\offload, compile};
+\node[st, fill=fcomm!14, draw=labpurple] (f) at (6.0,-1.75) {Attention at\\long context};
+\node[st, fill=fcomm!14, draw=labpurple] (g) at (3.0,-1.75) {FlashAttention-2\\fwd + bwd in Triton};
+\node[st, fill=black!6, draw=black!60] (h) at (0,-1.75) {End-to-end\\step playbook};
+\foreach \n/\k in {a/1,b/2,c/3,d/4,e/5,f/6,g/7,h/8} \node[num] at (\n.north west) {\k};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d); \draw[arr] (d)--(e);
+\draw[arr] (e)--(f); \draw[arr] (f)--(g); \draw[arr] (g)--(h);
+\end{tikzpicture}}
+\caption{Roadmap of the chapter. Stages 1--2 build the measurement tools, 3--5 apply them to
+compute and memory, 6--7 replace attention with a kernel of our own, and 8 combines everything into
+a checklist for a fast training step.}
+\label{fig:perf:roadmap}
+\end{figure}
+
+% =====================================================================
+\section{A performance workbench}\label{sec:perf:workbench}
+
+Performance work is experimental science, and the first deliverable is a laboratory in which
+experiments are cheap, repeatable and recorded. Concretely, that means four things.
+
+\paragraph{A pinned, recorded environment.} Driver, CUDA runtime, PyTorch, Triton and NCCL
+versions all change kernel selection and therefore timings; a PyTorch upgrade can change which
+attention backend runs, and a Triton upgrade can change the language itself (recent Triton
+releases removed the block-pointer API in favour of tensor descriptors, see
+\cref{sec:perf:fa2:blockptr}). Use a lock file (\code{uv.lock} or \code{requirements.txt} with exact
+versions) and record the environment next to every result. \code{code/projects/a2/env\_check.py}
+prints versions, GPU models, SM counts, the interconnect topology (\code{nvidia-smi topo -m}),
+whether \code{nsys}/\code{ncu} are installed, and a one-second matmul sanity check against the
+published peak:
+
+\begin{lstlisting}[style=shell]
+$ python projects/a2/env_check.py --json > results/env.json
+$ python projects/a2/env_check.py
+torch: 2.x.y+cu12z   cuda: 12.z   triton: 3.y   nccl: 2.y.z
+gpu[0]: {'name': 'NVIDIA H100 80GB HBM3', 'mem_GiB': 79.1, 'sms': 132, 'cc': '9.0'}
+matmul_check: {'bf16_TFLOPs': ..., 'fraction_of_peak': ...}
+nsys: /usr/local/bin/nsys   ncu: /usr/local/bin/ncu
+\end{lstlisting}
+
+\paragraph{Benchmarks as programs with flags.} Every variation you will want to compare
+(model size, context length, dtype, compiled or not, which attention, which checkpointing
+policy) should be a command-line flag of one script, not a copy of it. Lab~13's
+\code{bench.py} follows this pattern with four sub-commands (\code{model}, \code{attention},
+\code{saved}, \code{ckpt}).
+
+\paragraph{Sweeps that log failures.} Out-of-memory errors are results, not exceptions to swallow.
+\code{projects/a2/sweep.py} runs a command over a JSON grid, records one JSON line per run
+(including \code{"status": "oom"}), stores the git revision, and resumes after an interruption.
+
+\paragraph{Tables generated by code.} Every number in a writeup should come from a file produced by
+a script. \code{projects/a2/tables.py} pivots a sweep's JSONL into Markdown or LaTeX, which your
+report then \code{\textbackslash input}s. Copying numbers by hand is how mismatched units and stale
+results get into papers.
+
+\begin{lstlisting}[style=shell,caption={A sweep from grid to LaTeX table.},label={lst:perf:sweep}]
+$ cat grid.json
+{"cfg": ["gpt-small", "gpt-medium"], "T": [256, 512, 1024], "dtype": ["fp32", "bf16"]}
+$ python projects/a2/sweep.py --grid grid.json --out runs.jsonl -- \
+    python labs/lab13_perf/bench.py model --cfg {cfg} --T {T} --dtype {dtype} --jsonl /dev/stdout
+$ python projects/a2/tables.py runs.jsonl --rows cfg T --cols dtype --value ms_mean --latex \
+    > report/step_time.tex
+\end{lstlisting}
+
+% =====================================================================
+\section{Timing GPU code honestly}\label{sec:perf:timing}
+
+\Cref{sec:pytorch:async} showed that kernel launches are asynchronous: \code{torch.matmul}
+returns as soon as the kernel is \emph{queued}. A timer around it measures launch overhead, not
+work. \Cref{lst:perf:timefn} is the timing loop used throughout the chapter (it lives in
+\code{llmsys/perf.py}); it extends \cref{lst:pytorch:bench} by returning the full distribution.
+
+\begin{lstlisting}[caption={Warm up, synchronise, repeat, keep every sample.},label={lst:perf:timefn}]
+def time_fn(fn, warmup=5, iters=10, sync=synchronize):
+    for _ in range(warmup):            # absorb one-off costs
+        fn()
+    sync()                             # drain everything queued so far
+    times = []
+    for _ in range(iters):
+        t0 = timeit.default_timer()    # highest-resolution monotonic clock
+        fn()
+        sync()                         # wait for *this* call's kernels
+        times.append(timeit.default_timer() - t0)
+    return dict(mean=statistics.fmean(times), std=statistics.pstdev(times),
+                median=statistics.median(times), min=min(times), times=times)
+\end{lstlisting}
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[x=0.9cm, y=0.55cm, font=\scriptsize]
+\node[anchor=east] at (-0.2,2) {CPU (Python)};
+\node[anchor=east] at (-0.2,0.6) {GPU stream};
+\foreach \x/\w in {0/0.35,0.45/0.35,0.9/0.35,1.35/0.35} \fill[sysblue!45] (\x,1.7) rectangle ++(\w,0.6);
+\node[anchor=south] at (0.85,2.35) {launch $k_1..k_4$};
+\fill[warnred!35] (1.8,1.7) rectangle ++(0.25,0.6); \node[anchor=south] at (1.93,2.35) {\code{t1}};
+\draw[warnred, thick] (1.93,1.6)--(1.93,-0.2); \node[warnred, anchor=north] at (1.93,-0.25) {wrong stop};
+\foreach \x/\w/\c in {0.4/1.3/fcompute, 1.75/1.6/fcompute, 3.4/0.9/fdata, 4.35/1.4/fcompute}
+  \fill[\c!55] (\x,0.3) rectangle ++(\w,0.6);
+\node at (1.05,0.6) {$k_1$}; \node at (2.55,0.6) {$k_2$}; \node at (3.85,0.6) {$k_3$}; \node at (5.05,0.6) {$k_4$};
+\fill[keygreen!50] (2.05,1.7) rectangle (5.75,2.3); \node at (3.9,2.0) {\code{synchronize()} blocks};
+\draw[keygreen!60!black, thick] (5.8,2.5)--(5.8,-0.2); \node[keygreen!50!black, anchor=north] at (5.8,-0.25) {correct stop};
+% warmup
+\begin{scope}[xshift=7.3cm]
+\node[anchor=west,font=\scriptsize\bfseries] at (0,2.7) {Per-iteration time};
+\foreach \i/\h in {1/2.6,2/1.6,3/0.95,4/0.82,5/0.8,6/0.81,7/0.79,8/0.8,9/0.82,10/0.8}
+  \fill[\ifnum\i<4 warnred!45\else sysblue!45\fi] (0.45*\i,0) rectangle ++(0.33,\h);
+\draw[->] (0.3,0)--(5.0,0) node[right] {iter};
+\node[warnred, font=\tiny, align=center] at (1.0,3.0) {warm-up: compile,\\autotune, allocator};
+\end{scope}
+\end{tikzpicture}}
+\caption{Left: the CPU races ahead of the GPU. A timer stopped right after the launches measures
+almost nothing; synchronising first makes the CPU wait for the queue to drain. Right
+(schematic): the first iterations are slower and must be excluded from the statistics.}
+\label{fig:perf:timeline}
+\end{figure}
+
+\paragraph{What warm-up absorbs.} The first call to a model on a fresh process pays for things that
+never recur: CUDA context creation and module loading (hundreds of milliseconds), cuBLAS/cuDNN
+heuristic selection or autotuning for each new shape, Triton JIT compilation and autotuning,
+\code{torch.compile} tracing and code generation (seconds to minutes), growth of the caching
+allocator's pool (each new block is a \code{cudaMalloc}), and GPU clock ramp-up from idle. If the
+first few samples differ from the rest, which they nearly always do, either discard them or
+report them separately as ``time to first step'', a number that matters for short jobs and for
+serving cold starts.
+
+\paragraph{Variance and what to report.} Report a central value \emph{and} a spread: the mean
+with standard deviation if the samples look Gaussian, otherwise the median with percentiles.
+Large spread usually has a cause: another process on the GPU, thermal or power throttling
+(\code{nvidia-smi -q -d PERFORMANCE} shows the throttle reasons), host-side Python work that is
+sometimes on the critical path, or data-dependent work (e.g.\ a variable number of tokens).
+
+\paragraph{CUDA events and \code{do\_bench}.} Wall-clock timing includes host overhead between
+synchronisations. CUDA events (\code{torch.cuda.Event(enable\_timing=True)}) are timestamps written
+by the GPU into its own stream, so the elapsed time between two events measures device time only
+(\code{perf.cuda\_event\_time}). Triton's \code{triton.testing.do\_bench} goes further: it estimates
+how many repetitions fit in a time budget, clears the L2 cache between repetitions by writing a
+large buffer (so a kernel cannot benefit from data left in cache by its previous run), and returns
+a robust statistic. \code{perf.bench} uses it on GPUs and falls back to \code{time\_fn} elsewhere.
+Use events or \code{do\_bench} for individual kernels and wall-clock timing for whole training
+steps, where host overhead is part of what you want to measure.
+
+\begin{napkinmath}[What should a forward pass cost?]
+Before timing anything, predict the answer. GPT-2 medium has $3.53\times10^{8}$ parameters, of
+which $3.02\times10^8$ are outside the embeddings. A batch of $B=4$ sequences of $T=512$ tokens is
+2048 tokens; with $\approx2N$ FLOPs per token plus the attention term (\code{flops.flops\_per\_token\_forward})
+the forward pass needs about $1.55\times10^{12}$ FLOPs. At the H100's 989\,TFLOP/s bf16 peak that is
+1.6\,ms; a realistic 40--60\% of peak gives 2.6--3.9\,ms. In fp32 without TF32 the matmuls run on
+the CUDA cores at roughly 67\,TFLOP/s, so expect about 15 times longer. A measurement far outside
+these bounds means either the measurement or your understanding is wrong, and both are worth
+knowing.
+\end{napkinmath}
+
+% =====================================================================
+\section{Profiling with Nsight Systems and NVTX}\label{sec:perf:nsys}
+
+A timer says \emph{how long}; a profiler says \emph{where}. Python profilers such as
+\code{cProfile} see only the host side: they attribute time to the function that \emph{launched}
+a kernel, which is the wrong place. NVIDIA Nsight Systems (\code{nsys}) instruments the CUDA
+driver through CUPTI and records, on one timeline, the host threads, every CUDA API call, every
+kernel and memory copy on the device, NCCL communication, OS runtime events, and user-defined
+\emph{NVTX ranges}. Nsight Compute (\code{ncu}) is its microscope: it replays a single kernel many
+times to read hardware counters (achieved occupancy, memory throughput per level, tensor-pipe
+utilisation, warp stall reasons) and places the kernel on a roofline.
+
+\subsection{Collecting a profile}
+
+\begin{lstlisting}[style=shell,caption={Profiling only the measured iterations.},label={lst:perf:nsys}]
+nsys profile -o step_bf16 \
+  --trace=cuda,nvtx,osrt,cublas,cudnn \
+  --pytorch=functions-trace,autograd-shapes-nvtx \
+  --capture-range=nvtx --nvtx-capture=measure --capture-range-end=stop \
+  python labs/lab13_perf/bench.py model --cfg gpt-medium --T 512 --dtype bf16 --nvtx
+nsys stats --report cuda_gpu_kern_sum step_bf16.nsys-rep     # kernel summary as text
+\end{lstlisting}
+
+The flags are worth understanding rather than copying. \code{--trace} chooses which APIs to
+record; every additional source adds overhead. \code{--pytorch=functions-trace} makes recent
+\code{nsys} versions emit an NVTX range per PyTorch operator and \code{autograd-shapes-nvtx} labels
+autograd nodes with tensor shapes; both are convenient, and both slow the run. The capture-range
+options start recording only when an NVTX range named \code{measure} opens, so warm-up iterations
+(and their compile and autotune kernels) never pollute the profile. Backtrace options
+(\code{--cudabacktrace}, \code{--python-backtrace}) tell you which line launched each kernel at a
+large overhead: enable them for a targeted question, not by default. The \code{.nsys-rep} file
+opens in the Nsight Systems GUI on any laptop, so you can profile on a remote GPU node and inspect
+the result locally.
+
+\subsection{Annotating your code}
+
+NVTX ranges are cheap host-side push/pop markers. They appear as labelled bars above the CUDA API
+row, and the GUI can filter every statistic by range. \code{llmsys.perf} provides a context manager
+that emits both an NVTX range (for Nsight) and a \code{record\_function} scope (for
+\code{torch.profiler}), plus a helper that annotates module calls automatically with hooks:
+
+\begin{lstlisting}[caption={NVTX annotation by hand and by hooks (from \texttt{llmsys/perf.py}).},label={lst:perf:nvtx}]
+@contextlib.contextmanager
+def nvtx_range(name):
+    if torch.cuda.is_available():
+        torch.cuda.nvtx.range_push(name)
+    try:
+        with torch.profiler.record_function(name):
+            yield
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.nvtx.range_pop()
+
+def annotate_modules(model, types=()):
+    nvtx, handles = torch.cuda.nvtx, []
+    for name, mod in model.named_modules():
+        if mod is model or (types and not isinstance(mod, tuple(types))):
+            continue
+        handles += [mod.register_forward_pre_hook(
+                        lambda m, a, l=name: nvtx.range_push("fwd:" + l)),
+                    mod.register_forward_hook(lambda m, a, o: nvtx.range_pop()),
+                    mod.register_full_backward_pre_hook(
+                        lambda m, g, l=name: nvtx.range_push("bwd:" + l)),
+                    mod.register_full_backward_hook(lambda m, gi, go: nvtx.range_pop())]
+    return handles
+
+# inside an attention implementation:
+with nvtx_range("attn/scores"):  s = q @ k.transpose(-1, -2) * scale
+with nvtx_range("attn/softmax"): p = torch.softmax(s, dim=-1)
+with nvtx_range("attn/pv"):      o = p @ v
+\end{lstlisting}
+
+To annotate code you do not own, monkey-patch the function before building the model
+(\code{some\_module.attention = annotated\_attention}); Python resolves module-level names at call
+time. One caveat: \code{torch.compile} fuses across your annotations and may move work out of a
+range, so profile compiled code at the granularity of whole compiled regions.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[x=0.75cm, y=0.5cm, font=\scriptsize]
+\foreach \y/\l in {4/NVTX, 3/CUDA API (host), 2/GPU kernels, 1/memory ops, 0/NCCL}
+  \node[anchor=east] at (-0.2,\y+0.3) {\l};
+\fill[keygreen!35] (0,4) rectangle (9.2,4.6); \node at (2.0,4.3) {fwd};
+\fill[keygreen!55] (9.4,4) rectangle (20.8,4.6); \node at (14.0,4.3) {bwd};
+\fill[keygreen!20] (21.0,4) rectangle (23.6,4.6); \node at (22.3,4.3) {opt};
+\foreach \x in {0,0.4,...,9.0} \fill[sysblue!50] (\x,3) rectangle ++(0.25,0.6);
+\foreach \x in {9.4,9.8,...,20.6} \fill[sysblue!50] (\x,3) rectangle ++(0.25,0.6);
+\foreach \x in {21,21.2,...,23.4} \fill[sysblue!50] (\x,3) rectangle ++(0.12,0.6);
+% kernels: big gemms and small elementwise
+\foreach \x/\w/\c in {0.3/1.4/fcompute,1.8/0.3/fmemory,2.2/0.4/fmemory,2.7/1.4/fcompute,4.2/0.3/fmemory,4.6/1.6/fcompute,6.3/0.3/fmemory,6.7/0.3/fmemory,7.1/1.3/fcompute,8.5/0.5/fmemory}
+  \fill[\c!60] (\x,2) rectangle ++(\w,0.6);
+\foreach \x/\w/\c in {9.6/1.9/fcompute,11.6/0.4/fmemory,12.1/2.0/fcompute,14.2/0.4/fmemory,14.7/2.6/fcompute,17.4/0.3/fmemory,17.8/1.8/fcompute,19.7/0.9/fcompute}
+  \fill[\c!60] (\x,2) rectangle ++(\w,0.6);
+\foreach \x in {21.1,21.35,...,23.5} \fill[fmemory!60] (\x,2) rectangle ++(0.15,0.6);
+\fill[fcomm!50] (12.0,0) rectangle (16.5,0.6); \node at (14.25,0.3) {all-reduce (overlapped)};
+\fill[fdata!50] (0,1) rectangle (0.25,1.6);
+\draw[warnred, thick, decorate, decoration={brace, amplitude=3pt}] (21.0,1.85)--(23.6,1.85);
+\node[warnred, anchor=north] at (22.3,1.0) {launch-bound gaps};
+\end{tikzpicture}}
+\caption{What a training step looks like in Nsight Systems (schematic). Host-side launches (CUDA
+API row) run ahead of device execution. Large blue GEMM kernels dominate forward and backward;
+short orange memory-bound kernels (norms, activations, softmax, elementwise) fill the gaps. In an
+unfused optimizer step, hundreds of tiny kernels leave the GPU idle between launches: the
+signature of a launch-bound region.}
+\label{fig:perf:nsys}
+\end{figure}
+
+\subsection{Reading the timeline}
+
+Four questions cover most investigations. \textbf{Is the GPU ever idle?} White space in the
+kernel row while the host row is busy means the host cannot launch fast enough (launch-bound:
+too many small kernels, Python overhead, a synchronisation such as \code{.item()}); white space in
+both rows means the host is waiting for something else (data loading, I/O, a collective).
+\textbf{Which kernels dominate?} The \emph{CUDA GPU Kernel Summary} (\code{nsys stats} or the GUI's
+Stats view) ranks kernels by total time; filter it by NVTX range to split forward from backward
+from optimizer. GEMM kernels have recognisable names (\code{sm90\_xmma\_gemm\_\dots},
+\code{cutlass\_\dots}, \code{ampere\_\dots\_gemm}), and Triton kernels carry their Python
+function name. \textbf{Does the host match the device?} Clicking a CUDA API call highlights the
+kernel it launched, which shows the queue depth: how far ahead the CPU is running. \textbf{Is
+communication overlapped?} NCCL kernels concurrent with compute kernels on another stream are
+free; NCCL kernels alone on the timeline are not.
+
+\begin{systemslens}[FLOPs are not time]
+In a transformer forward pass more than 95\% of FLOPs are in GEMMs, but a profile typically shows
+non-GEMM kernels taking a much larger share of time, often 20--40\% for small models in fp32 and more
+in bf16, where the GEMMs got faster but the elementwise kernels did not. The reason is arithmetic
+intensity (\cref{sec:pytorch:roofline}): a softmax over a $T\times T$ score matrix does a handful of
+FLOPs per element and moves every element through HBM at least twice, whereas the matmul that
+produced it does $2\dhead$ FLOPs per element. With $\dhead=64$ that is a FLOP ratio of roughly
+$50\times$ in the matmul's favour but a \emph{time} ratio that can be close to $1\times$, because both
+are paying for the same bytes. Fusion (\cref{sec:perf:residuals}) and FlashAttention
+(\cref{sec:perf:fa2}) attack exactly this gap.
+\end{systemslens}
+
+% =====================================================================
+\section{Where the time goes in a training step}\label{sec:perf:anatomy}
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXll@{}}
+\toprule
+kernel class & examples & FLOPs/byte (bf16) & usually\\
+\midrule
+GEMM & QKV/out projections, MLP, LM head & $\approx\frac{mnk}{mk+kn+mn}$, hundreds & compute-bound\\
+attention core & $\mat{Q}\mat{K}^\top$, softmax, $\mat{P}\mat{V}$ (unfused) & GEMMs high, softmax $\sim1$ & mixed\\
+normalisation & LayerNorm, RMSNorm & $\sim1$--3 & memory-bound\\
+activation & GELU, SiLU$\cdot$gate & $<1$--2 & memory-bound\\
+residual / dropout / casts & add, mask, \code{.to(bf16)} & $<1$ & memory-bound\\
+loss & log-softmax over $V$, gather & $\sim1$ & memory-bound, huge\\
+optimizer & AdamW over all parameters & $\approx0.5$ & memory-bound\\
+\bottomrule
+\end{tabularx}
+\caption{Kernel classes in a transformer training step, with typical arithmetic intensity
+(analytic). Only the GEMMs can approach the tensor-core roofline; everything else is limited by
+HBM bandwidth, so its cost is set by the bytes it moves.}
+\label{tab:perf:classes}
+\end{table}
+
+\Cref{tab:perf:classes} is the mental model to bring to a profile. Three non-obvious entries
+deserve comment.
+
+\paragraph{The loss.} The LM head produces $B\cdot T\cdot V$ logits. For Qwen3's vocabulary
+($V=151{,}936$) and a modest batch of $4\times2048$ tokens, that is 2.5\,GB in bf16 and 5.0\,GB once
+upcast to fp32 for a stable log-softmax, plus the same again for its gradient. The FLOPs are
+trivial; the bytes are not. \Cref{sec:perf:playbook} shows how to avoid materialising them.
+
+\paragraph{The optimizer.} An unfused AdamW step reads the parameter, gradient and two moments and
+writes back the parameter and both moments: about 28 bytes per fp32 parameter. For 1.3B parameters
+that is 36\,GB of HBM traffic, or 11\,ms at the H100's 3.35\,TB/s \emph{if} the kernels saturate
+bandwidth, which tiny per-tensor kernels do not. The forward and backward passes of the same
+model on $8\times2048$ tokens need about 130\,ms at peak, so the optimizer is a visible slice of
+the step, larger the smaller the batch. PyTorch's \code{foreach} implementation (the default)
+batches tensors into a few multi-tensor kernels; \code{fused=True} goes further and does the whole
+update in one kernel per parameter group.
+
+\paragraph{Backward is about twice forward.} Each linear layer $\mat{Y}=\mat{X}\mat{W}$ needs
+$\mat{dX}=\mat{dY}\mat{W}^\top$ and $\mat{dW}=\mat{X}^\top\mat{dY}$ in backward: two GEMMs of the
+same size as the one in forward. Elementwise ops are similar or worse, because their backward
+reads saved inputs \emph{and} the incoming gradient. Expect backward time of
+$1.8$--$2.5\times$ forward; a much larger ratio points at an inefficient backward kernel (classically
+attention, or an op with a scatter in its gradient).
+
+\begin{systemslens}[Tile and wave quantisation]
+GEMM throughput is not a smooth function of shape. A GEMM kernel covers the output with tiles
+(e.g.\ $128\times256$); a dimension that is one more than a multiple of the tile size launches a
+whole extra row of mostly empty tiles (\emph{tile quantisation}). The tiles then run in
+\emph{waves} of one tile per SM: 133 tiles on a 132-SM H100 take two waves, the second with a
+single busy SM (\emph{wave quantisation}). Hence the folklore of padding $\dmodel$, $\dff$,
+vocabulary and per-GPU batch $\times$ sequence to multiples of 64 or 128, and of looking at
+throughput as a function of size before choosing a model's shape (Exercise~\ref{ex:perf:waves}).
+Memory-access alignment adds a third effect: rows whose byte stride is not a multiple of the
+DRAM burst and vector-load width force uncoalesced loads.
+\end{systemslens}
+
+% =====================================================================
+\section{Mixed precision in practice}\label{sec:perf:amp}
+
+\Cref{sec:pretrain:mixed} introduced the recipe: bf16 matmuls under \code{torch.autocast},
+fp32 master weights, loss scaling only for fp16. Here we look at what autocast actually does to
+a block, why accumulation precision matters more than storage precision, and what changes in
+memory.
+
+\paragraph{Autocast is a per-op policy.} Inside \code{torch.autocast(device\_type, dtype)}, each
+operator consults a list. Ops that benefit from tensor cores and are numerically safe in 16 bits
+(\code{mm}, \code{addmm}, \code{bmm}, \code{linear}, convolutions, SDPA) cast their inputs to the
+low-precision dtype. Ops that are numerically sensitive (reductions such as \code{sum} and
+\code{mean}, \code{softmax}/\code{log\_softmax}, \code{layer\_norm}, losses, \code{exp},
+\code{pow}) run in fp32. Everything else runs in the widest dtype among its inputs. Parameters
+stay fp32; autocast casts a weight once per forward pass and caches the copy, so gradients flow
+back into the fp32 parameter.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[font=\scriptsize,
+  op/.style={draw, rounded corners=2pt, minimum height=0.7cm, minimum width=1.55cm, align=center},
+  lo/.style={op, fill=fcompute!25, draw=sysblue},
+  hi/.style={op, fill=fmemory!30, draw=napkin},
+  arr/.style={-{Stealth[length=1.6mm]}, draw=black!60}]
+\node[hi] (x) at (0,0) {$\vect x$\\fp32};
+\node[hi] (n1) at (2.0,0) {RMSNorm\\fp32 math};
+\node[lo] (qkv) at (4.0,0) {QKV linear\\bf16 in/out};
+\node[lo] (att) at (6.0,0) {SDPA\\bf16};
+\node[lo] (o) at (8.0,0) {out proj\\bf16};
+\node[op, fill=black!8] (r1) at (10.0,0) {$+$ residual\\fp32 (promote)};
+\node[hi] (n2) at (12.0,0) {RMSNorm\\fp32 math};
+\node[lo] (up) at (14.0,0) {gate/up\\bf16};
+\node[op, fill=black!8] (act) at (16.0,0) {SiLU$\cdot$\\bf16};
+\node[lo] (dn) at (18.0,0) {down\\bf16};
+\foreach \a/\b in {x/n1,n1/qkv,qkv/att,att/o,o/r1,r1/n2,n2/up,up/act,act/dn} \draw[arr] (\a)--(\b);
+\node[hi] (loss) at (18.0,-1.5) {log-softmax + CE\\fp32};
+\node[lo] (head) at (16.0,-1.5) {LM head\\bf16 logits};
+\draw[arr] (dn) -- ++(0,-0.75) -| (head); \draw[arr] (head)--(loss);
+\node[anchor=west, align=left] at (0,-1.5) {\tikz\fill[fcompute!25,draw=sysblue] (0,0) rectangle (0.3,0.2);\ cast to bf16 (tensor cores)\quad
+  \tikz\fill[fmemory!30,draw=napkin] (0,0) rectangle (0.3,0.2);\ forced fp32\quad
+  \tikz\fill[black!8,draw=black] (0,0) rectangle (0.3,0.2);\ widest input dtype};
+\end{tikzpicture}}
+\caption{dtype flow through a pre-norm block under \code{torch.autocast(dtype=torch.bfloat16)}.
+Exact lists differ by PyTorch version and backend (check \code{torch.amp.autocast\_mode}); the
+pattern is stable: matmuls go to bf16, reductions and losses stay fp32, and the fp32 residual
+stream promotes bf16 branch outputs back to fp32.}
+\label{fig:perf:amp}
+\end{figure}
+
+\paragraph{Accumulate wide, store narrow.} The danger in low precision is not storing a number in
+16 bits; it is adding many small numbers into a 16-bit running sum. Once the sum is large, each
+addend is smaller than half a unit in the last place of the sum and is rounded away. A
+measurement in this environment: adding $10^{-3}$ ten thousand times gives 9.9945 with an fp32
+accumulator (the error is just bf16's rounding of $10^{-3}$ itself), 4.0 with an fp16 accumulator,
+and 0.5 with a bf16 accumulator. bf16 has fp32's \emph{range} but only 8 bits of \emph{precision},
+so it stagnates sooner than fp16. This is why tensor cores multiply 16-bit inputs but accumulate in
+fp32, why every reduction in a kernel (the row sums $\ell$ and the output accumulator in
+FlashAttention, the variance in RMSNorm) should be kept in fp32 registers, and why
+\code{torch.sum} on a bf16 tensor accumulates internally in fp32.
+
+\paragraph{fp16 versus bf16 for normalisation.} With fp16, the mean of squares in an RMSNorm can
+overflow (squares of activations above $\sim256$ exceed fp16's 65{,}504) and small variances can
+underflow; this is why autocast runs norms in fp32. bf16 removes the range problem but not the
+precision one, so the statistic should still be computed in fp32, which is what
+\code{llmsys.layers.RMSNorm} does explicitly.
+
+\begin{pitfall}[Mixed precision can \emph{increase} memory]
+Autocast keeps fp32 parameters \emph{and} caches bf16 copies of the weights during the forward
+pass, and the bf16 activations saved for backward are only half of what they would be in fp32 if the
+saved tensors are actually bf16. Some are not: the fp32 residual stream and the inputs of
+fp32-forced ops stay fp32. For small models, where weights rather than activations dominate memory,
+peak memory under autocast can be equal to or slightly higher than in pure fp32. The large memory
+wins come from \emph{storing} parameters in bf16 (with fp32 master copies held only by the
+optimizer, or sharded as in \cref{ch:sharding}) and from bf16 activations at long contexts.
+Measure it with \cref{sec:perf:memory}'s tools instead of assuming it.
+\end{pitfall}
+
+\begin{lstlisting}[caption={Precision switches worth knowing.},label={lst:perf:ampknobs}]
+torch.backends.cuda.matmul.allow_tf32 = True     # fp32 GEMMs on tensor cores (10-bit mantissa)
+torch.set_float32_matmul_precision("high")        # same, newer spelling
+with torch.autocast("cuda", dtype=torch.bfloat16):
+    loss = loss_fn(model(x), y)                   # matmuls bf16, reductions fp32
+loss.backward()                                   # grads land in fp32 .grad
+# fp16 needs dynamic loss scaling:
+scaler = torch.amp.GradScaler("cuda")
+scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
+\end{lstlisting}
+

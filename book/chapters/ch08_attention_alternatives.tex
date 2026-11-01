@@ -47,7 +47,6 @@ recurrent sequence mixers, to the hybrid and sparse architectures built from the
 
 % =====================================================================
 \section{Why look beyond softmax attention?}\label{sec:attnalt:why}
-\covers{CS336 L4}
 
 \begin{napkinmath}[The KV cache at long context]
 Qwen3-8B has $L=36$ layers and 8 KV heads of dimension 128. Its bf16 KV cache costs
@@ -74,7 +73,6 @@ There are three broad responses:
 
 % =====================================================================
 \section{Windows, sinks, and sparse attention}\label{sec:attnalt:sparse}
-\covers{CS336 L3; CS336 L4}
 
 \paragraph{Sliding windows.} A sliding-window layer lets query $i$ see only keys $j\in(i-w,i]$, which makes
 compute $O(Tw)$ and lets the cache be a ring buffer of $w$ entries. Information still travels further than
@@ -138,7 +136,6 @@ precision and width.
 
 % =====================================================================
 \section{Linear attention and its three forms}\label{sec:attnalt:linear}
-\covers{CS336 L4}
 
 Write causal attention for one head as $\vect{y}_i=\sum_{j\le i} a_{ij}\vect{v}_j$ with
 $a_{ij}=\kappa(\vect{q}_i,\vect{k}_j)/\sum_{j'\le i}\kappa(\vect{q}_i,\vect{k}_{j'})$. Softmax attention
@@ -297,7 +294,6 @@ remains, which is the reason hybrids keep some softmax layers.
 
 % =====================================================================
 \section{Decay and gating: RetNet, GLA, and Mamba-2}\label{sec:attnalt:gating}
-\covers{CS336 L4}
 
 Add a forgetting factor to \cref{eq:attnalt:recurrent}:
 \begin{equation}
@@ -359,7 +355,6 @@ code only ever exponentiates \emph{non-positive} differences.
 
 % =====================================================================
 \section{The delta rule and gated DeltaNet}\label{sec:attnalt:delta}
-\covers{CS336 L4}
 
 Viewed as memory, $\mat{S}$ is an associative store: writing $\vect{k}\vect{v}^\top$ files value
 $\vect{v}$ under key $\vect{k}$, and reading with $\vect{q}=\vect{k}$ returns $\mat{S}^\top\vect{k}$. With
@@ -399,7 +394,6 @@ def delta_rule_step(S, q_t, k_t, v_t, beta_t, g_t=None):
 
 % =====================================================================
 \section{State-space models and parallel scans}\label{sec:attnalt:ssm}
-\covers{CS336 L4}
 
 State-space models arrive at the same place from signal processing. A continuous linear system maps an
 input signal $x(t)$ to an output $y(t)$ through a hidden state $h(t)\in\R^N$:
@@ -553,7 +547,6 @@ scan of elementwise operations cannot use tensor cores and a matmul can.
 
 % =====================================================================
 \section{Hybrid architectures}\label{sec:attnalt:hybrid}
-\covers{CS336 L4}
 
 Fixed-size states are cheap but lossy; softmax attention is expensive but can retrieve any token exactly.
 Pure recurrent models struggle on tasks that need verbatim recall from far back, such as copying,
@@ -776,7 +769,6 @@ at decode time.
 
 % =====================================================================
 \section{Multi-head latent attention, revisited}\label{sec:attnalt:mla}
-\covers{CS336 L4}
 
 \Cref{ch:modern} introduced MLA as ``caching a compressed latent''. Here are the details that make it work.
 For each token, MLA projects the hidden state down to a small latent $\vect{c}_t=\mat{W}^{DKV}\vect{h}_t\in\R^{d_c}$
@@ -809,7 +801,6 @@ draft model for speculative decoding (\cref{ch:efficient}).
 
 % =====================================================================
 \section{Sparse experts, revisited}\label{sec:attnalt:moe}
-\covers{CS336 L4}
 
 \Cref{sec:modern:moe} implemented a top-$k$ MoE layer with an auxiliary balancing loss and expert
 parallelism. Current MoE designs add several refinements.

@@ -1,6 +1,6 @@
-"""Check that a machine is ready for the data assignment (packages, CPUs, disk, data paths).
+"""Check that a machine is ready for Project 4 (packages, CPUs, disk, data paths).
 
-    python projects/a4/env_check.py --data-root /shared-data --scratch /tmp
+    python projects/a4/env_check.py --data-root data/ --scratch /tmp
 
 Prints a table and exits non-zero if something required is missing. It only inspects the
 environment; it does not download anything.
@@ -22,12 +22,12 @@ PACKAGES = [  # (import name, required?, what it is for)
     ("tldextract", False, "domain extraction from URLs"),
     ("numpy", True, "arrays, token files"),
     ("transformers", False, "GPT-2 tokenizer for the final .bin"),
-    ("modal", False, "cloud execution (course setup)"),
+    ("modal", False, "serverless cloud execution (optional)"),
     ("wandb", False, "experiment tracking"),
 ]
 
 
-def check(data_root: str, scratch: str, expect=("CC", "classifiers")) -> bool:
+def check(data_root: str, scratch: str, expect=("cc", "models")) -> bool:
     ok = True
     print(f"python {sys.version.split()[0]}")
     for name, req, why in PACKAGES:

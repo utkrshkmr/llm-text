@@ -2,45 +2,37 @@
 \addcontentsline{toc}{chapter}{Preface}
 \markboth{Preface}{Preface}
 
-This book is the result of folding two code-first journeys into one, and then pushing
-both of them down a layer, into the machine.
+This book follows a language model from raw text to a deployed reasoning system, and keeps
+asking, at every step, what the machine underneath is doing.
 
-The first journey goes from raw text to a working GPT: tokenisation, attention, the
-transformer block, pretraining, and fine-tuning for classification and for following
-instructions. The second starts from a small pretrained model and turns it into a
-\emph{reasoning} model: generating text efficiently, grading answers with verifiers,
-spending more compute at inference time, scoring and refining answers, training with
-reinforcement learning on verifiable rewards, and distilling the result into something cheaper.
-These two journeys overlap: both build a text-generation loop, both talk about
-sampling, both load pretrained weights, both evaluate models. Here each idea appears
-once, where it fits best, and later chapters refer back to it.
+The first arc goes from text to a working GPT: tokenisation, attention, the transformer block,
+pretraining, and fine-tuning for classification and for following instructions. The second arc
+starts from a pretrained model and turns it into a \emph{reasoning} model: generating text
+efficiently, grading answers with verifiers, spending more compute at inference time, scoring and
+refining answers, training with policy gradients, RLHF, preference optimization and reinforcement
+learning with verifiable rewards, and distilling the result into something cheaper. Ideas that both
+arcs need (sampling, loading pretrained weights, evaluation) appear once, where they fit best, and
+later chapters refer back to them.
 
-The third journey is the reason this book exists. Implementing an LLM from scratch shows you
-\emph{what} the model computes. A systems engineer also needs to know \emph{where the time,
-memory, and bandwidth go}, and how real training and serving stacks are built around that
-answer. So every chapter carries a systems layer:
+Implementing a model from scratch shows you \emph{what} it computes. A systems engineer also needs
+to know \emph{where the time, memory and bandwidth go}, and how real training and serving stacks
+are built around that answer. So every chapter carries a systems layer:
 
 \begin{itemize}
   \item \textbf{Systems Lens} boxes connect each modelling idea to its cost on real hardware:
         arithmetic intensity, memory traffic, kernel fusion, communication volume.
-  \item \textbf{Napkin Math} boxes do the back-of-the-envelope calculations with real
+  \item \textbf{Napkin Math} boxes do back-of-the-envelope calculations with real
         accelerator numbers, so you build intuition for orders of magnitude.
-  \item Whole chapters cover topics that the from-scratch books leave out: distributed
-        training (\cref{ch:distributed}), serving engines with continuous batching and paged KV
-        caches (\cref{ch:serving}), quantisation and speculative decoding
-        (\cref{ch:efficient}), the infrastructure behind RL for reasoning (\cref{ch:rlsys}),
-        and writing GPU kernels in Triton (\cref{app:triton}).
+  \item Whole chapters cover the systems themselves: single-GPU performance engineering
+        (\cref{ch:perf}), distributed and sharded training (\cref{ch:distributed,ch:sharding}),
+        serving engines with continuous batching and paged KV caches (\cref{ch:serving}),
+        quantisation and speculative decoding (\cref{ch:efficient}), the infrastructure behind RL
+        for reasoning (\cref{ch:rlsys}), GPU kernels in Triton (\cref{app:triton}), and
+        accelerators beyond the GPU (\cref{app:accel}).
 \end{itemize}
 
-This second edition adds two more strands. The first is Stanford's \emph{CS336: Language
-Modeling from Scratch}. Every lecture topic the source books leave out now has a chapter of its own:
-the architecture and hyperparameter design space, attention alternatives and state-space models,
-optimizers, pretraining data, scaling laws, single-GPU performance engineering, FSDP, and
-alignment and multimodality. The five course assignments become project guides in Part~VII. The
-second strand is \emph{preference optimization}: policy gradients, RLHF with reward models and PPO,
-and DPO and its relatives. Throughout, the emphasis is on how things are actually \emph{set up and
-run}: code, configurations, data formats, launch scripts, logging, and the systems around the
-maths.
+Throughout, the emphasis is on how things are actually \emph{set up and run}: code,
+configurations, data formats, launch scripts, logging, and the systems around the maths.
 
 \section*{How to read this book}
 
@@ -52,21 +44,13 @@ training. Part~IV fine-tunes the model for classification and for following inst
 about inference: how a single request is generated, how a server multiplexes thousands of them, and
 how to make each token cheaper. Part~VI is post-training: evaluation, inference-time scaling,
 policy gradients, RLHF and PPO, DPO, GRPO, RL systems, distillation, and alignment. Part~VII is five
-end-to-end projects modelled on the CS336 assignments.
+end-to-end capstone projects that tie the material together.
 
 If you already know transformers well, you can skim Part~II for the Systems Lens boxes and the
 labs. If your goal is inference serving, a fast path is
 \cref{ch:pytorch} $\rightarrow$ \cref{ch:modern} $\rightarrow$ \cref{ch:perf} $\rightarrow$
-Part~V $\rightarrow$ \cref{ch:scaling} $\rightarrow$ \cref{ch:rlsys}. If you are working through CS336,
-start each assignment from its project guide in Part~VII, which lists the chapters to read first.
-
-The grey tags in the margin (for example \textsf{\scriptsize LLM 3.5} or
-\textsf{\scriptsize RM E.3}) mark which section of the two source books a passage covers. Tags
-such as \textsf{\scriptsize CS336 A2 \S4} or \textsf{\scriptsize PO \S7} refer to CS336 lectures and
-assignments and to the preference-optimization primer. For the two source books:
-\textsf{LLM} is \emph{Build a Large Language Model (From Scratch)} and \textsf{RM} is
-\emph{Build a Reasoning Model (From Scratch)}. The roadmap that follows the table of contents
-lists the full mapping, so you can check that nothing has been left out.
+Part~V $\rightarrow$ \cref{ch:scaling} $\rightarrow$ \cref{ch:rlsys}. Each capstone project in
+Part~VII lists the chapters and labs to work through first.
 
 \section*{Labs}
 

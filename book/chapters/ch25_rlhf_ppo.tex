@@ -46,7 +46,7 @@ making it work and making it fit on hardware.}
 \label{fig:rlhf:roadmap}
 \end{figure}
 
-\section{Why a third training stage?}\label{sec:rlhf:why}\covers{PO §1, §2; CS336 L15}
+\section{Why a third training stage?}\label{sec:rlhf:why}
 
 Pretraining (\cref{ch:pretrain}) produces a model of text, and supervised fine-tuning
 (\cref{ch:instruct}) imitates demonstrations of the behaviour we want. Imitation has two limits
@@ -86,7 +86,7 @@ generate--score--update loop built in this chapter.
 \end{keyidea}
 
 \section{From classical RL to RLHF: the actor--critic view}\label{sec:rlhf:actorcritic}
-\covers{PO §3, §4.1--4.4}
+
 
 \Cref{ch:pg} introduced the mapping between RL and language modelling: the state is the prompt
 plus the tokens generated so far, an action is the next token, the environment's transition is
@@ -136,7 +136,7 @@ systems difficulty of PPO-RLHF.}
 \label{tab:rlhf:mapping}
 \end{table}
 
-\section{Collecting preference data}\label{sec:rlhf:data}\covers{CS336 L15; PO §5.1}
+\section{Collecting preference data}\label{sec:rlhf:data}
 
 The reward model can only be as good as its data, and RLHF data collection is a craft of its own.
 
@@ -174,7 +174,7 @@ policy that PPO has already moved, the shift behind the over-optimisation in
  "annotator": "a-112", "round": 2, "split": "train"}
 \end{lstlisting}
 
-\section{Reward models}\label{sec:rlhf:rm}\covers{PO §4.8, §5.4}
+\section{Reward models}\label{sec:rlhf:rm}
 
 \subsection{The Bradley--Terry model as a latent-utility model}
 
@@ -358,7 +358,7 @@ def train_reward_model(rm, pairs, pad_id, epochs=3, batch_size=32, lr=1e-3, ...)
             opt.step()
 \end{lstlisting}
 
-\section{Per-token rewards and the KL penalty}\label{sec:rlhf:kl}\covers{PO §5.2}
+\section{Per-token rewards and the KL penalty}\label{sec:rlhf:kl}
 
 The reward model emits one number per response, but PPO assigns credit per token. RLHF bridges the two by
 \emph{shaping} the reward: every generated token pays a KL toll, and the final token also collects the
@@ -437,7 +437,7 @@ def kl_shaped_rewards(score, logp, logp_ref, mask, beta, kind="k1"):
     return rewards * mask, kl
 \end{lstlisting}
 
-\section{The value model}\label{sec:rlhf:value}\covers{PO §5.4}
+\section{The value model}\label{sec:rlhf:value}
 
 \paragraph{What it predicts.} $V_\psi(s_t)$ estimates the expected shaped return from state
 $s_t = (x, y_{<t})$ onwards, $\E\big[\sum_{k\ge t} r_k\big]$ under the current policy. With
@@ -480,7 +480,7 @@ constant baseline. Measure the critic with \textbf{explained variance},
 $1-\mathrm{Var}[\hat R-V]/\mathrm{Var}[\hat R]$: near 0 means the critic is useless, and negative means it
 is actively harmful.
 
-\section{Generalised advantage estimation}\label{sec:rlhf:gae}\covers{PO §4.7}
+\section{Generalised advantage estimation}\label{sec:rlhf:gae}
 
 Given per-token rewards and values, how much credit should token $t$ get? Define the TD residual
 \begin{equation}
@@ -574,7 +574,7 @@ all real tokens), not per sequence: per-sequence whitening removes the signal th
 better than another.
 \end{systemslens}
 
-\section{The PPO objective for RLHF}\label{sec:rlhf:ppo}\covers{PO §4.5, §4.6, §4.9}
+\section{The PPO objective for RLHF}\label{sec:rlhf:ppo}
 
 With advantages in hand, the policy update is the clipped surrogate from \cref{ch:pg} and
 \cref{sec:grpo2:clip}, applied per token:
@@ -637,7 +637,7 @@ Pick one deliberately, log the mean response length, and keep the choice fixed w
 runs.
 \end{pitfall}
 
-\section{The PPO-RLHF loop}\label{sec:rlhf:loop}\covers{PO §5.3, §5.5}
+\section{The PPO-RLHF loop}\label{sec:rlhf:loop}
 
 We now have every component. One PPO iteration has three phases and two nested loops: an outer
 loop that collects fresh rollouts, and an inner loop that makes several optimisation passes over them.
@@ -950,7 +950,7 @@ measurement task asks you to reproduce the CPU breakdown and to predict the GPU 
 model of \cref{ch:inference}.
 \end{systemslens}
 
-\section{Reward hacking and over-optimisation}\label{sec:rlhf:overopt}\covers{CS336 L15; PO §13}
+\section{Reward hacking and over-optimisation}\label{sec:rlhf:overopt}
 
 A reward model is a proxy, and optimisation pressure finds the places where the proxy and the
 target disagree, a direct instance of Goodhart's law. Gao et al.\ (2023) measured this systematically
@@ -988,7 +988,7 @@ same KL, something is wrong. Rejection-sampling fine-tuning, which fine-tunes on
 samples (\cref{ch:pg}), is the training-time version and was used alongside PPO in Llama~2.
 \end{keyidea}
 
-\section{The four-model system}\label{sec:rlhf:system}\covers{PO §5.5, §17}
+\section{The four-model system}\label{sec:rlhf:system}
 
 \Cref{sec:grpo:rlhf} costed the four models at a glance. Here we plan them properly, because
 placement determines whether PPO-RLHF fits at all, and how fast it runs.
@@ -1098,7 +1098,7 @@ def state_bytes(m, offload_frozen=False, zero_shards=1):
 288.0
 \end{lstlisting}
 
-\section{RL from AI feedback}\label{sec:rlhf:rlaif}\covers{PO §6; CS336 L15}
+\section{RL from AI feedback}\label{sec:rlhf:rlaif}
 
 Human comparisons are slow, expensive and inconsistent. \emph{RL from AI feedback} (RLAIF) replaces
 some or all of the annotators with an LLM judge. Two variants are common:
@@ -1121,7 +1121,7 @@ human-labelled subset, and track agreement over time. The systems benefit is lar
 is a batch inference job that can produce millions of comparisons on demand, so preference data can
 be refreshed every RLHF round on the current policy's samples.
 
-\section{Agentic RL with milestone rewards}\label{sec:rlhf:agentic}\covers{PO §12}
+\section{Agentic RL with milestone rewards}\label{sec:rlhf:agentic}
 
 When the policy is an agent (calling tools, browsing, editing files over many turns), the episode
 is a multi-turn trajectory and a single terminal reward is extremely sparse: did a 40-step
@@ -1154,7 +1154,7 @@ def milestone_rewards(events, n_tokens):
     return r          # add to the KL-shaped per-token reward before GAE
 \end{lstlisting}
 
-\section{Case studies}\label{sec:rlhf:cases}\covers{PO §5.6, §11}
+\section{Case studies}\label{sec:rlhf:cases}
 
 \paragraph{InstructGPT (2022).} SFT on about 13k demonstrations; a 6B reward model on about 33k prompts ranked with $K=4$--$9$
 responses; PPO with a per-token KL penalty and PPO-ptx. Labellers preferred the 1.3B InstructGPT model

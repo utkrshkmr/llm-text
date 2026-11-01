@@ -1,16 +1,23 @@
-"""A local, offline stand-in for a "train this config, return the losses" HTTP service.
+"""The self-hosted training service for Project 3 (Chapter 34).
 
-It speaks the same *shape* of protocol as the CS336 Assignment 3 training API (X-API-Key
-header; /budget, /submit, /experiments, /experiment/{id}, /final_submission), but the losses
-come from the synthetic ground truth in ``llmsys.scaling`` -- nothing here knows or fits the
-course's data. Use it to develop and debug your client, ledger and polling code before you
-spend real budget:
+A small HTTP service that "trains" a model config and returns validation losses, charging a
+wall-clock budget. Behind it sits a hidden loss surface from ``llmsys.scaling`` (randomised by
+``--truth-seed`` so that the constants in the source code do not give the answer away).
+Endpoints (all take an ``X-API-Key`` header):
 
-    python mock_api_server.py --port 8765 --budget-hours 12 --time-scale 3600
-    export A3_BASE_URL=http://127.0.0.1:8765
+    GET  /budget                  used / remaining / total seconds
+    POST /submit                  queue a run; reserves max_runtime_seconds
+    GET  /experiments             every run you submitted, with status and losses
+    GET  /experiment/{id}         one run
+    POST /final_submission        your chosen config and predicted loss
+    GET  /final_submission        what you submitted
+    GET  /score?hours=48          after a final submission: regret against the hidden optimum
+
+    python training_service.py --port 8765 --budget-hours 12 --time-scale 3600 --truth-seed 7
+    export TRAIN_API_URL=http://127.0.0.1:8765
 
 ``--time-scale 3600`` makes one simulated hour pass per real second, so queued runs complete
-while your poller is sleeping, exactly like the real service but faster.
+while your poller sleeps. Use ``--time-scale 60`` for a more realistic pace.
 
 Simplifications: grouped-query attention (``num_key_value_heads`` < heads) is accepted but
 priced as full multi-head attention, and the optimizer config only uses the peak LR.
@@ -27,7 +34,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
-from llmsys.scaling import APIError, RunConfig, SyntheticTrainingAPI  # noqa: E402
+from llmsys.scaling import APIError, GroundTruth, RunConfig, SyntheticTrainingAPI  # noqa: E402
 
 SEQ_LEN = 512
 
@@ -50,8 +57,11 @@ def config_from_request(body: dict) -> tuple[RunConfig, float, int, int]:
 
 
 class MockService:
-    def __init__(self, budget_hours=12.0, time_scale=3600.0, api_key=None, seed=0):
-        self.api = SyntheticTrainingAPI(total_budget_seconds=budget_hours * 3600, seed=seed)
+    def __init__(self, budget_hours=12.0, time_scale=3600.0, api_key=None, seed=0,
+                 truth_seed=None):
+        truth = GroundTruth() if truth_seed is None else GroundTruth.sample(truth_seed)
+        self.api = SyntheticTrainingAPI(total_budget_seconds=budget_hours * 3600, truth=truth,
+                                        seed=seed)
         self.time_scale = time_scale
         self.api_key = api_key
         self.lock = threading.Lock()
@@ -77,7 +87,7 @@ class MockService:
 
 def make_handler(svc: MockService):
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args):  # keep test output quiet
+        def log_message(self, *args):  # keep output quiet
             pass
 
         def _send(self, code, payload):
@@ -110,6 +120,13 @@ def make_handler(svc: MockService):
                         return self._send(404, {"detail": "not found"})
                 if self.path == "/final_submission":
                     return self._send(200, svc.final)
+                if self.path.startswith("/score"):
+                    if svc.final is None:
+                        return self._send(400, {"detail": "submit a final config first"})
+                    hours = 48.0
+                    if "hours=" in self.path:
+                        hours = float(self.path.split("hours=", 1)[1].split("&")[0])
+                    return self._send(200, svc.api.score(hours * 3600))
             self._send(404, {"detail": "unknown path"})
 
         def do_POST(self):
@@ -150,11 +167,13 @@ def main():
     p.add_argument("--budget-hours", type=float, default=12.0)
     p.add_argument("--time-scale", type=float, default=3600.0)
     p.add_argument("--api-key", default=None)
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, default=0, help="noise seed")
+    p.add_argument("--truth-seed", type=int, default=None,
+                   help="randomise the hidden loss surface (recommended)")
     a = p.parse_args()
     srv, _ = serve(a.port, budget_hours=a.budget_hours, time_scale=a.time_scale,
-                   api_key=a.api_key, seed=a.seed)
-    print(f"mock training API on http://127.0.0.1:{a.port}  (Ctrl-C to stop)")
+                   api_key=a.api_key, seed=a.seed, truth_seed=a.truth_seed)
+    print(f"training service on http://127.0.0.1:{a.port}  (Ctrl-C to stop)")
     srv.serve_forever()
 
 

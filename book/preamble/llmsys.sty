@@ -142,8 +142,8 @@
 \newcommand{\labdir}[1]{\par\noindent\textbf{Code:} \texttt{\small code/labs/\detokenize{#1}}\par}
 \newcommand{\labsection}[1]{\par\smallskip\noindent{\color{labpurple}\textbf{#1}}\par}
 
-% Source-coverage tag: \covers{LLM 3.5}  or \covers{RM 6.8, RM E.6}
-\newcommand{\covers}[1]{\marginpar{\raggedright\scriptsize\color{srcgray}\textsf{#1}}}
+% \covers{} is a no-op kept for backward compatibility
+\newcommand{\covers}[1]{}
 \setlength{\marginparwidth}{2.0cm}
 \setlength{\marginparsep}{0.25cm}
 \reversemarginpar

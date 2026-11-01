@@ -45,7 +45,6 @@ the global choices and the methodology for testing any of them.}
 
 % =====================================================================
 \section{Tensor programs with einsum and einops}\label{sec:archdesign:einsum}
-\covers{CS336 L2; CS336 A1 §3.2}
 
 Almost every operation in a transformer is either a \emph{contraction} (a sum of products over
 some index, i.e.\ a matrix multiply in disguise), a \emph{rearrangement} of axes, or an elementwise
@@ -153,7 +152,6 @@ softmax to unlock the cheap order is exactly the idea behind linear attention (\
 
 % =====================================================================
 \section{Layers from scratch: Linear, Embedding, and initialisation}\label{sec:archdesign:init}
-\covers{CS336 A1 §3.3}
 
 \Cref{lst:archdesign:linear} shows the two parameterised building blocks used by the ablation model
 in \code{llmsys/ablate.py}, written without \code{nn.Linear} or \code{nn.Embedding} so that the
@@ -260,7 +258,6 @@ a wide model. \Cref{ch:scalinglaws} uses this to tune hyperparameters cheaply.
 
 % =====================================================================
 \section{Normalisation: what to normalise, and where}\label{sec:archdesign:norm}
-\covers{CS336 L3; CS336 A1 §3.4.1}
 
 \Cref{ch:gpt} implemented LayerNorm and \cref{sec:modern:rmsnorm} implemented RMSNorm. Here we
 look at the two decisions that matter more than the formula: \emph{where} the norm sits in the
@@ -384,7 +381,6 @@ most of that cost.
 
 % =====================================================================
 \section{MLPs, activations, and gating}\label{sec:archdesign:mlp}
-\covers{CS336 L3; CS336 A1 §3.4.2}
 
 The position-wise MLP holds about two thirds of a dense transformer's parameters, so its form matters.
 The classic form is $\mathrm{FFN}(x)=\mat{W}_2\,\sigma(\mat{W}_1x)$ with $d_\text{ff}=4d$.
@@ -465,7 +461,6 @@ $d_\text{ff}=3072=3d$ is one such rounding choice.
 
 % =====================================================================
 \section{Positional information}\label{sec:archdesign:pos}
-\covers{CS336 L3; CS336 A1 §3.4.3, §7.3}
 
 Self-attention is permutation-equivariant: without extra information, swapping two input tokens just swaps
 the corresponding outputs. Something has to tell the model where each token sits. Five families are in use.
@@ -551,7 +546,6 @@ specialise. NoPE costs nothing anywhere, which is part of its appeal for long-co
 
 % =====================================================================
 \section{Hyperparameters that (mostly) do not need tuning}\label{sec:archdesign:hparams}
-\covers{CS336 L3}
 
 A transformer's shape is fixed by a handful of numbers: $d$, $L$, $H$, $\dhead$, $d_\text{ff}$ and $V$.
 Across many published models these have settled into narrow ranges (\cref{tab:archdesign:shapes}).
@@ -625,7 +619,6 @@ $d_\text{ff}$ (round $\frac83d$ up to a multiple of 64) and to batch $\times$ se
 
 % =====================================================================
 \section{Stability tricks}\label{sec:archdesign:stability}
-\covers{CS336 L3}
 
 Large runs fail in a characteristic way: the loss curve develops spikes, some of which recover and some
 of which do not. Most of the fixes target the two softmaxes in the model, because exponentials turn
@@ -700,7 +693,6 @@ operational failure mode.
 
 % =====================================================================
 \section{Block-level variants}\label{sec:archdesign:block}
-\covers{CS336 L3}
 
 \paragraph{Serial versus parallel blocks.} A parallel block computes attention and MLP from the same
 normalised input and adds both to the stream. Because both branches start with a matmul of the same
@@ -755,7 +747,6 @@ the flexibility.
 
 % =====================================================================
 \section{What recent open models chose}\label{sec:archdesign:survey}
-\covers{CS336 L3}
 
 \Cref{tab:archdesign:survey} summarises the architectural choices of several widely studied models, as
 reported in their papers and released configurations. The convergence is striking: pre-norm (often with
@@ -785,7 +776,6 @@ vary across sizes within a family; always check the released config of the speci
 
 % =====================================================================
 \section{Running ablations on a budget}\label{sec:archdesign:ablate}
-\covers{CS336 A1 §7.2.3, §7.3}
 
 Everything above is a claim made by somebody else. The only way to build real intuition, and to settle
 questions for your own setting, is to run controlled experiments. Small-scale ablations are cheap,

@@ -43,7 +43,7 @@ engine for a stream of unpredictable requests.}
 \end{figure}
 
 % =====================================================================
-\section{Latency, throughput, and why batching helps}\label{sec:serving:why}\covers{RM E.1}
+\section{Latency, throughput, and why batching helps}\label{sec:serving:why}
 
 Two performance goals pull in different directions:
 \begin{itemize}
@@ -112,7 +112,7 @@ where the step time goes: amortizable work (weight reads, kernel launches) versu
 \end{keyidea}
 
 % =====================================================================
-\section{Running batched generation}\label{sec:serving:batched}\covers{RM E.2}
+\section{Running batched generation}\label{sec:serving:batched}
 
 The core obstacle is that prompts tokenize to different lengths. To run them together we pad
 shorter rows with a placeholder id up to the batch's maximum length, and keep a boolean mask that
@@ -190,7 +190,7 @@ once rows can \emph{leave} a running batch, it is natural to let new rows \emph{
 \end{figure}
 
 % =====================================================================
-\section{Padding and attention masks}\label{sec:serving:masks}\covers{RM E.3}
+\section{Padding and attention masks}\label{sec:serving:masks}
 
 For a single unpadded prompt, the model builds the standard causal mask: position $i$ may attend
 to positions $j\le i$. With padding we must additionally make sure no real token ever attends to a
@@ -302,7 +302,7 @@ Distillation training (\cref{ch:distill}) & different (prompt, trace) pairs & ye
 \end{tabularx}
 \end{table}
 
-\subsection{Batched benchmark evaluation}\covers{RM E.4}
+\subsection{Batched benchmark evaluation}
 Evaluating on MATH-500 means generating answers to 500 unrelated problems. With a batch size of
 $B$, the evaluator tokenizes $B$ prompts, left-pads them, generates until every row has emitted EOS
 or hit the token limit, trims each row at its EOS, and hands the texts to the verifier. The only new knob is the batch size:
@@ -320,7 +320,7 @@ limit). Because problems are sorted by nothing in particular, a batch's run time
 \emph{longest} answer; sorting problems by prompt length reduces padding, but output lengths are
 unknown in advance, which is the deeper reason servers need continuous batching.
 
-\subsection{Batched self-consistency sampling}\covers{RM E.5}
+\subsection{Batched self-consistency sampling}
 Self-consistency (\cref{ch:scaling}) samples $k$ answers to the \emph{same} prompt at nonzero
 temperature and takes a majority vote. Here the batch dimension holds the $k$ samples: we repeat the
 prompt $k$ times, so every row has identical length and no padding or special mask is needed. The
@@ -337,7 +337,7 @@ samples of 500 tokens each, sharing cuts the KV footprint from $16\times1500=24{
 $1000+16\times500=9{,}000$ tokens and the prefill work by $16\times$. Lab~22 measures this.
 \end{systemslens}
 
-\subsection{Batched GRPO rollouts}\covers{RM E.6}
+\subsection{Batched GRPO rollouts}
 GRPO (\cref{ch:grpo}) samples a \emph{group} of $G$ rollouts per prompt and compares their rewards.
 Again the rows share one prompt, so batching rollouts needs no padding logic, and the same
 prompt-sharing argument applies. The batch size for rollouts trades throughput against memory:
@@ -346,7 +346,7 @@ group in several smaller batches. Self-refinement (\cref{ch:refine}) is the coun
 each round depends on the previous one, so it is inherently sequential per problem and only benefits
 from batching \emph{across} problems, which requires more bookkeeping.
 
-\subsection{Batched distillation training}\covers{RM E.7}
+\subsection{Batched distillation training}
 Distillation (\cref{ch:distill}) fine-tunes a student on (prompt, teacher reasoning trace) pairs of
 widely varying length, so we are back to batching unrelated sequences, this time for \emph{training}.
 Sequences are right-padded, pad positions get loss label $-100$, and the attention mask hides pad keys.
@@ -355,7 +355,7 @@ evaluation, and the useful batch size is smaller. When lengths vary a lot, \emph
 short examples into one row with block-diagonal attention (\cref{ch:instruct}) beats padding.
 
 % =====================================================================
-\section{Single-sequence versus batched execution}\label{sec:serving:tradeoffs}\covers{RM E.8}
+\section{Single-sequence versus batched execution}\label{sec:serving:tradeoffs}
 
 Batched execution always costs more memory; whether it saves time depends on the shape of the work.
 Two quantities predict the outcome. The first is \emph{padding efficiency}: for a batch with prompt

@@ -7,7 +7,7 @@ $4\times10^{14}$ FLOP/s per GPU is thousands of GPU-years. Both numbers force th
 conclusion: training must be spread across many devices, and the way it is spread decides
 whether the cluster computes or waits.
 
-Neither source book trains at this scale, so this chapter is new material. It is written for
+Training at this scale needs more than one device, and this chapter is about how. It is written for
 someone who already knows what an all-reduce is and wants the \emph{cost model}: how each
 parallelism strategy partitions memory, how many bytes it moves per step and over which links,
 how those transfers overlap with compute, and how the strategies compose into the 3D/4D

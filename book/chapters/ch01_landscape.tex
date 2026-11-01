@@ -35,14 +35,14 @@ model of a given size. \Cref{fig:landscape:roadmap} shows the plan.
 \draw[arr] (d.south) |- ($(d.south)+(0,-0.45)$) -| (e.north);
 \draw[arr] (e)--(f);
 \end{tikzpicture}
-\caption{Roadmap of \cref{ch:landscape}. Stages 1--4 build the conceptual picture shared by the
-two source books; stage 5 adds the cost model that the rest of the book refines; stage 6 lays out how
+\caption{Roadmap of \cref{ch:landscape}. Stages 1--4 build the conceptual picture of LLMs and
+reasoning models; stage 5 adds the cost model that the rest of the book refines; stage 6 lays out how
 the chapters fit together.}
 \label{fig:landscape:roadmap}
 \end{figure}
 
 % =====================================================================
-\section{What is a large language model?}\label{sec:landscape:what}\covers{LLM 1.1}
+\section{What is a large language model?}\label{sec:landscape:what}
 
 A \emph{language model} assigns probabilities to sequences of text. Write a piece of text as a sequence
 of discrete units $x_1, x_2, \dots, x_T$ called \emph{tokens} (we will define tokens precisely in
@@ -117,7 +117,7 @@ stored. Most of this book's systems content is about managing those three number
 \end{systemslens}
 
 % =====================================================================
-\section{What LLMs are used for}\label{sec:landscape:apps}\covers{LLM 1.2}
+\section{What LLMs are used for}\label{sec:landscape:apps}
 
 Because nearly every knowledge task can be phrased as ``read some text, write some text'', LLMs have
 an unusually wide application surface:
@@ -155,7 +155,7 @@ serving engine, the subject of Part~V. The economics of self-hosting are therefo
 \end{napkinmath}
 
 % =====================================================================
-\section{The stages of building and using an LLM}\label{sec:landscape:stages}\covers{LLM 1.3; RM 1.2}
+\section{The stages of building and using an LLM}\label{sec:landscape:stages}
 
 \subsection{Pretraining: learning from raw text}
 The first and by far the most expensive stage is \emph{pretraining}. A randomly initialised network is
@@ -239,7 +239,7 @@ problems can unlock long chains of thought that were latent in the base model.
 \end{keyidea}
 
 % =====================================================================
-\section{The transformer architecture}\label{sec:landscape:transformer}\covers{LLM 1.4}
+\section{The transformer architecture}\label{sec:landscape:transformer}
 
 The transformer was introduced in 2017 by Vaswani et al.\ (``Attention Is All You Need'') for machine translation. The original model has two halves. An
 \emph{encoder} reads the entire source sentence and turns each token into a context-dependent vector;
@@ -325,7 +325,7 @@ memory proportional to the length of the examples on every request, which is why
 (\cref{ch:serving}) is valuable for workloads with shared few-shot prefixes.
 
 % =====================================================================
-\section{Training data at scale}\label{sec:landscape:data}\covers{LLM 1.5}
+\section{Training data at scale}\label{sec:landscape:data}
 
 The capabilities of LLMs are inseparable from the scale of their training data. GPT-3, the 175B-parameter
 model behind early ChatGPT-era products, is a useful historical reference point because its data mixture
@@ -380,7 +380,7 @@ tokens, GPT-3 required $6 \times 175\times10^9 \times 300\times10^9 \approx 3.15
 \Cref{sec:landscape:cost} turns that into GPU-days.
 
 % =====================================================================
-\section{A closer look at GPT}\label{sec:landscape:gpt}\covers{LLM 1.6}
+\section{A closer look at GPT}\label{sec:landscape:gpt}
 
 GPT (``generative pretrained transformer'') models are decoder-only transformers trained with next-token
 prediction. Architecturally, GPT-3 is a scaled-up GPT-2, which is a scaled-up GPT-1: more layers, wider
@@ -430,7 +430,7 @@ pretrained model is a general substrate from which many tasks can be elicited, b
 fine-tuning.
 
 % =====================================================================
-\section{From LLMs to reasoning models}\label{sec:landscape:reasoning}\covers{RM 1.1}
+\section{From LLMs to reasoning models}\label{sec:landscape:reasoning}
 
 We use ``reasoning'' in an engineering sense: an LLM \emph{reasons} when it generates intermediate steps
 before committing to a final answer. A \emph{reasoning model} is an LLM that has been improved, by
@@ -479,7 +479,7 @@ reasoning remains an open question; we treat ``reasoning'' and ``thinking'' pure
 \end{pitfall}
 
 % =====================================================================
-\section{Three levers for improving reasoning}\label{sec:landscape:levers}\covers{RM 1.3}
+\section{Three levers for improving reasoning}\label{sec:landscape:levers}
 
 Reasoning models entered the mainstream with OpenAI's o1 (September 2024), presented as models that
 ``spend more time thinking'' before they answer, and became broadly reproducible with DeepSeek-R1
@@ -553,7 +553,7 @@ and per-query cost.
 \end{systemslens}
 
 % =====================================================================
-\section{Pattern matching versus logical reasoning}\label{sec:landscape:pattern}\covers{RM 1.4}
+\section{Pattern matching versus logical reasoning}\label{sec:landscape:pattern}
 
 Pretraining teaches a model to reproduce the statistical regularities of its corpus. When asked
 ``What is the capital of Germany?'', a model answers ``Berlin'' not by deduction but because the
@@ -600,7 +600,7 @@ and survive in safety-critical niches. They lost ground because the rules must b
 systems are brittle outside their rule base. Neural models learn their ``rules'' from data and are
 flexible, at the price of guarantees.
 
-\section{Simulating reasoning without explicit rules}\label{sec:landscape:simulate}\covers{RM 1.5}
+\section{Simulating reasoning without explicit rules}\label{sec:landscape:simulate}
 
 Ask a strong conventional (non-reasoning) chat model the mercury question and it will very likely answer
 correctly, explaining that mercury is the exception. Does that mean it performed logical inference? Not
@@ -627,7 +627,7 @@ complementary remedies, and both cost compute: the first at every query, the sec
 \end{napkinmath}
 
 % =====================================================================
-\section{Why reasoning models, and why from scratch?}\label{sec:landscape:why}\covers{RM 1.6}
+\section{Why reasoning models, and why from scratch?}\label{sec:landscape:why}
 
 Since early 2025, improving reasoning has been among the most active areas in LLM research, and the
 major model providers have converged on models that decide how long to think: short answers for simple
@@ -869,9 +869,9 @@ them to compute throughput, memory capacity and bandwidth, and interconnect band
 \end{figure}
 
 % =====================================================================
-\section{A roadmap for this book}\label{sec:landscape:roadmap}\covers{LLM 1.7; RM 1.7}
+\section{A roadmap for this book}\label{sec:landscape:roadmap}
 
-The two books this text is built from follow complementary arcs. The first builds a GPT-style model in
+The book follows two complementary arcs. The first builds a GPT-style model in
 three stages: (1) data preparation and the attention mechanism, then the full architecture; (2)
 pretraining, evaluation and loading pretrained weights; (3) fine-tuning for classification and for
 instruction following. The second starts from an existing pretrained (and post-trained) model and
@@ -928,28 +928,27 @@ techniques (RL with GRPO, and distillation). We merge the two arcs and wrap them
 \node[sys] at (1.6,-10.06) {29 RL training systems};
 \node[rm] at (5.2,-10.06) {30 Distillation};
 \node[cs] at (8.8,-10.06) {31 Alignment, safety, multimodality};
-\node[part] at (-0.2,-10.78) {Part VII: Projects (CS336 assignments)};
-\node[cs] at (1.6,-11.50) {32 A1: Basics};
-\node[cs] at (5.2,-11.50) {33 A2: Systems};
-\node[cs] at (8.8,-11.50) {34 A3: Scaling};
-\node[cs] at (12.4,-11.50) {35 A4: Data};
-\node[cs] at (1.6,-12.26) {36 A5: Alignment \& RL};
+\node[part] at (-0.2,-10.78) {Part VII: Capstone projects};
+\node[cs] at (1.6,-11.50) {32 Project: LM from scratch};
+\node[cs] at (5.2,-11.50) {33 Project: fast \& distributed};
+\node[cs] at (8.8,-11.50) {34 Project: scaling study};
+\node[cs] at (12.4,-11.50) {35 Project: web data};
+\node[cs] at (1.6,-12.26) {36 Project: reasoning RL};
 \node[part] at (-0.2,-12.98) {Appendices};
 \node[sys] at (1.6,-13.70) {A Triton kernels};
 \node[cs] at (5.2,-13.70) {B Accelerators beyond GPUs};
 \node[sys] at (8.8,-13.70) {C Lab setup};
 \node[sys] at (12.4,-13.70) {D References};
 \node[sys] at (1.6,-14.46) {E Solutions};
-\node[llm,text width=2.6cm] at (1.4,-15.42) {mainly \emph{LLM} book};
-\node[rm,text width=2.6cm] at (4.6,-15.42) {mainly \emph{reasoning} book};
-\node[sys,text width=2.6cm] at (7.8,-15.42) {new systems material};
-\node[cs,text width=2.9cm] at (11.2,-15.42) {CS336 / preference-optimization additions};
+\node[llm,text width=2.6cm,font=\scriptsize] at (1.4,-15.42) {building \& training};
+\node[rm,text width=2.6cm] at (4.6,-15.42) {reasoning models};
+\node[sys,text width=2.6cm] at (7.8,-15.42) {systems layer};
+\node[cs,text width=2.9cm] at (11.2,-15.42) {scaling, data, alignment \& projects};
 \end{tikzpicture}}
-\caption{How the chapters fit together. Blue chapters follow the LLM-from-scratch arc, green chapters the
-reasoning-model arc, amber chapters are systems material added in this book, and purple chapters cover
-material added from Stanford CS336 and the preference-optimization literature, including the five project
-guides of Part~VII. Every chapter except the project guides ends with a lab. Margin tags mark where each
-section of the source books, and each CS336 lecture and assignment section, is covered.}
+\caption{How the chapters fit together. Blue chapters build and train the model, green chapters
+turn it into a reasoning model, amber chapters are the systems layer, and purple chapters cover the
+model design space, data, scaling, preference optimization and alignment, plus the five capstone
+projects of Part~VII. Every chapter except the project guides ends with a lab.}
 \label{fig:landscape:bookmap}
 \end{figure}
 
@@ -958,10 +957,8 @@ The chapters are written to be read in order, but there are shortcuts. A reader 
 reasoning can read \cref{ch:landscape,ch:pytorch}, skim \cref{ch:gpt,ch:modern}, and jump to Part~VI. A
 reader mainly interested in systems can read the Systems Lens and Napkin Math boxes, then
 \cref{ch:pytorch,ch:perf,ch:distributed,ch:sharding,ch:serving,ch:efficient,ch:rlsys} plus
-\cref{app:triton,app:accel}. A reader following Stanford's CS336 can work through Part~VII: each
-project guide lists, problem by problem, the chapters and labs that teach what the assignment needs. Margin
-tags such as ``LLM~3.5'', ``RM~6.8'', ``CS336 A2 \S4'' or ``PO~\S7'' (the preference-optimization primer)
-show which source a section covers.
+\cref{app:triton,app:accel}. A reader who learns best by building can work through the capstone projects of
+Part~VII: each project guide lists, task by task, the chapters and labs that teach what the project needs.
 
 \paragraph{Labs.}
 Each chapter closes with a lab in \texttt{code/labs/}. A lab has a \texttt{starter.py} with \texttt{TODO}s,

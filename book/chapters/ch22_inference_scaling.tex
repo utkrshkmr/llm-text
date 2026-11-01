@@ -53,7 +53,7 @@ Stages 5--6 are the systems view. The third method, self-refinement, is \cref{ch
 
 % ======================================================================
 \section{Spending compute at answer time}\label{sec:scaling:intro}
-\covers{RM 4.1}
+
 
 ``Compute'' means the arithmetic and memory traffic spent running a model. Training-time scaling
 spends it once and amortizes it over every future query; inference-time scaling spends it anew on
@@ -107,7 +107,7 @@ time-to-solution on your hardware (\cref{sec:scaling:prefix}).
 
 % ======================================================================
 \section{Loading the model and a flexible generator}\label{sec:scaling:load}
-\covers{RM 4.2}
+
 
 We reuse the Qwen3-0.6B base model and the loader from \cref{sec:eval:load}. The only change is
 that the generation wrapper now forwards sampling controls --- \texttt{temperature},
@@ -137,7 +137,7 @@ is what you want when debugging one vote out of sixteen.
 
 % ======================================================================
 \section{Chain-of-thought prompting}\label{sec:scaling:cot}
-\covers{RM 4.3}
+
 
 The simplest inference-time intervention changes only the prompt: append an instruction that asks
 for step-by-step reasoning. The phrase in the original zero-shot CoT paper was ``Let's think step
@@ -216,13 +216,13 @@ large KV pools, aggressive continuous batching, and speculative decoding (\cref{
 
 % ======================================================================
 \section{Temperature scaling}\label{sec:scaling:temp}
-\covers{RM 4.4}
+
 
 Self-consistency needs \emph{different} answers to vote over, and greedy decoding always produces
 the same one. This section builds the source of controlled randomness.
 
 \subsection{How the next token is chosen}\label{sec:scaling:select}
-\covers{RM 4.4.1}
+
 At each step the model outputs a vector of \emph{logits} $\vect{z} \in \R^{\vocab}$, one unnormalized
 score per vocabulary entry ($\vocab = \num{151936}$ for Qwen3). Greedy decoding picks
 $\argmax_i z_i$. Sampling instead converts the logits to a probability distribution with the
@@ -236,7 +236,7 @@ this internally). Because softmax is monotone, $\argmax_i p_i = \argmax_i z_i$: 
 does not need the softmax at all.
 
 \subsection{Rescaling logits with a temperature}\label{sec:scaling:rescale}
-\covers{RM 4.4.2}
+
 Temperature divides the logits by $T > 0$ before the softmax:
 \begin{equation}
   p_i(T) \;=\; \frac{e^{z_i/T}}{\sum_j e^{z_j/T}}.
@@ -288,7 +288,7 @@ $\vocab \times 4$\,B $\approx 0.6$\,MB per row --- negligible next to a forward 
 \end{pitfall}
 
 \subsection{Sampling from the distribution}\label{sec:scaling:sample}
-\covers{RM 4.4.3}
+
 Given probabilities, \texttt{torch.multinomial(probs, 1)} draws one index per row. It is worth
 knowing what it does, because the same idea reappears in speculative decoding (\cref{ch:efficient})
 and in GPU sampling kernels: \emph{inverse-CDF sampling}. Draw $u \sim \mathcal{U}[0,1)$ and return
@@ -325,7 +325,7 @@ def sample_from_probs(probs, generator=None):
 \end{lstlisting}
 
 \subsection{Adding temperature to the generation function}\label{sec:scaling:addtemp}
-\covers{RM 4.4.4}
+
 In the generation loop the only change is the token-selection line: greedy \texttt{argmax}
 becomes \texttt{sample\_next\_token}, which applies temperature, the optional filters of the next
 section, softmax and sampling, and falls back to argmax when $T = 0$
@@ -347,7 +347,7 @@ def sample_next_token(logits, temperature=0.0, top_k=None, top_p=None,
 
 % ======================================================================
 \section{Top-p (nucleus) sampling}\label{sec:scaling:topp}
-\covers{RM 4.5}
+
 
 High temperature has a cost: it inflates the probability of \emph{every} token, including the long
 tail of nonsense continuations. Over a vocabulary of $\num{150000}$ tokens, a tail in which each
@@ -356,7 +356,7 @@ draw from the tail in the middle of a derivation can derail the rest of it. Trun
 this by sampling only from the plausible head of the distribution.
 
 \subsection{Selecting the nucleus}\label{sec:scaling:nucleus}
-\covers{RM 4.5.1}
+
 Top-$k$ keeps a fixed number of tokens regardless of the distribution's shape: too many when the
 model is confident, too few when it is genuinely uncertain. \emph{Top-$p$} (nucleus) sampling
 (Holtzman et al., 2020) adapts: sort tokens by probability, keep the smallest prefix whose
@@ -408,7 +408,7 @@ def top_p_filter(logits, p):
 \end{lstlisting}
 
 \subsection{Adding the filter to the generator}\label{sec:scaling:addtopp}
-\covers{RM 4.5.2}
+
 \texttt{sample\_next\_token} applies the operations in a fixed order: temperature, then top-$k$,
 then top-$p$, then softmax and sampling. The order matters. Applying top-$p$ \emph{after}
 temperature means the nucleus is defined on the tempered distribution, so raising $T$ both flattens
@@ -481,7 +481,7 @@ cards usually recommend specific settings for their models.}
 
 % ======================================================================
 \section{Self-consistency}\label{sec:scaling:sc}
-\covers{RM 4.6}
+
 
 With a source of diverse, coherent samples we can implement the second inference-scaling method.
 \emph{Self-consistency} (Wang et al., 2023) is majority voting: sample $n$ chain-of-thought

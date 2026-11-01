@@ -301,3 +301,38 @@ class HybridLM(nn.Module):
             else:
                 out["M"] += st[0].numel() + st[1].numel()
         return out
+
+
+# --------------------------------------------------------------------------- recall probe
+def make_mqar_batch(batch: int, n_pairs: int, n_queries: int, vocab: int = 256,
+                    seed: int = 0):
+    """Multi-query associative recall (Arora et al., 2023), as next-token prediction.
+
+    Keys come from the lower half of the vocabulary and values from the upper half. Layout per row:
+    k1 v1 k2 v2 ... kN vN q1 a1 q2 a2 ...  The loss mask is True only where the
+    *next* token is an answer a_i, so the metric is pure recall accuracy.
+    Returns (inputs, targets, mask), each (batch, 2*(n_pairs+n_queries)-1).
+    """
+    g = torch.Generator().manual_seed(seed)
+    half = vocab // 2
+    assert n_pairs <= half and n_queries <= n_pairs
+    rows, masks = [], []
+    for _ in range(batch):
+        keys = torch.randperm(half, generator=g)[:n_pairs]
+        vals = torch.randint(half, vocab, (n_pairs,), generator=g)
+        ctx = torch.stack([keys, vals], 1).flatten()
+        qi = torch.randperm(n_pairs, generator=g)[:n_queries]
+        qa = torch.stack([keys[qi], vals[qi]], 1).flatten()
+        seq = torch.cat([ctx, qa])
+        m = torch.zeros(len(seq), dtype=torch.bool)
+        m[len(ctx) + 1::2] = True                     # positions holding answers
+        rows.append(seq); masks.append(m)
+    seq = torch.stack(rows); m = torch.stack(masks)
+    return seq[:, :-1], seq[:, 1:], m[:, 1:]
+
+
+@torch.no_grad()
+def mqar_accuracy(model, batch: int = 64, n_pairs: int = 16, n_queries: int = 8, seed: int = 123):
+    x, y, m = make_mqar_batch(batch, n_pairs, n_queries, seed=seed)
+    pred = model(x).argmax(-1)
+    return (pred[m] == y[m]).float().mean().item()

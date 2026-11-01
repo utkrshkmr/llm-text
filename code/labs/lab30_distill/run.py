@@ -4,10 +4,11 @@ Requires network access (or local copies) and ideally a GPU. Example:
 
     huggingface-cli download Qwen/Qwen3-0.6B-Base --local-dir qwen3-base
     huggingface-cli download Qwen/Qwen3-0.6B tokenizer.json --local-dir qwen3-reasoning
-    huggingface-cli download --repo-type dataset rasbt/math_distill \
-        data/deepseek-r1-math-train.json --local-dir math_distill
+    # traces.jsonl: one record per problem with {problem, gtruth, reasoning, answer},
+    # produced with llmsys.distill.generate_teacher_dataset from a teacher of your choice
+    # (e.g. DeepSeek-R1 or a large Qwen3 model behind an OpenAI-compatible API).
     python run.py --model_dir qwen3-base --tokenizer qwen3-reasoning/tokenizer.json \
-        --data math_distill/data/deepseek-r1-math-train.json --max_len 2048 \
+        --data traces.jsonl --max_len 2048 \
         --epochs 3 --lr 1e-5 --val_size 25 --batch_size 1
 
 The tokenizer of the *reasoning* checkpoint is used because its vocabulary already
