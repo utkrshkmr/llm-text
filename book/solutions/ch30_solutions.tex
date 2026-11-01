@@ -1,0 +1,86 @@
+\subsection*{Chapter 30: Distillation for Efficient Reasoning}
+
+\paragraph{Exercise 30.1 (Split balance).}
+With 25 validation examples drawn at random from a heavy-tailed length distribution, the
+validation mean length can differ noticeably from the training mean. Validation loss is
+length-sensitive because per-token loss varies along a trace (early reasoning tokens are harder
+to predict than formulaic later ones) and long traces contribute more tokens. A stratified split
+sorts examples by length, cuts them into $q$ quantile buckets, and draws
+$\lfloor 25/q\rfloor$ validation examples from each bucket with a fixed seed.
+
+\paragraph{Exercise 30.2 (Without think tags).}
+Without tags the target is the trace followed by the answer with no delimiter; validation loss
+is usually similar (the tags are two easy tokens), so differences show up in behaviour rather
+than loss: tagged students can be parsed and can be switched between thinking and non-thinking
+modes by pre-filling an empty \texttt{<think></think>} block, which untagged students never saw.
+The lab's \texttt{bench.py} compares tagged, untagged and answer-only students on the synthetic
+task.
+
+\paragraph{Exercise 30.3 (Loss identity).}
+\ident{answer_only_loss} averages $-\log p_\theta(y_t\mid x,y_{<t})$ over the $n$ positions whose
+targets are answer tokens (logit indices \code{prompt\_len-1} to $T-2$), which by the chain rule is
+$-\frac1n\log p_\theta(y\mid x)$. For a batch, the token-level loss is
+$\sum_i n_i\bar\ell_i/\sum_i n_i$ and the average of per-example losses is $\frac1B\sum_i\bar\ell_i$;
+they are equal for all values of $\bar\ell_i$ iff all $n_i$ are equal.
+
+\paragraph{Exercise 30.4 (Off-by-one).}
+Starting at \code{prompt\_len} removes the target at the first answer position, so the model is
+never trained to predict \texttt{<think>} after \texttt{<assistant>}. Its first generated token is
+then whatever the untrained distribution favours, typically not \texttt{<think>}; greedy decoding
+starts in the wrong mode, and even when the model recovers, the answer format differs from
+training. Expect the rate of \texttt{<think>}-first outputs to drop from $\approx100\%$ to near zero.
+
+\paragraph{Exercise 30.5 (KD temperature).}
+Let $q=\softmax(z/\tau)$ (student) and $p=\softmax(u/\tau)$ (teacher). $\KL(p\|q)=\sum_j p_j\log
+p_j-\sum_jp_j\log q_j$ and $\partial(-\sum_j p_j\log q_j)/\partial z_i=(q_i-p_i)/\tau$, so
+$\partial[\tau^2\KL]/\partial z_i=\tau(q_i-p_i)$. Without the $\tau^2$ factor the soft-target
+gradient would shrink as $1/\tau$ (and, for large $\tau$, as $1/\tau^2$ after expanding $q-p$ in
+the logit difference), so mixing it with the unit-temperature CE term would silently change the
+relative weight $\alpha$ with temperature.
+
+\paragraph{Exercise 30.6 (Top-$k$ storage).}
+For 3{,}000 tokens: full bf16 distributions $3000\times151{,}936\times2\approx912$\,MB; top-8 at 6
+bytes per entry $=144$\,KB; top-32 $=576$\,KB; top-128 $=2.3$\,MB; token ids $=12$\,KB. For a peaked
+teacher (most mass in a few tokens) the sparse-loss error is tiny already at $k=8$; for a flat
+teacher it decays slowly with $k$ because renormalising over the top-$k$ support sharpens the
+target.
+
+\paragraph{Exercise 30.7 (Forward vs.\ reverse KL).}
+Minimising forward KL over Gaussians matches moments: for the mixture $\tfrac12\mathcal N(-2.2,0.6^2)
++\tfrac12\mathcal N(2.2,0.6^2)$ the fit has mean 0 and variance $0.6^2+2.2^2=5.2$ (std $\approx2.3$),
+placing mass in the valley. Reverse KL has two local minima, each close to one component
+($\mu\approx\pm2.2$, $\sigma\approx0.6$). A capacity-limited student trained with forward KL
+hedges between reasoning strategies and may produce incoherent mixtures; with reverse KL it commits
+to one strategy and may lose coverage of the other.
+
+\paragraph{Exercise 30.8 (Logit memory).}
+Weights+grads+Adam: $\approx9.5$\,GB at every length. Activations without checkpointing: roughly 24k
+bf16 values per token per layer ($\approx47$\,KB), $\times28$ layers $\approx1.3$\,MB/token, i.e.
+$\approx2.7$, 10.8 and 43\,GB at 2k, 8k and 32k; with per-layer checkpointing about
+$0.1$\,MB/token ($\approx0.2$, 0.8, 3.4\,GB). Logits in fp32: 1.2, 5.0 and 19.9\,GB (plus their
+gradient), capped at $\approx0.6$\,GB by chunking. At 2k the optimizer state dominates; at 8k
+activations (without checkpointing); at 32k activations without checkpointing and the logits with it,
+which is why long-trace training needs both checkpointing and chunked/fused cross-entropy.
+(These are order-of-magnitude estimates; measure with \texttt{torch.cuda.max\_memory\_allocated}.)
+
+\paragraph{Exercise 30.9 (Packing for SFT).}
+Make a differentiable variant of \ident{varlen_forward} by removing \texttt{@torch.no\_grad()} and
+returning logits for the packed row; build targets per segment with \code{IGNORE} on prompt
+positions and on the last token of each segment (no cross-segment target), then compute
+\texttt{cross\_entropy(..., reduction="sum")} divided by the total number of answer tokens. Because
+attention is block-diagonal and positions restart per segment, each segment's logits equal its
+unpacked logits, so the packed loss equals the padded token-level loss.
+
+\paragraph{Exercise 30.10 (Cost per solved problem).}
+A: $2100/0.33\approx6{,}364$ tokens per solved problem; B: $900/0.30=3{,}000$. B is $2.1\times$
+cheaper. A wins only if B's accuracy falls below $900/6364\approx14.1\%$.
+
+\paragraph{Exercise 30.11 (Teacher generation throughput).}
+Qwen3-32B: $\approx65.5$\,GB of bf16 weights, KV $=2\cdot64\cdot8\cdot128\cdot2\approx262$\,KB per
+token. On 8 H100s (640\,GB) with one TP$=8$ replica and $\sim$64\,GB overhead, $\approx510$\,GB holds KV
+for $\approx970$ sequences at 2k average live context. A decode step streams weights plus KV,
+$\approx576$\,GB at $8\times3.35$\,TB/s $\approx21$\,ms, giving $\approx45$k tokens/s and
+$\approx 800$\,s ($\approx13$ minutes) for 36M tokens as an upper bound. Compute is $\approx2N\times45\text{k}
+\approx3\times10^{15}$\,FLOP/s, $\approx38\%$ of peak, so the job is bandwidth-bound but not far from
+the ridge; in practice expect a few times longer because of prefill, scheduling, the length tail,
+and imperfect TP scaling.

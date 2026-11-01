@@ -1,6 +1,6 @@
 """Qwen3 (dense) architecture from scratch: RMSNorm, SwiGLU, RoPE, GQA, QK-norm.
 
-Used from Part IV onwards as the base model for inference, evaluation, RL and
+Used from Part V onwards as the base model for inference, evaluation, RL and
 distillation. ``load_qwen3_hf_state_dict`` maps the official Hugging Face safetensors
 layout onto this module so the real Qwen3-0.6B checkpoint can be loaded on a machine
 with internet access.

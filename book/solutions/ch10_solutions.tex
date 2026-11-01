@@ -1,85 +1,93 @@
-\subsection*{Chapter 10: Instruction Fine-Tuning and Parameter-Efficient Adaptation}
+\subsection*{Chapter 10: Pretraining on Unlabeled Data}
 
-\paragraph{Exercise 10.1.} Replace \code{format\_alpaca} by \code{format\_phi3} in both the
-dataset and the generation prompt, and extract responses by splitting on
-\code{<|assistant|>} instead of the Alpaca header. The Phi-3 template removes roughly
-25--30 tokens per example, so total training tokens drop by roughly a quarter to a
-third and epoch time falls accordingly. Judge scores are usually similar. Note that
-\code{<|user|>} is not a special token for GPT-2 and is split into several BPE pieces,
-which is harmless but slightly less compact than the name suggests.
+\paragraph{Exercise 10.1 (Initial loss).}
+The loss at one position is $-z_y+\log\sum_u e^{z_u}$. Since $z_y$ has mean zero,
+$\E[\mathcal L]=\E[\log\sum_u e^{z_u}]$. For large $V$ the sum concentrates around its mean,
+$V\,\E[e^{z}]=V e^{\sigma^2/2}$ (log-normal mean), so $\E[\mathcal L]\approx\ln V+\sigma^2/2$.
+For GPT-2 small, the final LayerNorm makes each hidden coordinate roughly unit variance and the
+head weights have standard deviation $0.02$, so each logit has variance
+$\approx768\cdot0.02^2=0.31$. Prediction: $\ln 50{,}257+0.15\approx10.98$ nats.
 
-\paragraph{Exercise 10.2.} Losses averaged over response tokens only are not comparable
-with losses averaged over all tokens, because prompt tokens (especially the fixed
-preamble) are easy to predict and pull the full-sequence average down. Evaluate both
-models on the same response-only target set. Response-only training usually matches or
-slightly beats full-sequence training on judge score. Full-sequence loss can win when
-responses are very short and prompts carry useful in-domain text, because it then
-provides much more gradient signal per example.
+\paragraph{Exercise 10.2 (Perplexity across tokenizers).}
+Model A: total NLL $=3.10\times10^6$ nats over $4.3\times10^6$ bytes $=0.721$ nats/byte $=1.04$
+bits/byte. Model B is byte-level, so tokens $=$ bytes and $0.95$ nats/byte $=1.37$ bits/byte.
+Model A is better, even though its per-token loss is three times larger.
 
-\paragraph{Exercise 10.3.} Two microbatches with $n_1=10$ and $n_2=90$ target tokens and
-mean losses $\bar\ell_1,\bar\ell_2$: averaging the means gives
-$\tfrac12(\bar\ell_1+\bar\ell_2)$, so each token of microbatch 1 has weight $1/20$ and
-each token of microbatch 2 has weight $1/180$. The per-token mean of the full step gives
-every token weight $1/100$. Fix: compute \code{F.cross\_entropy(..., reduction="sum")}
-per microbatch, count non-ignored targets, and divide the accumulated sum by the total
-count before \code{backward} (or scale each microbatch's sum by $1/n_{\text{total}}$,
-which requires knowing $n_{\text{total}}$ in advance, for example by pre-counting the
-step's targets).
+\paragraph{Exercise 10.3 (Training vs.\ validation).}
+Expect the validation minimum within the first few epochs; dropout delays it slightly and
+keeps the validation loss lower afterwards, because it limits how precisely the model can store
+the training windows. Samples near the validation minimum are novel but story-like; late samples
+reproduce training passages verbatim, especially with greedy decoding.
 
-\paragraph{Exercise 10.4.} Random batches with dynamic padding typically waste 30--50\% on
-instruction data with a long-tailed length distribution; bucketing reduces this to a few
-percent; FFD packing into 512- or 1{,}024-token rows leaves only the tail of the last
-rows empty, usually below 2\%. For attention, a dense row mask costs $T^2$ per row
-regardless of content. A varlen kernel costs $\sum_i\ell_i^2$, which for documents of
-about 100 tokens packed into $T=1024$ is about 10 documents $\times\,100^2 = 10^5$
-versus $1024^2\approx10^6$, a $10\times$ reduction in attention FLOPs.
+\paragraph{Exercise 10.4 (Temperature limits).}
+Let $z_1>z_j$ for $j\neq1$. Then $p_\tau(j)/p_\tau(1)=e^{(z_j-z_1)/\tau}\to0$ as $\tau\to0^+$,
+so $p_\tau\to e_1$. As $\tau\to\infty$, $z_j/\tau\to0$ for all $j$ and $p_\tau(j)\to1/V$. With
+$k$ tied maxima the limit is uniform over the tied set (the ratios between tied tokens are always
+1), which differs from \code{argmax}, which deterministically returns the first index.
 
-\paragraph{Exercise 10.5.} Probe: fix document 2, vary document 1 in the same packed row,
-and compare the logits at a position in document 2. With naive packing they change.
-With the block-diagonal mask and position reset they are identical up to floating-point
-error. After fine-tuning on naively packed data the model learns to use the preceding
-documents, for example by copying formatting or answers from the previous example.
-The effect is visible as degraded single-example performance at inference time, where
-no preceding documents exist.
+\paragraph{Exercise 10.5 (Do top-$k$ and temperature commute?).}
+Yes for top-$k$: dividing by $\tau>0$ preserves the order of the logits, so the same $k$ tokens
+survive, and the softmax over the survivors is the same either way. No for top-$p$: the kept set
+depends on the cumulative probabilities, which temperature changes. A high temperature flattens
+the distribution, so more tokens are needed to reach mass $p$. Applying temperature first (the
+common convention) lets temperature widen the nucleus.
 
-\paragraph{Exercise 10.6.} Reference answers should score near the top of the scale and
-wrong answers near the bottom; deviations reveal judge bias or prompt problems.
-Correlations between two different judges are typically high (Pearson 0.7--0.9) on
-clearly separable answers but lower among mediocre ones, and mean absolute differences
-of 5--15 points are common. A single reported score therefore has an uncertainty of
-several points from the judge alone, on top of sampling uncertainty from 110 test
-items (standard error $\approx\sigma/\sqrt{110}$).
+\paragraph{Exercise 10.6 (Resume correctness).}
+Required: model weights; optimizer state (moments, step counts); scheduler/step counter; CPU and
+CUDA RNG states (dropout); Python \code{random} and NumPy RNGs if used anywhere; the sampler's
+generator state and the position within the epoch (how many batches have been consumed); worker
+seeding (\code{worker\_init\_fn}/base seed) so augmentation inside workers replays; and the
+\code{GradScaler} state (current scale and growth tracker). Listing~10.5 omits the data-loader
+position and sampler RNG, the Python/NumPy RNGs and the \code{GradScaler}; autocast itself holds
+no state.
 
-\paragraph{Exercise 10.7.} With $\alpha=2r$, the effective update scale $\alpha/r=2$ is
-constant, so the magnitude of $\Delta W$ produced by a given learning rate is roughly
-independent of $r$, and one learning rate works across ranks. With fixed $\alpha=16$,
-$\alpha/r$ shrinks as $r$ grows (16 at $r=1$, 0.25 at $r=64$), so large ranks
-effectively train with a smaller step and appear worse unless the learning rate is
-re-tuned. Quality usually saturates by $r=8$--$16$ for a task of this size.
+\paragraph{Exercise 10.7 (Checkpoint interval).}
+Job MTBF $M=50{,}000\,\text{h}/2048=24.4\,\text{h}\approx87{,}900\,\text{s}$.
+Synchronous ($\delta=90$\,s): $T=\sqrt{2\cdot90\cdot87{,}900}\approx3{,}980$\,s ($\approx66$ min).
+Expected overhead $\approx\delta/T+T/(2M)\approx2.3\%+2.3\%=4.5\%$.
+Asynchronous ($\delta=6$\,s): $T\approx1{,}030$\,s ($\approx17$ min), overhead
+$\approx0.6\%+0.6\%=1.2\%$ (restart time excluded in both).
 
-\paragraph{Exercise 10.8.} For a fixed parameter budget, adapting all linear layers
-(with a smaller $r$) usually wins on SFT, because MLP layers hold much of the
-task-relevant capacity. The spam task is easy enough that most placements reach
-similar accuracy. Attention-only placements are slightly weaker on SFT.
+\paragraph{Exercise 10.8 (Accumulation is not always exact).}
+(1) Padding: if each micro-batch's loss is the mean over its \emph{non-padding} tokens and the
+micro-batches contain different numbers of real tokens, averaging the $k$ means weights tokens
+unequally; the exact large-batch loss divides the summed NLL by the total token count. Fix: sum
+token losses and divide by the global token count. (2) Layers with batch statistics (BatchNorm)
+see smaller batches. Also: the last, partial micro-batch of an epoch, and dropout masks that
+differ because the RNG is consumed in a different pattern.
 
-\paragraph{Exercise 10.9.} In full fine-tuning the weight-gradient GEMMs are about a third
-of matmul time. With LoRA they disappear for frozen weights, while the adapter GEMMs
-are tiny but numerous (two extra small matmuls per adapted layer in each direction).
-On small models these extra kernels and the optimizer step can eat most of the
-theoretical $1.5\times$ saving, so measured speed-ups are often smaller than predicted.
-On large models the prediction is approached.
+\paragraph{Exercise 10.9 (Activation memory, GPT-2 xl).}
+Model states: $16\times1.558\text{B}=24.9$\,GB; budget $0.9\cdot80-24.9=47.1$\,GB.
+(a) No FlashAttention: per sample $48\cdot1024\cdot1600\cdot(34+5\cdot25\cdot1024/1600)=8.97$\,GB
+$\Rightarrow b=5$. (b) FlashAttention: $48\cdot1024\cdot1600\cdot34=2.67$\,GB $\Rightarrow b=17$.
+(c) Full checkpointing: block inputs $2\cdot1024\cdot1600\cdot48=0.157$\,GB plus one layer's full
+activations during recomputation ($0.187$\,GB) $\approx0.344$\,GB per sample $\Rightarrow b\approx136$
+(in practice temporary buffers and the logits tensor limit this much earlier).
 
-\paragraph{Exercise 10.10.} Block-normalised GPT-2 weights are roughly bell-shaped but
-heavier-tailed than a Gaussian, with occasional outlier channels. NF4 gives lower
-reconstruction error than uniform int4 for the bulk of the weights, because its
-levels are denser near zero, and typically a smaller perplexity increase. Uniform int4
-does relatively better on blocks dominated by an outlier, where the absmax scale
-squeezes the remaining weights into a few levels for both schemes.
+\paragraph{Exercise 10.10 (Measure MFU).}
+Typical ordering: fp32 lowest (no tensor cores; TF32 if enabled helps); bf16 autocast a large
+jump; SDPA a further gain (no $T\times T$ materialization, fewer memory-bound kernels); compile
+another 10--30\% from fusing LayerNorm/GELU/residual chains and reducing launches; activation
+checkpointing reduces MFU by roughly a quarter (recompute is not counted in MFU) but allows larger
+micro-batches, which can partly win it back.
 
-\paragraph{Exercise 10.11.} With one adapter, the gather is a broadcast and the cost is
-close to the base model plus two small matmuls. With 8 or 64 distinct adapters, the
-gather materialises per-row copies of $\mat{A}$ and $\mat{B}$ ($B\times r\times d$
-elements), which adds memory traffic proportional to the batch size. That is where
-throughput drops. Fused kernels (Punica's BGMV/SGMV) read each row's adapter directly
-from the adapter pool inside the matmul, never materialising the gathered copies, and
-group rows that share an adapter (segmented GEMM) to recover tensor-core efficiency.
+\paragraph{Exercise 10.11 (Chinchilla planning).}
+$C=1000\cdot86{,}400\cdot0.4\cdot989\times10^{12}=3.4\times10^{22}$ FLOPs, so
+$N_{\text{opt}}=\sqrt{C/120}\approx16.9$B and $D_{\text{opt}}\approx338$B tokens.
+Inference over a year: $1.2\times10^{13}$ tokens $\times2N$. Option A ($N=16.9$B):
+$4.1\times10^{23}$ inference FLOPs, total $\approx4.4\times10^{23}$. Option B ($N=8.4$B,
+$D=1.35$T): training $6\cdot8.4\text{B}\cdot1.35\text{T}=6.8\times10^{22}$ (2$\times$ the budget),
+inference $2.0\times10^{23}$, total $\approx2.7\times10^{23}$. Option B is about 40\% cheaper in total;
+with the Chinchilla loss fit its loss is only slightly higher than option A's, which is the
+argument for over-training models that will be served heavily.
+
+\paragraph{Exercise 10.12 (Chunked loss).}
+Implement an \code{autograd.Function} whose forward takes the final hidden states $\mat H$
+\code{(N, d)}, the head weight $\mat W$ \code{(V, d)} and targets. Loop over chunks of rows: compute
+$\mat Z_c=\mat H_c\mat W^\top$ in fp32, its log-sum-exp, the chunk loss, and immediately the
+gradient $\partial\mathcal L/\partial\mat Z_c=(\softmax(\mat Z_c)-\text{onehot})/N$; accumulate
+$\partial\mathcal L/\partial\mat H_c=\partial\mathcal L/\partial\mat Z_c\,\mat W$ and
+$\partial\mathcal L/\partial\mat W\mathrel{+}=(\partial\mathcal L/\partial\mat Z_c)^\top\mat H_c$.
+Save only these gradients for backward (which just scales them by the incoming gradient). Peak
+memory drops from $N\cdot V$ to $\text{chunk}\cdot V$ floats; verify with
+\code{torch.autograd.gradcheck} on small sizes in float64.

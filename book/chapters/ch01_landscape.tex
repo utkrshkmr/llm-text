@@ -131,7 +131,7 @@ an unusually wide application surface:
 \item \textbf{Knowledge work in specialised domains:} search and question answering over legal,
   medical or scientific corpora, often combined with retrieval.
 \item \textbf{Reasoning-heavy tasks:} competition mathematics, program synthesis, planning in agentic
-  systems, where the reasoning methods of Part~V matter most.
+  systems, where the reasoning methods of Part~VI matter most.
 \end{itemize}
 
 Why build or adapt your own model rather than call a hosted API? Four reasons recur. \emph{Quality}:
@@ -150,7 +150,7 @@ GPU suffices. But decoding is memory-bound (\cref{sec:landscape:cost}): at batch
 must stream all 16\,GB of weights, capping a single sequence at about $3.35\,\text{TB/s} / 16\,\text{GB}
 \approx 200$ tokens/s. Reaching $10^9/86400 \approx 11{,}600$ tokens/s requires batching on the order of
 a hundred concurrent sequences. Whether that is achievable depends on KV-cache memory and on the
-serving engine, the subject of Part~IV. The economics of self-hosting are therefore a
+serving engine, the subject of Part~V. The economics of self-hosting are therefore a
 \emph{batching} problem more than a FLOPs problem.
 \end{napkinmath}
 
@@ -217,13 +217,13 @@ life cycle together with its typical compute cost.
 \node[lab,below=0.15cm of sv] {cost grows with\\every user};
 \draw[decorate,decoration={brace,amplitude=5pt,mirror},thick,gray]
   ([yshift=-1.1cm]s.south west) -- ([yshift=-1.1cm]rs.south east)
-  node[midway,below=6pt,font=\scriptsize] {post-training (Chapters 9, 10, 17--20)};
+  node[midway,below=6pt,font=\scriptsize] {post-training (Chapters 16, 17, 27--30)};
 \draw[decorate,decoration={brace,amplitude=5pt},thick,gray]
   ([yshift=0.15cm]p.north west) -- ([yshift=0.15cm]p.north east)
-  node[midway,above=6pt,font=\scriptsize] {Chapters 3--8};
+  node[midway,above=6pt,font=\scriptsize] {Chapters 3--14};
 \draw[decorate,decoration={brace,amplitude=5pt},thick,gray]
   ([yshift=0.15cm]sv.north west) -- ([yshift=0.15cm]sv.north east)
-  node[midway,above=6pt,font=\scriptsize] {Chapters 11--13};
+  node[midway,above=6pt,font=\scriptsize] {Chapters 18--20};
 \end{tikzpicture}}
 \caption{The LLM life cycle as used in this book. Pretraining consumes the bulk of training compute;
 each post-training stage changes behaviour with orders of magnitude less data; serving cost is paid
@@ -473,7 +473,7 @@ tokens}, the most expensive tokens in the system because they are produced seque
 A theorem prover or a symbolic solver applies fixed rules and returns the same, guaranteed-sound
 derivation every time. An LLM generates its steps by sampling from learned token distributions. Its
 traces can look rigorous and still contain an invalid step, and two samples for the same prompt can
-disagree. Much of Part~V (verifiers, self-consistency, scoring, RL with verifiable rewards) exists to
+disagree. Much of Part~VI (verifiers, self-consistency, scoring, RL with verifiable rewards) exists to
 manage this randomness rather than to eliminate it. Whether and how such traces resemble human
 reasoning remains an open question; we treat ``reasoning'' and ``thinking'' purely as operational terms.
 \end{pitfall}
@@ -661,7 +661,7 @@ occupies about 70\,MiB of KV cache; a 4{,}000-token reasoning trace pushes that 
 reducing the number of concurrent sequences that fit in the GPU's spare memory by roughly $8.5\times$. At batch
 size 1 the memory-bound decode floor is $16.4\,\text{GB}/3.35\,\text{TB/s} \approx 4.9$\,ms per token, so
 the trace alone costs at least 20 seconds of wall-clock time versus 1 second for the direct answer.
-Reasoning models are a stress test for every serving optimisation in Part~IV.
+Reasoning models are a stress test for every serving optimisation in Part~V.
 \end{napkinmath}
 
 Why build all this from scratch, when production frameworks exist? Because the methods are young and
@@ -710,7 +710,7 @@ throughput beyond it requires batching.}
 \label{tab:landscape:qwen3napkin}
 \end{table}
 
-\Cref{tab:landscape:qwen3napkin} applies these formulas to the model family used in Part~V. Two features
+\Cref{tab:landscape:qwen3napkin} applies these formulas to the model family used in Part~VI. Two features
 stand out. First, KV-cache bytes per token are small and nearly constant across sizes (thanks to
 grouped-query attention, \cref{ch:modern}), so at long contexts the cache, not the weights, limits how many
 requests fit in memory. Second, single-sequence decoding speed is set by \emph{bandwidth}: the smallest
@@ -889,57 +889,79 @@ techniques (RL with GRPO, and distillation). We merge the two arcs and wrap them
   llm/.style={ch,fill=sysbluebg,draw=sysblue},
   rm/.style={ch,fill=keygreenbg,draw=keygreen},
   sys/.style={ch,fill=napkinbg,draw=napkin},
+  cs/.style={ch,fill=labpurplebg,draw=labpurple},
   arr/.style={-{Stealth[length=1.6mm]},gray!70,thick}]
-% Column headings
-\node[part] at (-0.2,0.9) {Part I: Foundations};
-\node[sys] (c1) at (1.6,0) {1 Landscape \& cost model};
-\node[llm] (c2) at (5.2,0) {2 PyTorch \& the machine};
-\node[part] at (-0.2,-0.9) {Part II: Building an LLM};
-\node[llm] (c3) at (1.6,-1.8) {3 Text data \& tokenization};
-\node[llm] (c4) at (5.2,-1.8) {4 Attention \& FlashAttention};
-\node[llm] (c5) at (8.8,-1.8) {5 GPT from scratch};
-\node[rm] (c6) at (12.4,-1.8) {6 Qwen3, GQA, RoPE, MoE};
-\node[part] at (-0.2,-2.7) {Part III: Training};
-\node[llm] (c7) at (1.6,-3.6) {7 Pretraining \& efficiency};
-\node[sys] (c8) at (5.2,-3.6) {8 Distributed training};
-\node[llm] (c9) at (8.8,-3.6) {9 Classification FT};
-\node[llm] (c10) at (12.4,-3.6) {10 Instruction FT \& LoRA};
-\node[part] at (-0.2,-4.5) {Part IV: Inference and Serving};
-\node[rm] (c11) at (1.6,-5.4) {11 Inference, KV cache};
-\node[sys] (c12) at (5.2,-5.4) {12 Batching \& engines};
-\node[sys] (c13) at (8.8,-5.4) {13 Quantization, spec.\ dec., chat UI};
-\node[sys] (cA) at (12.4,-5.4) {A Triton kernels};
-\node[part] at (-0.2,-6.3) {Part V: Reasoning Models};
-\node[rm] (c14) at (1.6,-7.2) {14 Evaluation \& verifiers};
-\node[rm] (c15) at (5.2,-7.2) {15 Inference-time scaling};
-\node[rm] (c16) at (8.8,-7.2) {16 Self-refinement};
-\node[rm] (c17) at (12.4,-7.2) {17 RL with GRPO};
-\node[rm] (c18) at (1.6,-8.3) {18 Improving GRPO};
-\node[sys] (c19) at (5.2,-8.3) {19 RL training systems};
-\node[rm] (c20) at (8.8,-8.3) {20 Distillation};
-\draw[arr] (c1)--(c2); \draw[arr] (c3)--(c4); \draw[arr] (c4)--(c5); \draw[arr] (c5)--(c6);
-\draw[arr] (c7)--(c8); \draw[arr] (c8)--(c9); \draw[arr] (c9)--(c10);
-\draw[arr] (c11)--(c12); \draw[arr] (c12)--(c13); \draw[arr] (c13)--(cA);
-\draw[arr] (c14)--(c15); \draw[arr] (c15)--(c16); \draw[arr] (c16)--(c17);
-\draw[arr] (c18)--(c19); \draw[arr] (c19)--(c20);
-\draw[arr] (c17.south) |- ($(c18.north)+(0,0.25)$) -- (c18.north);
-% legend
-\node[llm,text width=2.8cm] at (1.4,-9.6) {mainly \emph{LLM} book};
-\node[rm,text width=2.8cm] at (5.0,-9.6) {mainly \emph{reasoning} book};
-\node[sys,text width=2.8cm] at (8.6,-9.6) {new systems material};
+\node[part] at (-0.2,0.90) {Part I: Foundations};
+\node[sys] at (1.6,0.18) {1 Landscape \& cost model};
+\node[llm] at (5.2,0.18) {2 PyTorch \& the machine};
+\node[part] at (-0.2,-0.54) {Part II: Building an LLM};
+\node[llm] at (1.6,-1.26) {3 Text data \& tokenization};
+\node[llm] at (5.2,-1.26) {4 Attention \& FlashAttention};
+\node[llm] at (8.8,-1.26) {5 GPT from scratch};
+\node[rm] at (12.4,-1.26) {6 Qwen3, GQA, RoPE, MoE};
+\node[cs] at (1.6,-2.02) {7 Architecture design space};
+\node[cs] at (5.2,-2.02) {8 Linear attention, SSMs, hybrids};
+\node[part] at (-0.2,-2.74) {Part III: Pretraining at Scale};
+\node[cs] at (1.6,-3.46) {9 Optimizers \& training loop};
+\node[llm] at (5.2,-3.46) {10 Pretraining \& efficiency};
+\node[cs] at (8.8,-3.46) {11 Pretraining data};
+\node[cs] at (12.4,-3.46) {12 Scaling laws};
+\node[cs] at (1.6,-4.22) {13 Single-GPU performance};
+\node[sys] at (5.2,-4.22) {14 Distributed training};
+\node[cs] at (8.8,-4.22) {15 FSDP from scratch};
+\node[part] at (-0.2,-4.94) {Part IV: Fine-Tuning};
+\node[llm] at (1.6,-5.66) {16 Classification FT};
+\node[llm] at (5.2,-5.66) {17 Instruction FT \& LoRA};
+\node[part] at (-0.2,-6.38) {Part V: Inference and Serving};
+\node[rm] at (1.6,-7.10) {18 Inference, KV cache};
+\node[sys] at (5.2,-7.10) {19 Batching \& engines};
+\node[sys] at (8.8,-7.10) {20 Quantization, spec.\ dec., chat UI};
+\node[part] at (-0.2,-7.82) {Part VI: Reasoning and Post-Training};
+\node[rm] at (1.6,-8.54) {21 Evaluation \& verifiers};
+\node[rm] at (5.2,-8.54) {22 Inference-time scaling};
+\node[rm] at (8.8,-8.54) {23 Self-refinement};
+\node[cs] at (12.4,-8.54) {24 Policy-gradient foundations};
+\node[cs] at (1.6,-9.30) {25 RLHF: reward models \& PPO};
+\node[cs] at (5.2,-9.30) {26 DPO and its family};
+\node[rm] at (8.8,-9.30) {27 RL with GRPO};
+\node[rm] at (12.4,-9.30) {28 Improving GRPO};
+\node[sys] at (1.6,-10.06) {29 RL training systems};
+\node[rm] at (5.2,-10.06) {30 Distillation};
+\node[cs] at (8.8,-10.06) {31 Alignment, safety, multimodality};
+\node[part] at (-0.2,-10.78) {Part VII: Projects (CS336 assignments)};
+\node[cs] at (1.6,-11.50) {32 A1: Basics};
+\node[cs] at (5.2,-11.50) {33 A2: Systems};
+\node[cs] at (8.8,-11.50) {34 A3: Scaling};
+\node[cs] at (12.4,-11.50) {35 A4: Data};
+\node[cs] at (1.6,-12.26) {36 A5: Alignment \& RL};
+\node[part] at (-0.2,-12.98) {Appendices};
+\node[sys] at (1.6,-13.70) {A Triton kernels};
+\node[cs] at (5.2,-13.70) {B Accelerators beyond GPUs};
+\node[sys] at (8.8,-13.70) {C Lab setup};
+\node[sys] at (12.4,-13.70) {D References};
+\node[sys] at (1.6,-14.46) {E Solutions};
+\node[llm,text width=2.6cm] at (1.4,-15.42) {mainly \emph{LLM} book};
+\node[rm,text width=2.6cm] at (4.6,-15.42) {mainly \emph{reasoning} book};
+\node[sys,text width=2.6cm] at (7.8,-15.42) {new systems material};
+\node[cs,text width=2.9cm] at (11.2,-15.42) {CS336 / preference-optimization additions};
 \end{tikzpicture}}
-\caption{How the chapters fit together. Blue chapters follow the LLM-from-scratch arc, green chapters
-the reasoning-model arc, amber chapters are systems material added in this book. Every chapter ends with
-a lab; every source-book section is tagged in the margin where it is covered.}
+\caption{How the chapters fit together. Blue chapters follow the LLM-from-scratch arc, green chapters the
+reasoning-model arc, amber chapters are systems material added in this book, and purple chapters cover
+material added from Stanford CS336 and the preference-optimization literature, including the five project
+guides of Part~VII. Every chapter except the project guides ends with a lab. Margin tags mark where each
+section of the source books, and each CS336 lecture and assignment section, is covered.}
 \label{fig:landscape:bookmap}
 \end{figure}
 
 \paragraph{How to read this book.}
-The chapters are written to be read in order, but there are two shortcuts. A reader mainly interested in
-reasoning can read \cref{ch:landscape,ch:pytorch}, skim \cref{ch:gpt,ch:modern}, and jump to Part~IV. A
-reader mainly interested in systems can read the Systems Lens boxes, the napkin-math boxes, and
-\cref{ch:pytorch,ch:distributed,ch:serving,ch:efficient,ch:rlsys} plus \cref{app:triton}. Margin tags such
-as ``LLM~3.5'' or ``RM~6.8'' indicate which section of the source books a section covers.
+The chapters are written to be read in order, but there are shortcuts. A reader mainly interested in
+reasoning can read \cref{ch:landscape,ch:pytorch}, skim \cref{ch:gpt,ch:modern}, and jump to Part~VI. A
+reader mainly interested in systems can read the Systems Lens and Napkin Math boxes, then
+\cref{ch:pytorch,ch:perf,ch:distributed,ch:sharding,ch:serving,ch:efficient,ch:rlsys} plus
+\cref{app:triton,app:accel}. A reader following Stanford's CS336 can work through Part~VII: each
+project guide lists, problem by problem, the chapters and labs that teach what the assignment needs. Margin
+tags such as ``LLM~3.5'', ``RM~6.8'', ``CS336 A2 \S4'' or ``PO~\S7'' (the preference-optimization primer)
+show which source a section covers.
 
 \paragraph{Labs.}
 Each chapter closes with a lab in \texttt{code/labs/}. A lab has a \texttt{starter.py} with \texttt{TODO}s,

@@ -1,4 +1,4 @@
-"""Distillation for reasoning models (Chapter 20).
+"""Distillation for reasoning models (Chapter 30).
 
 Hard distillation  = supervised fine-tuning on teacher-generated text (answer-only CE).
 Soft distillation  = match the teacher's per-token distribution (KL), optionally from a
