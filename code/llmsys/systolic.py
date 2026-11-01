@@ -196,3 +196,54 @@ def mesh_compute_bound_block(flops_per_core: float, link_bw: float,
     at least as long as moving two b x b blocks over one link (Cannon step)."""
     # 2 b^3 / F >= 2 b^2 * bytes / BW  ->  b >= F * bytes / BW
     return flops_per_core * dtype_bytes / link_bw
+
+
+# =========================================================================== tile layouts
+def tilize(x: np.ndarray, tile: int = 32, face: int = 16) -> np.ndarray:
+    """Row-major (H, W) matrix -> flat buffer in tile layout.
+
+    Tiles of ``tile x tile`` are stored one after another in row-major tile order. Inside a
+    tile, the four ``face x face`` faces are stored in the order top-left, top-right,
+    bottom-left, bottom-right, each face row-major. This mirrors the 32x32 tile / 16x16 face
+    layout that Tenstorrent's Tensix cores consume natively. Pads H, W up to multiples of tile.
+    """
+    H, W = x.shape
+    Hp, Wp = -(-H // tile) * tile, -(-W // tile) * tile
+    xp = np.zeros((Hp, Wp), dtype=x.dtype)
+    xp[:H, :W] = x
+    out = []
+    for ti in range(Hp // tile):
+        for tj in range(Wp // tile):
+            t = xp[ti*tile:(ti+1)*tile, tj*tile:(tj+1)*tile]
+            for fi in range(tile // face):
+                for fj in range(tile // face):
+                    out.append(t[fi*face:(fi+1)*face, fj*face:(fj+1)*face].reshape(-1))
+    return np.concatenate(out)
+
+
+def untilize(buf: np.ndarray, H: int, W: int, tile: int = 32, face: int = 16) -> np.ndarray:
+    """Inverse of :func:`tilize` (drops padding)."""
+    Hp, Wp = -(-H // tile) * tile, -(-W // tile) * tile
+    xp = np.zeros((Hp, Wp), dtype=buf.dtype)
+    k = 0
+    for ti in range(Hp // tile):
+        for tj in range(Wp // tile):
+            for fi in range(tile // face):
+                for fj in range(tile // face):
+                    r0, c0 = ti*tile + fi*face, tj*tile + fj*face
+                    xp[r0:r0+face, c0:c0+face] = buf[k:k+face*face].reshape(face, face)
+                    k += face * face
+    return xp[:H, :W]
+
+
+def decode_tokens_per_s_bound(n_params: float, bytes_per_param: float, bw: float,
+                              kv_bytes_per_token_step: float = 0.0) -> float:
+    """Upper bound on single-stream decode speed: every step must stream all weights (and
+    the KV cache) from off-chip memory once, so tokens/s <= bw / bytes_per_step."""
+    return bw / (n_params * bytes_per_param + kv_bytes_per_token_step)
+
+
+def ridge_point(name: str) -> float:
+    """FLOPs per byte at which a kernel turns from memory- to compute-bound."""
+    a = ACCELERATORS[name]
+    return a["flops"] / a["bw"]

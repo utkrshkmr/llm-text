@@ -226,7 +226,8 @@ def ranking_loss(scores, ranks):          # scores, ranks: (P, K); rank 0 = best
         diff = scores[:, i] - scores[:, j]
         oriented = better_i * diff + (1 - better_i) * (-diff)
         losses.append(-F.logsigmoid(oriented))
-    return torch.stack(losses, dim=1).mean()   # average within prompt, then across prompts
+    # average within each prompt, then across prompts
+    return torch.stack(losses, dim=1).mean()
 \end{lstlisting}
 
 \subsection{Architecture: a language model with a scalar head}
@@ -289,7 +290,7 @@ class RewardModel(ScalarHeadModel):
         return self.head(h[torch.arange(ids.shape[0]), last]).squeeze(-1)
 
 class ValueModel(ScalarHeadModel):
-    def forward(self, ids):                              # -> (B, T): V(s_t) per prefix
+    def forward(self, ids):                       # -> (B, T): V(s_t) per prefix
         return self.head(self.hidden(ids)).squeeze(-1)
 \end{lstlisting}
 
@@ -347,7 +348,7 @@ def train_reward_model(rm, pairs, pad_id, epochs=3, batch_size=32, lr=1e-3, ...)
         rng.shuffle(pairs)
         for i in range(0, len(pairs), batch_size):
             batch = pairs[i: i + batch_size]
-            ids, lens = pad_pairs(batch, pad_id)        # (2B, T): chosen rows, then rejected
+            ids, lens = pad_pairs(batch, pad_id)   # (2B, T)
             r = rm(ids, lens)
             n = len(batch)
             loss = loss_fn(r[:n], r[n:])                 # Bradley-Terry
@@ -422,7 +423,7 @@ score with a fixed penalty, which also teaches the policy to finish. Our trainer
 
 \begin{lstlisting}[caption={KL estimators and the shaped reward (\ident{llmsys/rlhf/losses.py}).},label={lst:rlhf:shaped}]
 def kl_per_token(logp, logp_ref, kind="k1"):
-    log_ratio = logp - logp_ref                       # log(pi / pi_ref) for the sampled token
+    log_ratio = logp - logp_ref                # log(pi/pi_ref), sampled token
     if kind == "k1": return log_ratio                 # unbiased, can be negative
     if kind == "k2": return 0.5 * log_ratio ** 2      # biased, low variance
     if kind == "k3": return torch.expm1(-log_ratio) + log_ratio   # unbiased, >= 0
@@ -430,7 +431,7 @@ def kl_per_token(logp, logp_ref, kind="k1"):
 def kl_shaped_rewards(score, logp, logp_ref, mask, beta, kind="k1"):
     kl = kl_per_token(logp, logp_ref, kind) * mask
     rewards = -beta * kl
-    last = (mask.sum(1).long() - 1).clamp(min=0)      # index of each row's final token
+    last = (mask.sum(1).long() - 1).clamp(min=0)   # each row's final token
     rewards = rewards.clone()
     rewards[torch.arange(rewards.shape[0]), last] += score
     return rewards * mask, kl
@@ -540,12 +541,10 @@ every token sees only its own TD error.}
   \draw[->, thick, fcompute] (t\i.north) to[out=140, in=40]
     node[above, font=\scriptsize] {$\times\gamma\lambda$} (t\j.north);
 }
-\node[font=\scriptsize, align=left, anchor=west] at (-0.6,-1.45)
-  {$\hat A_t=\delta_t+\gamma\lambda\hat A_{t+1}$: a single right-to-left scan per response;
-   padding positions are masked so the recursion stops at each row's own \textsc{eos}.};
 \end{tikzpicture}}
-\caption{GAE as a backward scan. Each token's advantage is its own TD residual plus a discounted
-copy of its successor's advantage, so the terminal reward-model score flows backwards, attenuated by
+\caption{GAE as a backward scan, $\hat A_t=\delta_t+\gamma\lambda\hat A_{t+1}$: one right-to-left
+pass per response, with padding masked so the recursion stops at each row's own \textsc{eos}.
+Each token's advantage is its own TD residual plus a discounted copy of its successor's advantage, so the terminal reward-model score flows backwards, attenuated by
 $\gamma\lambda$ per step and corrected by the critic's predictions along the way.}
 \label{fig:rlhf:gae}
 \end{figure}
@@ -556,9 +555,9 @@ def gae(rewards, values, mask, gamma=1.0, lam=0.95):
     adv = torch.zeros_like(rewards)
     last_gae = torch.zeros(B)
     for t in reversed(range(T)):
-        next_v = values[:, t + 1] * mask[:, t + 1] if t + 1 < T else torch.zeros(B)
-        delta = rewards[:, t] + gamma * next_v - values[:, t]
-        carry = mask[:, t + 1] if t + 1 < T else 0.0     # stop at each row's final token
+        nv = values[:, t + 1] * mask[:, t + 1] if t + 1 < T else torch.zeros(B)
+        delta = rewards[:, t] + gamma * nv - values[:, t]
+        carry = mask[:, t + 1] if t + 1 < T else 0.0   # stop after final token
         last_gae = (delta + gamma * lam * last_gae * carry) * mask[:, t]
         adv[:, t] = last_gae
     return adv * mask, (adv + values) * mask             # advantages, returns
@@ -613,9 +612,11 @@ forward and backward pass on a pretraining batch per minibatch. Our trainer expo
 def ppo_policy_loss(logp, logp_old, adv, mask, clip=0.2):
     log_ratio = (logp - logp_old) * mask
     ratio = torch.exp(log_ratio)
-    surr = torch.minimum(ratio * adv, torch.clamp(ratio, 1 - clip, 1 + clip) * adv)
+    clipped = torch.clamp(ratio, 1 - clip, 1 + clip)
+    surr = torch.minimum(ratio * adv, clipped * adv)
     loss = masked_mean(-surr, mask)
-    stats = {"clipfrac": float(masked_mean(((ratio - 1).abs() > clip).float(), mask)),
+    outside = ((ratio - 1).abs() > clip).float()
+    stats = {"clipfrac": float(masked_mean(outside, mask)),
              "approx_kl": float(masked_mean(0.5 * log_ratio ** 2, mask))}
     return loss, stats
 
@@ -644,16 +645,16 @@ loop that collects fresh rollouts, and an inner loop that makes several optimisa
 \begin{lstlisting}[style=plain,caption={One PPO-RLHF iteration in pseudocode.},label={lst:rlhf:pseudo}]
 repeat for iteration = 1, 2, ...:
   # Phase 1: rollout (policy in inference mode, KV cache)
-  sample B prompts x;  y ~ pi_theta(. | x)                  -> responses, mask, has_eos
+  sample B prompts x;  y ~ pi_theta(. | x)       -> responses, mask, has_eos
   # Phase 2: score (four forward passes, no gradients)
-  logp_old = log pi_theta(y_t | s_t)       logp_ref = log pi_ref(y_t | s_t)
-  V_old    = V_psi(s_t)                    score    = r_phi(x, y)   (penalty if no eos)
+  logp_old = log pi_theta(y_t | s_t) logp_ref = log pi_ref(y_t | s_t)
+  V_old    = V_psi(s_t)              score    = r_phi(x, y)  (penalty if no eos)
   r_t      = -beta * (logp_old - logp_ref) + [t = T] * score
   A_t, R_t = GAE(r, V_old; gamma, lambda);  A_t = whiten(A_t over the batch)
   # Phase 3: learn (ppo_epochs passes, shuffled minibatches)
   for epoch in 1..E:  for minibatch in shuffle(B) / M:
-      L_pi = clipped surrogate(logp_new / logp_old, A)        -> step actor
-      L_V  = clipped value loss(V_new, V_old, R)              -> step critic
+      L_pi = clipped surrogate(logp_new / logp_old, A)   -> step actor
+      L_V  = clipped value loss(V_new, V_old, R)         -> step critic
   update beta with the KL controller
 \end{lstlisting}
 
@@ -716,12 +717,15 @@ def score(self, ro):
     P, full = ro.prompts.shape[1], ro.full
     ro.logp_old   = response_logprobs(self.policy, full, P) * ro.mask
     ro.logp_ref   = response_logprobs(self.ref, full, P) * ro.mask
-    ro.values_old = self.value(full)[:, P - 1: -1] * ro.mask      # value of the state before y_t
+    # value of the state *before* each response token y_t
+    ro.values_old = self.value(full)[:, P - 1: -1] * ro.mask
     score = self.rm(full, P + ro.mask.sum(1).long())
-    score = torch.where(ro.has_eos, score, torch.full_like(score, cfg.missing_eos_score))
-    ro.rewards, ro.kl = self.fns.kl_shaped_rewards(score, ro.logp_old, ro.logp_ref,
-                                                   ro.mask, self.kl_ctl.beta, cfg.kl_kind)
-    adv, ro.returns = self.fns.gae(ro.rewards, ro.values_old, ro.mask, cfg.gamma, cfg.lam)
+    penalty = torch.full_like(score, cfg.missing_eos_score)
+    score = torch.where(ro.has_eos, score, penalty)
+    ro.rewards, ro.kl = self.fns.kl_shaped_rewards(
+        score, ro.logp_old, ro.logp_ref, ro.mask, self.kl_ctl.beta, cfg.kl_kind)
+    adv, ro.returns = self.fns.gae(ro.rewards, ro.values_old, ro.mask,
+                                   cfg.gamma, cfg.lam)
     ro.advantages = self.fns.whiten(adv, ro.mask)
     return ro
 
@@ -729,11 +733,14 @@ def learn(self, ro):
     for _ in range(cfg.ppo_epochs):
         for mb in torch.randperm(B).split(cfg.minibatch_size):
             m = ro.mask[mb]
-            logp, ent = response_logprobs(self.policy, full[mb], P, with_entropy=True)
-            pl, st = self.fns.ppo_policy_loss(logp * m, ro.logp_old[mb], ro.advantages[mb], m, cfg.clip)
+            logp, ent = response_logprobs(self.policy, full[mb], P,
+                                          with_entropy=True)
+            pl, st = self.fns.ppo_policy_loss(logp * m, ro.logp_old[mb],
+                                              ro.advantages[mb], m, cfg.clip)
             step(self.opt_pi, pl - cfg.ent_coef * masked_mean(ent, m))
             v = self.value(full[mb])[:, P - 1: -1] * m
-            vl, _ = self.fns.value_loss(v, ro.values_old[mb], ro.returns[mb], m, cfg.vf_clip)
+            vl, _ = self.fns.value_loss(v, ro.values_old[mb], ro.returns[mb],
+                                        m, cfg.vf_clip)
             step(self.opt_v, vl)
 \end{lstlisting}
 
@@ -745,34 +752,40 @@ what it was built from.
 
 \begin{lstlisting}[style=plain,caption={A project layout for an RLHF run.},label={lst:rlhf:layout}]
 rlhf-run/
-  configs/  sft.yaml  rm.yaml  ppo.yaml          # one config per stage, checked into git
-  data/     sft.jsonl  prefs_round1.jsonl  prefs_round2.jsonl  prompts_rl.jsonl
-  ckpt/     sft/  rm-r1/  ppo-r1/  rm-r2/  ppo-r2/   # + manifest.json in each
+  configs/  sft.yaml  rm.yaml  ppo.yaml     # one config per stage, in git
+  data/     sft.jsonl  prefs_r1.jsonl  prefs_r2.jsonl  prompts_rl.jsonl
+  ckpt/     sft/  rm-r1/  ppo-r1/  rm-r2/  ppo-r2/   # + manifest.json
   logs/     ppo-r1/metrics.jsonl  samples/iter_000050.jsonl
   eval/     rm_acc.json  winrate_vs_sft.json  safety.json
 \end{lstlisting}
 
 \begin{lstlisting}[style=plain,caption={A PPO configuration with the knobs that matter, and values that are reasonable defaults for a first 1B--8B run.},label={lst:rlhf:yaml}]
-policy_init: ckpt/sft          reference: ckpt/sft        # same weights, ref frozen
-reward_model: ckpt/rm-r1       value_init: ckpt/rm-r1     # InstructGPT-style critic init
-rollout:  {prompts_per_iter: 512, max_new_tokens: 512, temperature: 1.0, top_p: 1.0}
-ppo:      {epochs: 2, minibatch_size: 64, clip: 0.2, vf_clip: 0.2, gamma: 1.0, lam: 0.95,
-           lr_policy: 1.0e-6, lr_value: 5.0e-6, max_grad_norm: 1.0, ent_coef: 0.0}
-kl:       {init_beta: 0.05, target: 6.0, horizon: 10000, estimator: k1}   # nats / response
-reward:   {normalize: true, missing_eos_score: -1.0, clip: 10.0}
-ptx:      {coef: 0.0, data: data/pretrain_sample.bin}
-log:      {every: 1, samples_every: 25, eval_every: 100}
+policy_init:  ckpt/sft            # trained copy
+reference:    ckpt/sft            # frozen copy of the same weights
+reward_model: ckpt/rm-r1
+value_init:   ckpt/rm-r1          # InstructGPT-style critic init
+rollout: {prompts_per_iter: 512, max_new_tokens: 512,
+          temperature: 1.0, top_p: 1.0}
+ppo:     {epochs: 2, minibatch_size: 64, clip: 0.2, vf_clip: 0.2,
+          gamma: 1.0, lam: 0.95, lr_policy: 1.0e-6, lr_value: 5.0e-6,
+          max_grad_norm: 1.0, ent_coef: 0.0}
+kl:      {init_beta: 0.05, target: 6.0, horizon: 10000,
+          estimator: k1}          # target in nats per response
+reward:  {normalize: true, missing_eos_score: -1.0, clip: 10.0}
+ptx:     {coef: 0.0, data: data/pretrain_sample.bin}
+log:     {every: 1, samples_every: 25, eval_every: 100}
 \end{lstlisting}
 
 The commands follow the stages. In the lab they are functions, but the shape is the same
 at scale:
 
 \begin{lstlisting}[style=shell,caption={The four stages as commands (the lab's \code{run.py} mirrors this).},label={lst:rlhf:cmds}]
-python run.py sft    --config configs/sft.yaml   --out ckpt/sft
-python run.py prefs  --policy ckpt/sft --n 4096  --out data/prefs_round1.jsonl   # sample + label
-python run.py rm     --config configs/rm.yaml    --out ckpt/rm-r1                # BT training
-python run.py ppo    --config configs/ppo.yaml   --out ckpt/ppo-r1               # the loop
-python run.py eval   --policy ckpt/ppo-r1 --baseline ckpt/sft                    # win rate, KL
+python run.py sft   --config configs/sft.yaml --out ckpt/sft
+python run.py prefs --policy ckpt/sft --n 4096 \
+                    --out data/prefs_r1.jsonl        # sample + label pairs
+python run.py rm    --config configs/rm.yaml  --out ckpt/rm-r1   # BT training
+python run.py ppo   --config configs/ppo.yaml --out ckpt/ppo-r1  # the loop
+python run.py eval  --policy ckpt/ppo-r1 --baseline ckpt/sft     # win rate, KL
 \end{lstlisting}
 
 \begin{table}[ht]
@@ -1024,10 +1037,10 @@ MILESTONES = {"tests_located": 0.1, "patch_compiles": 0.2, "target_passes": 0.5,
               "suite_green": 1.0}
 
 def milestone_rewards(events, n_tokens):
-    """events: list of (milestone, token_index) emitted by the environment checker."""
+    """events: (milestone, token_index) pairs from the environment checker."""
     r, seen = torch.zeros(n_tokens), set()
     for name, t in events:
-        if name in MILESTONES and name not in seen:        # pay each milestone once
+        if name in MILESTONES and name not in seen:   # pay each one once
             r[t] += MILESTONES[name]
             seen.add(name)
     return r          # add to the KL-shaped per-token reward before GAE
@@ -1156,9 +1169,9 @@ reward, and push it hard enough to over-optimise.
 \labsection{Setup}
 \begin{lstlisting}[style=shell]
 cd code
-LAB_IMPL=starter  python -m pytest labs/lab25_rlhf_ppo -q     # your implementation
-LAB_IMPL=solution python -m pytest labs/lab25_rlhf_ppo -q     # reference
-python labs/lab25_rlhf_ppo/run.py all --iters 60               # full pipeline + plots
+LAB_IMPL=starter  python -m pytest labs/lab25_rlhf_ppo -q   # your code
+LAB_IMPL=solution python -m pytest labs/lab25_rlhf_ppo -q   # reference
+python labs/lab25_rlhf_ppo/run.py all --iters 70   # pipeline + plots
 \end{lstlisting}
 The tests use the synthetic preference task of \cref{sec:rlhf:results} and tiny models (untied
 embeddings), so the full suite runs in under a minute on a CPU.

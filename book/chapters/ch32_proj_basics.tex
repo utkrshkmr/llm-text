@@ -1,0 +1,585 @@
+\chapter{Project: A Transformer Language Model from Scratch (CS336 Assignment 1)}\label{ch:proj1}
+
+Part~VII turns the book into a set of projects: Stanford's CS336, \emph{Language Modeling
+from Scratch} (Spring 2026), publishes five implementation-heavy assignments, and each of the
+following five chapters is a guide to one of them. The guides tell you how to set up, which
+chapters and labs teach the ideas each problem needs, where the traps are, how to design and
+log the experiments, and how to scale the work down when you do not have the course's GPUs.
+They deliberately stop short of solutions.
+
+\begin{keyidea}[How to use the project guides (read this first)]
+The CS336 assignments are designed to be done \emph{by you}. The course's policy, which the
+assignment repositories also include as \code{AGENTS.md}/\code{CLAUDE.md} instructions for AI
+tools, allows help with concepts, documentation and debugging strategy but not with
+implementing assignment components. These guides follow the same line:
+\begin{itemize}
+  \item every assignment is described in our own words, and the official handout is the
+        specification. When the two disagree, the handout wins;
+  \item there is no solution code for any assignment problem and no final answers to the
+        written or accounting questions. Where a problem needs a method, we demonstrate it on a
+        \emph{different} example;
+  \item the book's own chapters and labs implement many of the same \emph{concepts} (a BPE
+        trainer, an AdamW, a Transformer block) against the book's \code{llmsys} API. If you are
+        taking the course for credit, do not copy them into your submission: write your own,
+        and use the book's versions only to understand what correct behaviour looks like.
+\end{itemize}
+If you are working through the assignments on your own, the same advice applies for a different
+reason: the value of these assignments is in the debugging you do along the way.
+\end{keyidea}
+
+% =====================================================================
+\section{What you build}\label{sec:proj1:overview}\covers{CS336 A1 \S1; CS336 L1}
+
+Assignment~1 asks you to build, with almost no library help, everything needed to train a
+modern decoder-only language model, and then to train and study such models. In our words:
+
+\begin{enumerate}
+  \item a \textbf{byte-level BPE tokenizer}: a trainer that learns merges from a text file and a
+        tokenizer that encodes and decodes with them, including special tokens and streaming input;
+  \item a \textbf{pre-norm Transformer LM} with RMSNorm, SwiGLU feed-forward layers, rotary
+        position embeddings and causal multi-head attention, built from your own \code{Linear}
+        and \code{Embedding} modules;
+  \item the \textbf{training machinery}: cross-entropy, an AdamW optimizer, a cosine schedule with
+        warmup, gradient clipping, a memory-mapped data loader, checkpointing and a training script;
+  \item \textbf{decoding} with temperature and nucleus sampling;
+  \item \textbf{experiments} on TinyStories and an OpenWebText sample: learning-rate and
+        batch-size studies, four architecture ablations, a time-limited leaderboard run, and a
+        written report with an experiment log.
+\end{enumerate}
+
+The ``from scratch'' rule is concrete: from \code{torch.nn}, \code{torch.nn.functional} and
+\code{torch.optim} you may use only \code{nn.Parameter}, the container classes
+(\code{Module}, \code{ModuleList}, \code{Sequential}, \ldots) and the \code{Optimizer} base class.
+Tensor operations, \code{einsum}, \code{torch.nn.init.trunc\_normal\_} and similar primitives are
+allowed. Check the handout for the exact list.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  comp/.style={draw, rounded corners=3pt, minimum height=0.9cm, align=center, font=\small, line width=0.6pt, text width=2.6cm},
+  ref/.style={font=\scriptsize, text=srcgray, align=center},
+  arr/.style={-{Stealth[length=2mm]}, line width=0.6pt}]
+\node[comp, fill=fdata!18, draw=keygreen] (tok) at (0,0) {BPE trainer +\\tokenizer};
+\node[ref, below=1pt of tok] {Ch.~3, Lab~3; \S\ref{sec:proj1:bpe}};
+\node[comp, fill=fdata!18, draw=keygreen] (ids) at (0,-2.2) {uint16 token\\files};
+\node[ref, below=1pt of ids] {Ch.~3, Ch.~9};
+\node[comp, fill=fcompute!18, draw=sysblue] (mods) at (4.2,0) {Linear, Embedding,\\RMSNorm, SwiGLU};
+\node[ref, below=1pt of mods] {Ch.~6, Ch.~7};
+\node[comp, fill=fcompute!18, draw=sysblue] (attn) at (4.2,-2.2) {RoPE, softmax,\\causal MHA};
+\node[ref, below=1pt of attn] {Ch.~4, Ch.~6};
+\node[comp, fill=fcompute!18, draw=sysblue] (lm) at (8.4,-1.1) {pre-norm block\\$\to$ Transformer LM};
+\node[ref, below=1pt of lm] {Ch.~5, Ch.~6};
+\node[comp, fill=fmemory!20, draw=napkin] (opt) at (12.6,0) {cross-entropy, AdamW,\\schedule, clipping};
+\node[ref, below=1pt of opt] {Ch.~9, Ch.~10};
+\node[comp, fill=fmemory!20, draw=napkin] (loop) at (12.6,-2.2) {loader, checkpoints,\\training script};
+\node[ref, below=1pt of loop] {Ch.~9, Lab~9};
+\node[comp, fill=fcomm!16, draw=labpurple] (exp) at (16.8,-1.1) {experiments,\\ablations,\\leaderboard};
+\node[ref, below=1pt of exp] {Ch.~7, Ch.~9, \S\ref{sec:proj1:experiments}};
+\draw[arr] (tok)--(ids); \draw[arr] (mods)--(lm); \draw[arr] (attn)--(lm);
+\draw[arr] (lm)--(opt); \draw[arr] (lm)--(loop); \draw[arr] (ids.east) to[out=-15,in=200] (loop.west);
+\draw[arr] (opt)--(exp); \draw[arr] (loop)--(exp);
+\end{tikzpicture}}
+\caption{The components of Assignment~1, in dependency order, with the chapters that teach the
+underlying ideas. Each box is several of the handout's problems; \cref{tab:proj1:map} gives the
+problem-by-problem map.}
+\label{fig:proj1:components}
+\end{figure}
+
+% =====================================================================
+\section{Setting up}\label{sec:proj1:setup}\covers{CS336 A1 \S1}
+
+\paragraph{Repository and environment.} The assignment lives in a public GitHub repository
+(\url{https://github.com/stanford-cs336/assignment1-basics}) together with the handout PDF. It
+uses \texttt{uv} to pin Python (3.12 or 3.13) and the dependencies: a specific PyTorch minor
+version, \texttt{einops}, \texttt{einx}, \texttt{jaxtyping}, \texttt{regex}, \texttt{tiktoken}
+(used by the tests as a reference tokenizer), \texttt{wandb}, \texttt{pytest} and a few tools.
+
+\begin{lstlisting}[style=shell]
+git clone https://github.com/stanford-cs336/assignment1-basics && cd assignment1-basics
+pip install uv            # or the standalone installer
+uv run pytest             # first run creates .venv; every test fails with NotImplementedError
+uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+python <book>/code/projects/a1/check_env.py     # machine facts + tips (Chapter 32 tools)
+\end{lstlisting}
+
+\paragraph{How your code meets the tests.} You write all your code in the package directory
+(\texttt{cs336\_basics/}), structured however you like. The tests never import it directly.
+They call functions in \texttt{tests/adapters.py}, each of which currently raises
+\code{NotImplementedError}. You fill each adapter with a few lines of \emph{glue}: construct your
+module, load the weights the test passes in (usually via \code{load\_state\_dict}), and call it
+(\cref{fig:proj1:adapters}). The rule is that adapters contain no substantive logic. That keeps
+your package usable outside the tests, and keeps the tests stable across different internal
+designs.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  b/.style={draw, rounded corners=2pt, minimum height=0.85cm, align=center, font=\small, text width=3.4cm, line width=0.6pt},
+  arr/.style={-{Stealth[length=2mm]}, line width=0.6pt}]
+\node[b, fill=black!5] (t) at (0,0) {\texttt{tests/test\_model.py}\\(do not edit)};
+\node[b, fill=fmemory!20, draw=napkin] (a) at (5,0) {\texttt{tests/adapters.py}\\glue only};
+\node[b, fill=fcompute!18, draw=sysblue] (p) at (10,0) {\texttt{cs336\_basics/}\\your modules};
+\node[b, fill=black!5] (s) at (0,-1.9) {\texttt{tests/\_snapshots/*.npz}\\\texttt{tests/fixtures/}};
+\draw[arr] (t) -- node[above,font=\scriptsize]{calls \code{run\_*}} (a);
+\draw[arr] (a) -- node[above,font=\scriptsize]{builds, loads, calls} (p);
+\draw[arr, dashed] (s) -- node[left,font=\scriptsize]{reference outputs} (t);
+\draw[arr, dashed] (p.south) |- node[pos=0.75,below,font=\scriptsize]{outputs compared to snapshots / tiktoken} (s.east);
+\end{tikzpicture}
+\caption{The adapter pattern used throughout CS336. The tests reach your code only through thin
+adapter functions. Numerical tests compare against stored reference outputs (snapshots), and the
+tokenizer tests compare against \texttt{tiktoken}'s GPT-2 tokenizer.}
+\label{fig:proj1:adapters}
+\end{figure}
+
+A few properties of the test suite matter for how you work:
+
+\begin{itemize}
+  \item \textbf{Run subsets.} \code{uv run pytest -k test\_rmsnorm} runs one test. Work
+        component by component, in the order of \cref{tab:proj1:map}.
+  \item \textbf{Snapshot tests check numbers, not just shapes.} Model components are tested
+        against stored outputs computed with specific weights the test loads into your module.
+        Your parameter names and shapes must accept those weights (read the adapter docstrings for
+        the expected shapes and orientation, e.g.\ $W$ stored as $d_\text{out}\times d_\text{in}$),
+        and your computation must follow the handout's exact conventions. Two conventions where
+        the book differs: RoPE pairs (rotate-half vs adjacent pairs, \cref{sec:modern:rope}) and
+        mask polarity (\cref{sec:proj1:conventions}).
+  \item \textbf{Some tests have resource limits.} One BPE test fails if training on a small corpus
+        takes longer than a fixed number of seconds, and one streaming-tokenizer test runs under
+        an address-space limit of about a megabyte above the current usage (enforced with
+        \code{resource.setrlimit}, which works on Linux but not reliably on macOS). The submission
+        script also runs every test with a per-test timeout.
+  \item \textbf{The tokenizer tests use GPT-2's real vocabulary.} The fixtures store GPT-2's
+        vocabulary and merges in the original serialised form, where bytes are mapped to printable
+        Unicode characters. Converting between that form and raw \code{bytes} is part of your setup
+        work.
+\end{itemize}
+
+\paragraph{Data.} The README lists download commands for TinyStories (train and validation
+text files, documents separated by \texttt{<|endoftext|>}) and a sample of OpenWebText
+(gzipped text). Both are single large plain-text files; budget tens of gigabytes of disk for
+the text and the \code{uint16} token arrays you will create from them, and keep them out of your
+submission zip (the submission script has an exclusion list).
+
+\paragraph{Compute.} The handout states budgets in B200-hours, and the full TinyStories run is
+designed to take well under an hour on a B200. It also gives a low-resource path: a reduced
+token budget that trains a fluent-ish TinyStories model on an Apple-silicon laptop (MPS) or a CPU
+in about an hour, with a correspondingly relaxed loss target. \Cref{sec:proj1:outside} discusses
+hardware substitutions.
+
+% =====================================================================
+\section{Problem-by-problem map}\label{sec:proj1:map}
+
+\Cref{tab:proj1:map} lists every problem in the handout, what it asks for in a phrase, and where
+this book develops the needed ideas. ``W'' marks written answers, ``C'' code, ``E'' experiments.
+
+{\small
+\begin{longtable}{@{}p{0.27\linewidth}p{0.06\linewidth}p{0.30\linewidth}p{0.29\linewidth}@{}}
+\caption{Assignment~1 problems mapped to the book.}\label{tab:proj1:map}\\
+\toprule
+\textbf{Problem} & & \textbf{What it asks (paraphrased)} & \textbf{Where the book helps}\\
+\midrule\endfirsthead
+\toprule
+\textbf{Problem} & & \textbf{What it asks} & \textbf{Where the book helps}\\
+\midrule\endhead
+\multicolumn{4}{@{}l}{\emph{Tokenization (handout \S2)}}\\
+\code{unicode1}, \code{unicode2} & W & reason about code points, the NUL character, UTF-8 vs UTF-16/32, invalid byte sequences & \cref{sec:text:wild}; \cref{sec:proj1:unicode}\\
+\code{train\_bpe} & C & byte-level BPE trainer with special tokens as hard boundaries, deterministic tie-breaking, fast enough for a timed test & \cref{sec:text:bpe}, Lab~3; \cref{sec:proj1:bpe}\\
+\code{train\_bpe\_tinystories}, \code{train\_bpe\_expts\_owt} & E/W & train 10K and 32K vocabularies; time, memory, profile, longest token & \cref{sec:proj1:bpe} (parallelism, profiling); \cref{sec:text:pipeline}\\
+\code{tokenizer} & C & encoder/decoder class with special tokens, file loading and lazy \code{encode\_iterable} & \cref{sec:text:bpe,sec:text:special}; \cref{sec:proj1:stream}\\
+\code{tokenizer\_experiments} & E/W & compression ratios, cross-domain behaviour, throughput, why \code{uint16} & \cref{sec:text:pipeline}, \cref{sec:optim:data}; \cref{sec:proj1:stream}\\
+\multicolumn{4}{@{}l}{\emph{Architecture (handout \S3)}}\\
+\code{linear}, \code{embedding} & C & bias-free linear and embedding modules with truncated-normal init & \cref{sec:archdesign:einsum,sec:archdesign:init}; \cref{sec:text:tokemb}\\
+\code{rmsnorm} & C & RMSNorm with fp32 upcast & \cref{sec:modern:rmsnorm}\\
+\code{positionwise\_feedforward} & C & SwiGLU FFN, $\dff\approx\tfrac83 d$ rounded to a multiple of 64 & \cref{sec:modern:swiglu}, \cref{sec:archdesign:mlp}\\
+\code{rope} & C & RoPE module with precomputed cos/sin buffers and explicit token positions & \cref{sec:modern:rope}, \cref{sec:archdesign:pos}; \cref{sec:proj1:conventions}\\
+\code{softmax}, \code{scaled\_dot\_product\_attention} & C & stable softmax; attention with optional boolean mask and arbitrary batch dims & \cref{sec:attention:simple,sec:attention:causal}, \cref{sec:optim:loss}\\
+\code{multihead\_self\_attention} & C & causal MHA with RoPE on $Q,K$, three projections & \cref{sec:attention:mha}, \cref{sec:modern:gqa}\\
+\code{transformer\_block}, \code{transformer\_lm} & C & pre-norm block and full LM & \cref{sec:gpt:block}, \cref{sec:modern:block,sec:modern:model}\\
+\code{transformer\_accounting} & W & parameter count, matmul FLOPs and their breakdown for several model sizes and context lengths & \cref{sec:gpt:accounting}, Lab~1, \cref{sec:optim:account}\\
+\multicolumn{4}{@{}l}{\emph{Training (handout \S4--5)}}\\
+\code{cross\_entropy} & C & stable cross-entropy averaged over batch dimensions & \cref{sec:pretrain:loss}, \cref{sec:optim:loss}\\
+\code{learning\_rate\_tuning} & E/W & toy SGD at several learning rates & \cref{sec:optim:api} (pitfall box)\\
+\code{adamw} & C & AdamW as an \code{Optimizer} subclass & \cref{sec:optim:api,sec:optim:adam}, Lab~9\\
+\code{adamw\_accounting} & W & peak memory decomposition, max batch size, FLOPs of a step, training time at given MFU & \cref{sec:optim:account,sec:optim:cost}, \cref{sec:pretrain:memory}\\
+\code{learning\_rate\_schedule}, \code{gradient\_clipping} & C & warmup + cosine; global-norm clipping & \cref{sec:optim:sched,sec:optim:clip}\\
+\code{data\_loading}, \code{checkpointing} & C & random batches from a token array; save/load model + optimizer + iteration & \cref{sec:optim:data,sec:optim:ckpt}\\
+\code{training\_together} & C & configurable training script with memmap data, checkpoints, logging & \cref{sec:optim:loop,sec:optim:explog}, \cref{sec:pretrain:trainfn}\\
+\code{decoding} & C & sampling with temperature and top-$p$ until EOT or a length limit & \cref{sec:pretrain:decoding}, \cref{sec:scaling:topp}\\
+\multicolumn{4}{@{}l}{\emph{Experiments (handout \S7)}}\\
+\code{experiment\_log} & C/W & tracking infrastructure (step and wall clock) and a log of what you tried & \cref{sec:optim:explog}; \cref{sec:proj1:experiments}\\
+\code{learning\_rate}, \code{batch\_size\_experiment} & E & LR sweep incl.\ a divergent run; batch-size sweep with re-tuned LRs & \cref{sec:optim:debug}, \cref{ch:scalinglaws}; \cref{sec:proj1:experiments}\\
+\code{generate} & E/W & sample text, comment on fluency & \cref{sec:pretrain:decoding}\\
+\code{layer\_norm\_ablation}, \code{pre\_norm\_ablation}, \code{no\_pos\_emb}, \code{swiglu\_ablation} & E & remove norms; post-norm; NoPE; SiLU vs SwiGLU at matched parameters & \cref{sec:archdesign:norm,sec:archdesign:pos,sec:archdesign:mlp,sec:archdesign:ablate}, Lab~7\\
+\code{main\_experiment} & E/W & same recipe on OpenWebText; interpret the loss gap & \cref{sec:proj1:owt}, \cref{ch:data}\\
+\code{leaderboard} & E & best validation loss within a fixed wall-clock budget & \cref{sec:proj1:leaderboard}\\
+\bottomrule
+\end{longtable}}
+
+% =====================================================================
+\section{Background the assignment needs that earlier chapters only touch on}\label{sec:proj1:background}
+
+Most of the assignment rests on Chapters 3--10. This section fills the gaps the handout relies
+on most: Unicode details, the exact pre-tokenisation regex, scaling BPE training to a large file, and
+streaming encoders. It also lists the conventions where the book and the handout differ.
+
+\subsection{Unicode, code points and UTF-8}\label{sec:proj1:unicode}\covers{CS336 A1 \S2.1--2.2}
+
+Unicode assigns each character an integer \emph{code point} (\code{ord}/\code{chr} in Python);
+the standard defines roughly 160,000 characters across a space of $17\times2^{16}$ code points.
+Some code points are control characters that print as nothing visible. An \emph{encoding}
+turns code points into bytes. UTF-8 is variable-length:
+
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+code point range & bytes & bit pattern\\
+\midrule
+U+0000--U+007F & 1 & \texttt{0xxxxxxx} (ASCII unchanged)\\
+U+0080--U+07FF & 2 & \texttt{110xxxxx 10xxxxxx}\\
+U+0800--U+FFFF & 3 & \texttt{1110xxxx 10xxxxxx 10xxxxxx}\\
+U+10000--U+10FFFF & 4 & \texttt{11110xxx 10xxxxxx 10xxxxxx 10xxxxxx}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three consequences matter for tokenizers. First, a byte-level vocabulary needs only 256 base
+symbols and can never meet an out-of-vocabulary input. Second, a single byte is not a character:
+continuation bytes (\texttt{10xxxxxx}) are meaningless on their own, so any code that decodes
+token-by-token or byte-by-byte must buffer incomplete sequences (\cref{sec:text:wild} builds an
+incremental detokenizer for exactly this reason). Third, not every byte sequence is valid UTF-8:
+a lead byte must be followed by the right number of continuation bytes, and some lead bytes never
+occur at all. A decoder therefore needs an error policy. The handout asks for replacement with
+U+FFFD, which Python provides through \code{bytes.decode("utf-8", errors="replace")}. Explore
+the alternatives yourself by encoding the same strings in UTF-16 and UTF-32 and comparing lengths
+and byte patterns: that is the evidence the written questions ask for.
+
+\subsection{Pre-tokenisation with the GPT-2 regex}\covers{CS336 A1 \S2.4}
+
+The book's \code{ByteBPETokenizer} (\cref{sec:text:bpe}) uses a simplified ASCII-only pattern.
+The assignment uses the GPT-2 pattern, which needs Unicode character classes:
+\begin{lstlisting}[style=plain]
+'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+
+\end{lstlisting}
+Python's built-in \code{re} does not support \verb|\p{L}| (``any letter in any script'') or
+\verb|\p{N}| (``any number''); the third-party \code{regex} module does. Read the alternatives
+left to right: English contractions; an optional space followed by a run of letters; the same for
+digits; the same for other non-space symbols; whitespace that is \emph{not} followed by a
+non-space character (the negative lookahead \verb|\s+(?!\S)| leaves the last space of a run
+attached to the next word, so ``\verb*|a   b|'' yields \verb*|a|, \verb*|  |, \verb*| b|); and
+finally any remaining whitespace. Use \code{finditer} rather than \code{findall} when counting, so
+you never hold a list of every pre-token of a multi-gigabyte file in memory.
+
+\subsection{Scaling BPE training to a large file}\label{sec:proj1:bpe}\covers{CS336 A1 \S2.4--2.5}
+
+\Cref{sec:text:bpe} derives BPE, and Lab~3 measures how an incremental trainer beats the naive
+one. At the scale of TinyStories (gigabytes of text) and the OpenWebText sample, two system-level
+issues dominate.
+
+\paragraph{Pre-tokenisation is embarrassingly parallel, if you cut the file in the right
+places.} Counting pre-tokens is a map--reduce: each worker counts pre-tokens in a slice of the
+file, and the counters are summed. The only subtlety is the slice boundaries. A cut in the middle of
+a word would create two fake pre-tokens. Special tokens already define hard boundaries (no merge
+may cross a document separator), so cut \emph{at} occurrences of the separator. Pick
+evenly spaced byte offsets, then move each one forward to the next separator
+(\cref{fig:proj1:chunks}). The assignment repository provides a helper that computes such
+boundaries, and you may use it as is. Then:
+\begin{itemize}
+  \item each worker opens the file itself and reads only its byte range, so you send offsets to
+        the workers rather than text;
+  \item within a chunk, split on \emph{all} special tokens (an alternation of
+        \code{re.escape}d strings) before applying the regex, and do not count the special tokens;
+  \item return a \code{Counter} of pre-token \emph{byte strings}; merging $k$ counters is cheap
+        compared to the regex work.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=0.75cm, y=0.6cm]
+\fill[fdata!12] (0,0) rectangle (20,1);
+\foreach \x in {2.3,5.1,7.7,9.2,12.6,14.1,16.9,18.4} {\fill[warnred!50] (\x,0) rectangle +(0.25,1);}
+\draw[black!50] (0,0) rectangle (20,1);
+\node[font=\scriptsize, anchor=east] at (-0.1,0.5) {file};
+\foreach \x/\l in {5/$b_1$,10/$b_2$,15/$b_3$} {\draw[dashed, black!60] (\x,-0.3)--(\x,1.3); \node[font=\scriptsize] at (\x,1.65) {\l};}
+\foreach \x/\y in {5/5.1,10/12.6,15/16.9} {\draw[-{Stealth[length=1.6mm]}, sysblue, line width=0.7pt] (\x,-0.55) -- (\y,-0.55); \draw[sysblue, line width=0.9pt] (\y,-0.9)--(\y,0);}
+\node[font=\scriptsize, sysblue, anchor=north] at (11.3,-0.9) {snap each guess forward to the next separator};
+\draw[decorate, decoration={brace, amplitude=3pt, mirror}] (0,-1.8)--(5.1,-1.8) node[midway,below=3pt,font=\scriptsize]{worker 0};
+\draw[decorate, decoration={brace, amplitude=3pt, mirror}] (5.1,-1.8)--(12.6,-1.8) node[midway,below=3pt,font=\scriptsize]{worker 1};
+\draw[decorate, decoration={brace, amplitude=3pt, mirror}] (12.6,-1.8)--(16.9,-1.8) node[midway,below=3pt,font=\scriptsize]{worker 2};
+\draw[decorate, decoration={brace, amplitude=3pt, mirror}] (16.9,-1.8)--(20,-1.8) node[midway,below=3pt,font=\scriptsize]{worker 3};
+\node[font=\scriptsize, warnred, anchor=west] at (20.2,0.5) {\texttt{<|endoftext|>}};
+\end{tikzpicture}
+\caption{Parallel pre-tokenisation. Evenly spaced guesses $b_i$ are moved to the next document
+separator, so no pre-token or merge can straddle two workers. Chunks have unequal sizes; use more
+chunks than processes to balance the load.}
+\label{fig:proj1:chunks}
+\end{figure}
+
+\paragraph{The merge loop is sequential, so make each iteration incremental.} After
+pre-tokenisation the corpus is a dictionary from pre-token (a tuple of byte strings) to count,
+typically with millions of distinct entries. Recounting all pairs after every merge costs
+$O(\text{corpus})$ per merge. The standard fix is to maintain two indices: pair $\to$ count,
+and pair $\to$ the set of pre-tokens that contain it. A merge then touches only the pre-tokens
+that contain the merged pair, updating counts for their neighbouring pairs. Finding the maximum
+can be a linear scan over the pair-count table (often fast enough) or a heap with lazy deletion.
+Ties must be broken deterministically: the handout specifies preferring the lexicographically
+greater pair, compared as \code{bytes}. Profile before optimising (\code{cProfile}, or
+\code{py-spy} for a sampling profile of a running process): on large corpora the regex
+pass usually dominates until you parallelise it, and the merge loop dominates afterwards.
+
+\begin{napkinmath}[Is your trainer fast enough?]
+Measure pre-tokenisation throughput on a 100\,MB slice with one process, in MB/s. A
+single-threaded regex pass typically manages a few to a few tens of MB/s in pure Python. The
+time for the full file is $\text{size}/(\text{throughput}\times P)$ with $P$ workers, plus the
+merge loop, whose cost depends on the number of \emph{distinct} pre-tokens (not the file size)
+times the number of merges times the average number of affected pre-tokens per merge. Extrapolate
+both terms from small runs before launching a multi-hour job, and decide which one to optimise.
+\end{napkinmath}
+
+\subsection{Encoding: special tokens, streaming and serialisation}\label{sec:proj1:stream}\covers{CS336 A1 \S2.6--2.7}
+
+\paragraph{Special tokens when encoding.} Split the input on special tokens first, emit their
+ids directly, and BPE-encode only the text in between. When special tokens overlap (one is a
+prefix or substring of another, such as a doubled end-of-text marker registered as its own
+special token), build the alternation with the \emph{longest} tokens first so the regex prefers
+them.
+
+\paragraph{Streaming with \code{encode\_iterable}.} A generator that reads an iterable of
+strings (a file handle yields lines) and yields ids lazily lets you tokenise a file that does not
+fit in memory, in constant memory. The correctness condition is that the output must equal
+\code{encode} on the concatenated text. That holds as long as you only cut the stream at points
+where no pre-token or special token can straddle the cut. Lines are a convenient unit, but think
+about what the regex does with the newline at the end of one line and the start of the next, and
+about special tokens split across reads. Keep the per-chunk buffer bounded.
+
+\paragraph{Throughput.} Real corpora repeat pre-tokens heavily, so caching pre-token $\to$ ids
+(a plain dict or an LRU cache) typically speeds up encoding several-fold. Measure bytes per second
+on a sample, extrapolate to your corpus (and to a 1\,TB corpus, to see why production tokenizers
+are written in Rust), and use multiprocessing across documents for the full datasets.
+
+\paragraph{Serialising vocabularies and merges.} Token strings are \code{bytes}, which are not
+JSON-safe. Choose a lossless format: pickle, base64 strings in JSON, or GPT-2's printable
+byte-to-Unicode mapping (the format of the GPT-2 fixtures in the test suite). Write a round-trip
+test for whichever you choose. The arrays of token ids go to disk as \code{np.uint16}
+(\cref{sec:optim:data}); assert that the vocabulary fits in that dtype, and memory-map the arrays
+when training.
+
+\subsection{Conventions that differ from this book}\label{sec:proj1:conventions}
+
+The book's \code{llmsys} code and the assignment make different arbitrary choices in a few places.
+The handout and the adapter docstrings are authoritative:
+
+\begin{itemize}
+  \item \textbf{RoPE pairing.} \code{llmsys.layers.apply\_rope} uses the ``rotate-half'' layout
+        (dimension $i$ paired with $i+\dhead/2$), as Qwen3 and Llama checkpoints do. The handout
+        defines rotation on \emph{adjacent} pairs $(2k-1,2k)$. Both are valid
+        (\cref{sec:modern:rope} shows they are a fixed permutation of each other), but the snapshot
+        test checks one specific layout. RoPE also takes explicit \emph{token positions} in the
+        assignment's interface rather than an offset.
+  \item \textbf{Mask polarity.} Our \code{causal\_mask} returns \code{True} where attention is
+        \emph{forbidden}; the handout's boolean masks are \code{True} where attention is
+        \emph{allowed}. Mixing the two silently inverts the causal mask, which shows up as a
+        suspiciously low training loss.
+  \item \textbf{Weight orientation and names.} Store $W\in\R^{d_\text{out}\times d_\text{in}}$ and
+        apply it as $xW^\top$ (or with \code{einsum}, \cref{sec:archdesign:einsum}); the snapshot
+        weights arrive in that orientation.
+  \item \textbf{Initialisation.} The handout specifies truncated normals with given variances;
+        \cref{sec:archdesign:init} explains where such rules come from.
+  \item \textbf{AdamW.} Implement the handout's algorithm statement. Our \code{llmsys.optim.AdamW}
+        follows PyTorch's formulation (\cref{lst:optim:adamw}), which is algebraically equivalent
+        apart from where $\epsilon$ sits. For the test, follow the handout.
+\end{itemize}
+
+% =====================================================================
+\section{Milestones and sanity checks}\label{sec:proj1:milestones}
+
+Work in this order. Do not move on until each check passes.
+
+\begin{enumerate}
+  \item \textbf{Tokenizer.} The handout's toy example (a handful of words, whitespace
+        pre-tokenisation) reproduces its stated merges when you train by hand. Round-trips are exact
+        on Unicode, special tokens and empty strings. Ids match \code{tiktoken}'s GPT-2 encoding on the
+        fixtures. \code{encode\_iterable(open(f))} equals \code{encode(open(f).read())}.
+  \item \textbf{Components.} Each snapshot test passes individually. Before running the test, check
+        shapes with toy inputs and an assertion or \code{jaxtyping} annotation per tensor.
+  \item \textbf{Model at initialisation.} The loss on random data is close to $\ln V$
+        (\cref{sec:optim:loss}): about 9.21 for a 10K vocabulary. The parameter count matches
+        your hand count.
+  \item \textbf{Optimizer.} Your AdamW and \code{torch.optim.AdamW} produce the same trajectory
+        on a small problem (a useful private test, alongside the official one). Your schedule
+        plotted over a full run looks like \cref{fig:optim:sched}.
+  \item \textbf{Overfit a single batch} of TinyStories to near-zero loss in a few hundred steps.
+  \item \textbf{Throughput.} Measure tokens/s and compare with $6N$ FLOPs per token and your
+        device's peak (\cref{sec:optim:account}). If you are far below the handout's expected
+        runtime, profile: the usual culprits are the data loader, evaluation on too many batches, a
+        CPU sync every step, or unbatched attention.
+  \item \textbf{Resume test.} Kill a run, resume from the checkpoint, and compare loss curves
+        (Lab~9 automates this check for the book's loop).
+\end{enumerate}
+
+% =====================================================================
+\section{Designing the experiments}\label{sec:proj1:experiments}\covers{CS336 A1 \S7.1--7.3}
+
+\paragraph{Fix the token budget and derive steps from it.} The TinyStories experiments specify
+the total number of tokens processed. For any batch size $B$ and context $T$, the number of steps is
+$\lceil \text{tokens}/(BT)\rceil$ (\texttt{code/projects/a1/budget.py} does the arithmetic), and
+the cosine schedule's end step must be set to that number for \emph{each} run
+(\cref{sec:optim:sched}). Comparing batch sizes at a fixed number of steps instead would give larger
+batches more data.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  ph/.style={draw, rounded corners=2pt, minimum height=0.8cm, align=center, font=\scriptsize, line width=0.6pt},
+  arr/.style={-{Stealth[length=1.8mm]}, line width=0.6pt}]
+\node[ph, fill=fdata!18, draw=keygreen, text width=2.3cm] (a) at (0,0) {debug config\\(tiny model,\\1--2 min)};
+\node[ph, fill=fcompute!18, draw=sysblue, text width=2.6cm] (b) at (3.3,0) {coarse LR sweep\\$\times\sqrt{10}$ grid,\\short budget};
+\node[ph, fill=fcompute!18, draw=sysblue, text width=2.6cm] (c) at (6.8,0) {fine LR sweep\\around best, full\\budget, $\ge$1 divergent};
+\node[ph, fill=fmemory!20, draw=napkin, text width=2.6cm] (d) at (10.3,0) {batch sweep\\(re-tune LR per $B$,\\equal tokens)};
+\node[ph, fill=fcomm!16, draw=labpurple, text width=2.6cm] (e) at (3.3,-1.8) {ablations: one\\change each, same\\budget \& seed};
+\node[ph, fill=fcomm!16, draw=labpurple, text width=2.6cm] (f) at (6.8,-1.8) {OWT run with\\TinyStories recipe};
+\node[ph, fill=warnred!12, draw=warnred, text width=2.6cm] (g) at (10.3,-1.8) {time-capped\\leaderboard run};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d);
+\draw[arr] (c.south) -- ++(0,-0.35) -| (e.north); \draw[arr] (e)--(f); \draw[arr] (f)--(g);
+\end{tikzpicture}
+\caption{A sensible order for the experiments. Every arrow carries forward the best settings
+found so far; every box writes a run directory with config, JSONL metrics (step and wall
+clock) and a line in your experiment log.}
+\label{fig:proj1:plan}
+\end{figure}
+
+\paragraph{Learning rate.} Sweep on a coarse logarithmic grid with short runs, then refine around
+the best value with full-budget runs (\cref{fig:proj1:plan}). Include at least one learning rate
+high enough to diverge. The handout asks you to relate the divergence point to the optimum, as
+in \cref{fig:optim:lrsweep}. Report curves against both steps and wall-clock time.
+\code{llmsys.explog.plot\_runs} draws either from JSONL logs.
+
+\paragraph{Batch size.} Sweep from very small to the memory limit, re-tune the learning rate for
+each batch size (at least a three-point search), compare at equal tokens, and discuss both loss
+and wall-clock efficiency. \Cref{sec:optim:debug} gives the critical-batch-size intuition and
+\cref{ch:scalinglaws} the scaling rules.
+
+\paragraph{Ablations.} Change one thing at a time, keep the budget, seed and data order fixed, and
+re-tune the learning rate when the change plausibly shifts it (removing normalisation does).
+\Cref{ch:archdesign} explains what each ablation probes and Lab~7 provides a switchable
+architecture on which to rehearse the methodology at toy scale. For the SwiGLU-vs-SiLU
+comparison, match parameter counts as the handout specifies; otherwise you are measuring width,
+not gating.
+
+\paragraph{Logging and the report.} Every run gets a directory with its config, metadata (git
+revision, hardware, versions) and metrics with step and wall time (\cref{sec:optim:explog}).
+Keep a running experiment log: hypothesis, change, command, outcome, conclusion. Plots should label
+the axes with units (nats/token), state the token budget, and use consistent colours for the same
+setting across figures.
+
+% =====================================================================
+\section{OpenWebText and the leaderboard}\label{sec:proj1:owt}\covers{CS336 A1 \S7.4--7.5}
+
+\paragraph{Interpreting the gap.} The same model and token budget give a much higher loss on
+OpenWebText than on TinyStories. Loss in nats per token is not comparable across datasets (or across
+tokenizers): it measures the model's cross-entropy relative to the data's inherent entropy, and web
+text is far more diverse than synthetic children's stories. A useful framing is
+$\text{loss} = \text{irreducible entropy} + \text{model and optimisation gap}$
+(\cref{ch:scalinglaws}); OpenWebText raises both terms. Sampled text makes the difference
+tangible. \Cref{ch:data} discusses what makes web data hard and how filtering changes it.
+
+\paragraph{The leaderboard.}\label{sec:proj1:leaderboard} The task is to minimise validation
+loss on OpenWebText within a fixed wall-clock budget on one GPU, using only the provided training
+data. It is an optimisation problem over the whole system, and the book's chapters suggest the
+axes to explore. We give directions, not a recipe:
+\begin{itemize}
+  \item \textbf{Throughput first.} Every percent of MFU is a percent more tokens. bf16 autocast,
+        \code{torch.compile}, fused attention (SDPA/FlashAttention), a prefetching data loader, no
+        per-step host syncs, and evaluation only at the end (\cref{ch:perf,sec:optim:data}).
+  \item \textbf{Shape for the hardware.} Dimensions that are multiples of 64 or 128, a vocabulary
+        padded to such a multiple, the largest batch that stays efficient, and a model size chosen
+        for the budget rather than as large as possible (\cref{ch:scalinglaws,sec:archdesign:hparams}).
+  \item \textbf{Optimisation.} Schedule shape (WSD or cosine ending exactly at the deadline),
+        warmup, $\beta_2$, weight decay on the right parameter groups, and alternative optimizers
+        such as Muon for hidden matrices (\cref{sec:optim:beyond}).
+  \item \textbf{Architecture tweaks with good evidence at small scale}: weight tying (with an
+        adjusted embedding initialisation), QK-norm, z-loss and other stability tricks that permit
+        larger learning rates (\cref{sec:archdesign:stability}). The community ``speedrun''
+        efforts for small GPT-style models document many such ideas; treat each one as a hypothesis
+        to ablate.
+  \item \textbf{Respect the clock.} Enforce the limit in your script (\texttt{wallclock.py} in
+        \texttt{code/projects/a1/} stops training with time left for the final evaluation), and
+        report the wall-clock axis the handout asks for.
+\end{itemize}
+Be aware that tricks that win a 45-minute contest do not necessarily help at larger scale; the
+scaling-law project (\cref{ch:proj3}) is the antidote.
+
+% =====================================================================
+\section{Doing this outside Stanford}\label{sec:proj1:outside}
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Hardware} & \textbf{How to adapt}\\
+\midrule
+CPU only & Use the handout's low-resource token budget and target. Set \code{torch.set\_num\_threads}
+           to your physical core count, use \code{torch.compile(model)}, and train BPE on the
+           validation split first.\\
+Apple silicon (MPS) & As above, with \code{device="mps"}; avoid TF32 on MPS and use the
+           \code{aot\_eager} compile backend, as the handout recommends. Tokenizer work is CPU-bound
+           either way.\\
+Consumer GPU (12--24\,GB) & The full TinyStories configuration fits; expect several times the
+           handout's B200 runtime. Use bf16 autocast if supported; reduce the batch size and
+           accumulate gradients if needed (\cref{sec:pretrain:efficiency}).\\
+Cloud H100/A100 & Close to the course setup. Rent by the hour, keep data on local NVMe,
+           checkpoint to persistent storage, and script everything so a preempted instance can resume
+           (\cref{sec:optim:ckpt}).\\
+\bottomrule
+\end{tabularx}
+\caption{Hardware substitutions for Assignment~1.}
+\end{table}
+
+If you scale down, scale \emph{consistently}: fewer tokens and (if necessary) a smaller model, the
+same experiment design, and the same logging. The qualitative findings (where the learning rate
+diverges, which ablations hurt) usually survive the reduction; the absolute losses do not.
+
+% =====================================================================
+\section{Summary}
+\begin{itemize}
+  \item Assignment~1 builds a tokenizer, a modern Transformer LM, an optimizer and a training system
+        from first principles, then studies them experimentally.
+  \item The tests reach your code through thin adapters and compare numerics to snapshots, so
+        follow the handout's conventions exactly (RoPE pairing, mask polarity, weight orientation).
+  \item BPE at scale is a parallel map--reduce over chunks cut at special tokens, followed by a
+        sequential, incrementally maintained merge loop. Streaming encoding must cut only where no
+        token can straddle.
+  \item Fix the token budget, derive steps from it, end the schedule there, and log step and
+        wall-clock time for every run.
+  \item For the leaderboard, measure and optimise throughput before you tune the model, and enforce
+        the time limit in code.
+\end{itemize}
+
+\section{Exercises}
+
+These exercises practise the guide's methods on examples that are \emph{not} assignment
+problems.
+
+\begin{exercise}[Pre-token boundaries]
+Apply the GPT-2 pattern by hand to the string \verb*|x  = 10.5;  y| and list the pre-tokens.
+Which alternative of the regex produced each one? Then check with the \code{regex} module.
+\end{exercise}
+
+\begin{exercise}[Chunk balance]
+A 12\,GB file has documents whose lengths are roughly exponential with mean 4\,KB. You cut it
+into $k$ chunks at document separators and process them with 8 workers. Estimate the expected
+largest chunk-size deviation for $k=8$ and $k=64$, and explain why more chunks than workers help.
+\end{exercise}
+
+\begin{exercise}[Accounting method on another model]
+Using \cref{sec:optim:account}, compute the parameter count and forward matmul FLOPs per token
+for a pre-norm SwiGLU model with $V=32{,}000$, $T=2048$, $L=16$, $d=1024$, 16 heads and
+$\dff=2816$, untied embeddings. What fraction of forward FLOPs is attention-score computation
+($QK^\top$ and $PV$) at $T=2048$ and at $T=32{,}768$?
+\end{exercise}
+
+\begin{exercise}[Budgeted sweep design]
+You have 6 GPU-hours, a 20-minute full-budget run, and 4-minute short runs that preserve the
+learning-rate ranking. Design a learning-rate and batch-size study that respects the budget,
+includes a divergent run, and re-tunes the learning rate per batch size.
+\end{exercise}

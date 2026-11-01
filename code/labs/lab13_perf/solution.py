@@ -34,12 +34,13 @@ def naive_attention(q, k, v, causal: bool = False):
 def attention_with_lse(q, k, v, causal: bool = False):
     """Reference returning (O, L) with L = row log-sum-exp of the scaled scores (provided)."""
     T, D = q.shape[-2], q.shape[-1]
-    s = (q.float() @ k.float().transpose(-1, -2)) * D ** -0.5
+    cdt = torch.promote_types(q.dtype, torch.float32)
+    s = (q.to(cdt) @ k.to(cdt).transpose(-1, -2)) * D ** -0.5
     if causal:
         mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=q.device), diagonal=1)
         s = s.masked_fill(mask, float("-inf"))
     lse = torch.logsumexp(s, dim=-1)
-    return (torch.exp(s - lse[..., None]) @ v.float()).to(q.dtype), lse
+    return (torch.exp(s - lse[..., None]) @ v.to(cdt)).to(q.dtype), lse
 
 
 def _sync():
@@ -71,7 +72,7 @@ class SavedTensorTracker:
     """Context manager recording the bytes autograd saves for backward.
 
     * tensors sharing one storage are counted once (key = storage pointer and size);
-    * ``nn.Parameter``s are skipped (they are resident anyway);
+    * ``nn.Parameter``s and views of them (e.g. ``weight.T``) are skipped (resident anyway);
     * ``entries`` keeps (shape, dtype, grad_fn name, bytes) for every save.
     """
 
@@ -80,8 +81,13 @@ class SavedTensorTracker:
         self._seen = set()
         self._hooks = None
 
+    @staticmethod
+    def _is_param(t) -> bool:
+        # Linear saves weight.T: a *view* whose base is the Parameter -- also resident already
+        return isinstance(t, torch.nn.Parameter) or isinstance(getattr(t, "_base", None), torch.nn.Parameter)
+
     def _pack(self, t):
-        if isinstance(t, torch.nn.Parameter):
+        if self._is_param(t):
             return t
         st = t.untyped_storage()
         key = (st.data_ptr(), st.nbytes())
@@ -147,14 +153,15 @@ def fa2_forward_tiled(q, k, v, causal: bool = False, block_q: int = 16, block_k:
     once at the end; L = m + log(l)."""
     *lead, T, D = q.shape
     scale = 1.0 / math.sqrt(D)
-    qf, kf, vf = q.float(), k.float(), v.float()
-    out = torch.empty(*lead, T, D, device=q.device)
-    lse = torch.empty(*lead, T, device=q.device)
+    cdt = torch.promote_types(q.dtype, torch.float32)   # fp32 "registers" (fp64 for gradcheck)
+    qf, kf, vf = q.to(cdt), k.to(cdt), v.to(cdt)
+    out = torch.empty(*lead, T, D, device=q.device, dtype=cdt)
+    lse = torch.empty(*lead, T, device=q.device, dtype=cdt)
     for q0 in range(0, T, block_q):
         q1 = min(q0 + block_q, T)
-        m = torch.full((*lead, q1 - q0), float("-inf"), device=q.device)
-        l = torch.zeros(*lead, q1 - q0, device=q.device)
-        acc = torch.zeros(*lead, q1 - q0, D, device=q.device)
+        m = torch.full((*lead, q1 - q0), float("-inf"), device=q.device, dtype=cdt)
+        l = torch.zeros(*lead, q1 - q0, device=q.device, dtype=cdt)
+        acc = torch.zeros(*lead, q1 - q0, D, device=q.device, dtype=cdt)
         k_end = min(T, q1) if causal else k.shape[-2]
         for k0 in range(0, k_end, block_k):
             k1 = min(k0 + block_k, k.shape[-2])
@@ -181,8 +188,9 @@ def fa2_backward_tiled(q, k, v, o, do, lse, causal: bool = False, block_q: int =
     *lead, T, D = q.shape
     S = k.shape[-2]
     scale = 1.0 / math.sqrt(D)
-    qf, kf, vf, dof = q.float(), k.float(), v.float(), do.float()
-    delta = (o.float() * dof).sum(-1)
+    cdt = torch.promote_types(q.dtype, torch.float32)
+    qf, kf, vf, dof = q.to(cdt), k.to(cdt), v.to(cdt), do.to(cdt)
+    delta = (o.to(cdt) * dof).sum(-1)
     dq, dk, dv = torch.zeros_like(qf), torch.zeros_like(kf), torch.zeros_like(vf)
 
     def probs(q0, q1, k0, k1):

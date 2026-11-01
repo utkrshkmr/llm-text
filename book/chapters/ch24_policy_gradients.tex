@@ -1004,12 +1004,10 @@ and write it to the run directory before the first step.
 
 \begin{lstlisting}[style=plain,caption={A run directory that makes RL experiments reproducible and comparable.},label={lst:pg:rundir}]
 runs/grpo-std-seqmean-lr1e-5/seed=2/
-  config.json          # every knob, plus git commit and library versions
-  metrics.jsonl        # one line per step: reward, format_reward, entropy, grad_norm,
-                       #   resp_len_mean/max, clip_frac, approx_kl, zero_adv_frac,
-                       #   pass@k, val_reward (every n steps), step_time breakdown
+  config.json            # every knob + git commit + library versions
+  metrics.jsonl          # one line per step (see the metrics table)
   rollouts/step_0040.jsonl   # prompts, responses, rewards: read them!
-  ckpt/step_0200/            # weights + optimizer + RNG + data position
+  ckpt/step_0200/        # weights + optimizer + RNG + data position
 \end{lstlisting}
 
 \begin{table}[ht]
@@ -1182,7 +1180,7 @@ to verify exactly, then watch them train a tiny policy from scratch.
 \begin{lstlisting}[style=shell]
 cd code
 LAB_IMPL=starter python -m pytest -q labs/lab24_pg     # grade your work
-python labs/lab24_pg/run.py bandit                     # exact vs sampled variance
+python labs/lab24_pg/run.py bandit           # exact vs sampled
 \end{lstlisting}
 Pin PyTorch to one thread (\code{torch.set\_num\_threads(1)}) on a shared CPU: for a 20k-parameter
 model it is many times faster than oversubscribing cores.

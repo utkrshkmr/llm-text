@@ -78,18 +78,19 @@ S_{b,h,q,k} = \sum_d Q_{b,h,q,d}\,K_{b,h,k,d}
   ax/.style={draw, rounded corners=1pt, minimum height=0.55cm, minimum width=0.7cm, font=\small\ttfamily},
   keep/.style={ax, fill=fdata!25, draw=keygreen},
   sum/.style={ax, fill=warnred!15, draw=warnred},
-  lbl/.style={font=\scriptsize, text=black!70}]
-\node[lbl] at (-1.3,0) {Q};
+  lbl/.style={font=\small}]
+\node[lbl, anchor=east] at (-0.5,0) {$\mat{Q}$};
 \node[keep] (q1) at (0,0) {b}; \node[keep] (q2) at (0.8,0) {h}; \node[keep] (q3) at (1.6,0) {q}; \node[sum] (q4) at (2.4,0) {d};
-\node[lbl] at (-1.3,-1) {K};
-\node[keep] (k1) at (0,-1) {b}; \node[keep] (k2) at (0.8,-1) {h}; \node[keep] (k3) at (1.6,-1) {k}; \node[sum] (k4) at (2.4,-1) {d};
-\node[lbl] at (6.0,-0.5) {S};
-\node[keep] (s1) at (7.0,-0.5) {b}; \node[keep] (s2) at (7.8,-0.5) {h}; \node[keep] (s3) at (8.6,-0.5) {q}; \node[keep] (s4) at (9.4,-0.5) {k};
-\draw[-{Stealth}, keygreen, thick] (q3.north) to[out=40,in=140] (s3.north);
-\draw[-{Stealth}, keygreen, thick] (k3.south) to[out=-30,in=-120] (s4.south);
-\draw[warnred, thick, decorate, decoration={brace, amplitude=4pt, mirror}] (2.85,-1.3) -- (2.85,0.3);
-\node[font=\scriptsize, text=warnred, align=left, anchor=west] at (3.0,-0.5) {d appears in both\\inputs, not in output:\\summed (contracted)};
-\node[font=\scriptsize, text=keygreen, align=center] at (5.2,0.75) {b, h shared: batched};
+\node[lbl, anchor=east] at (-0.5,-1.1) {$\mat{K}$};
+\node[keep] (k1) at (0,-1.1) {b}; \node[keep] (k2) at (0.8,-1.1) {h}; \node[keep] (k3) at (1.6,-1.1) {k}; \node[sum] (k4) at (2.4,-1.1) {d};
+\node[lbl, anchor=east] at (6.0,-0.55) {$\mat{S}$};
+\node[keep] (s1) at (6.5,-0.55) {b}; \node[keep] (s2) at (7.3,-0.55) {h}; \node[keep] (s3) at (8.1,-0.55) {q}; \node[keep] (s4) at (8.9,-0.55) {k};
+\draw[-{Stealth}, keygreen, thick] (q3.north) to[out=30,in=150] (s3.north);
+\draw[-{Stealth}, keygreen, thick] (k3.south) to[out=-30,in=-150] (s4.south);
+\draw[-{Stealth}, keygreen, thick, dashed] (q2.north) to[out=40,in=140] (s2.north);
+\node[font=\scriptsize, text=warnred, align=center] at (2.4,-2.0) {d: in both inputs, not in the output\\$\Rightarrow$ summed (contracted)};
+\node[font=\scriptsize, text=keygreen, align=center] at (4.6,1.25) {b, h in both inputs and the output $\Rightarrow$ batched};
+\node[font=\scriptsize, text=keygreen, align=center] at (7.7,-1.75) {q, k from one input each\\$\Rightarrow$ rows and columns};
 \end{tikzpicture}
 \caption{Reading \texttt{"bhqd,bhkd->bhqk"}. Axes shared by both inputs and kept in the output
 (b, h) become batch dimensions of a batched GEMM; the axis that disappears (d) is the GEMM's
@@ -308,7 +309,7 @@ block, and whether there is one at all.
 \node[nrm] (n1) at (0,2.6) {$N$};
 \draw[arr] (p1) -- (n1);
 \draw[arr] (n1) -- (0,3.55);
-\node[font=\scriptsize, text=warnred, align=center] at (1.35,2.6) {norm on the\\residual path};
+\node[font=\scriptsize, text=warnred, align=center] at (-1.05,2.6) {norm on\\residual};
 \end{scope}
 % pre-norm
 \begin{scope}[xshift=4.0cm]
@@ -809,6 +810,43 @@ cannot, there is a bug in the model, the loss or the optimiser;
 Step through the forward pass in a debugger rather than adding prints. Most ``my architecture
 change hurt'' results at small scale turn out to be a mask, a transpose or an init bug.
 \end{pitfall}
+
+\subsection{From a CPU sweep to a GPU sweep}
+
+The same code scales to real ablations; only the data, the shape and four flags change.
+
+\begin{enumerate}
+\item \textbf{Data.} Tokenise the corpus once, offline, into a flat \code{uint16} file
+  (\cref{ch:text}); a random-window sampler over a \code{np.memmap} costs nothing per step. Hold out
+  validation \emph{documents}, not random windows, so that validation text is never seen in training. The
+  byte-level path in \code{run.py --text} skips tokenisation entirely, which is convenient for a first
+  GPU sweep.
+\item \textbf{Run layout.} Give every run a directory named after its config hash and seed, write the full
+  config and the git commit hash there before training starts, append metrics as JSON lines, and checkpoint
+  periodically (\cref{ch:optim} builds this infrastructure). A sweep is then a list of configs plus a launcher
+  that skips directories that already contain a finished marker, so re-running the sweep after a crash
+  resumes it.
+\item \textbf{Speed.} Pass \code{--sdpa} for the fused attention kernel, \code{--amp} for bf16 autocast and
+  \code{--compile} for \code{torch.compile}; the loss, softmax and norms stay in fp32 inside the model
+  regardless (\cref{lst:archdesign:zloss}).
+\item \textbf{Budget.} Decide the sweep size from a napkin estimate before launching, as below.
+\end{enumerate}
+
+\begin{lstlisting}[style=shell]
+python labs/lab07_ablations/run.py --text tinystories_train.txt --device cuda \
+    --sdpa --amp --compile --d-model 512 --layers 8 --heads 8 --ctx 256 \
+    --batch 128 --steps 10000 --lr 1e-3 --seeds 0 1 --out runs/abl_ts.json
+\end{lstlisting}
+
+\begin{napkinmath}[Budgeting an ablation sweep]
+A $d=512$, $L=8$ model has about $12Ld^2\approx25$M non-embedding parameters. With batch 128 and context 256,
+one step is 32{,}768 tokens and needs about $6\times25\times10^6\times32{,}768\approx4.9\times10^{12}$ FLOPs.
+Models this small rarely exceed 20--30\% MFU on an H100 (kernel launches and the LM head dominate), so plan
+on about 200\,TFLOP/s, or 25\,ms per step: 10{,}000 steps (330M tokens) take roughly 4 minutes. A sweep of 10
+variants $\times$ 3 seeds $\times$ 4 learning rates is 120 runs, about 8 GPU-hours. Cutting the LR sweep to the
+three variants that are most LR-sensitive (no norm, post-norm, and the baseline) brings it under 4 hours.
+Writing this estimate down \emph{before} launching is what stops a sweep from quietly consuming a week.
+\end{napkinmath}
 
 \subsection{A worked sweep}
 %ABLATION-RESULTS%

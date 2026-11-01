@@ -149,7 +149,9 @@ class SavedTensorTracker:
             return (id(t), t.numel() * t.element_size())
 
     def _pack(self, t: torch.Tensor):
-        if self.skip_params and isinstance(t, torch.nn.Parameter):
+        is_param = isinstance(t, torch.nn.Parameter) or isinstance(getattr(t, "_base", None),
+                                                                     torch.nn.Parameter)
+        if self.skip_params and is_param:      # includes views such as weight.T saved by Linear
             return t
         key = self._key(t)
         nbytes = key[1] if key not in self._seen else 0

@@ -27,6 +27,11 @@ import torch
 NEG_INF = float("-inf")
 
 
+def _cdt(x: torch.Tensor) -> torch.dtype:
+    """Accumulation dtype: fp32 for 16/32-bit inputs (like on-chip registers), fp64 for fp64."""
+    return torch.promote_types(x.dtype, torch.float32)
+
+
 def _causal_allowed(q_idx: torch.Tensor, k_idx: torch.Tensor, shift: int) -> torch.Tensor:
     """Boolean (Bq, Bk) matrix: True where key k_idx[j] is visible to query q_idx[i]."""
     return k_idx[None, :] <= q_idx[:, None] + shift
@@ -36,14 +41,15 @@ def attention_with_lse(q, k, v, causal: bool = False, scale: Optional[float] = N
                        ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Reference attention. Returns O (..., T, D) and L = logsumexp of scaled scores (..., T)."""
     scale = scale if scale is not None else 1.0 / math.sqrt(q.shape[-1])
-    s = (q.float() @ k.float().transpose(-1, -2)) * scale
+    cdt = _cdt(q)
+    s = (q.to(cdt) @ k.to(cdt).transpose(-1, -2)) * scale
     if causal:
         T, S = q.shape[-2], k.shape[-2]
         allowed = _causal_allowed(torch.arange(T, device=q.device), torch.arange(S, device=q.device), S - T)
         s = s.masked_fill(~allowed, NEG_INF)
     lse = torch.logsumexp(s, dim=-1)
     p = torch.exp(s - lse[..., None])
-    return (p @ v.float()).to(q.dtype), lse
+    return (p @ v.to(cdt)).to(q.dtype), lse
 
 
 def fa2_forward_tiled(q, k, v, causal: bool = False, block_q: int = 16, block_k: int = 16,
@@ -57,16 +63,17 @@ def fa2_forward_tiled(q, k, v, causal: bool = False, block_q: int = 16, block_k:
     *lead, T, D = q.shape
     S = k.shape[-2]
     scale = scale if scale is not None else 1.0 / math.sqrt(D)
-    qf, kf, vf = q.float(), k.float(), v.float()
-    out = torch.empty(*lead, T, D, dtype=torch.float32, device=q.device)
-    lse = torch.empty(*lead, T, dtype=torch.float32, device=q.device)
+    cdt = _cdt(q)
+    qf, kf, vf = q.to(cdt), k.to(cdt), v.to(cdt)
+    out = torch.empty(*lead, T, D, dtype=cdt, device=q.device)
+    lse = torch.empty(*lead, T, dtype=cdt, device=q.device)
     shift = S - T
     for q0 in range(0, T, block_q):
         q1 = min(q0 + block_q, T)
         qi = qf[..., q0:q1, :]
-        m = torch.full((*lead, q1 - q0), NEG_INF, device=q.device)
-        l = torch.zeros(*lead, q1 - q0, device=q.device)
-        acc = torch.zeros(*lead, q1 - q0, D, device=q.device)
+        m = torch.full((*lead, q1 - q0), NEG_INF, device=q.device, dtype=cdt)
+        l = torch.zeros(*lead, q1 - q0, device=q.device, dtype=cdt)
+        acc = torch.zeros(*lead, q1 - q0, D, device=q.device, dtype=cdt)
         # causal tile skipping: key tiles strictly to the right of the diagonal are all masked
         k_end = min(S, q1 + shift) if causal else S
         for k0 in range(0, k_end, block_k):
@@ -91,7 +98,7 @@ def fa2_forward_tiled(q, k, v, causal: bool = False, block_q: int = 16, block_k:
 def fa2_backward_dense(q, k, v, o, do, lse, causal: bool = False, scale: Optional[float] = None):
     """Recomputation backward without tiling: P is rebuilt from L, never stored by forward."""
     scale = scale if scale is not None else 1.0 / math.sqrt(q.shape[-1])
-    qf, kf, vf, of, dof = (t.float() for t in (q, k, v, o, do))
+    qf, kf, vf, of, dof = (t.to(_cdt(q)) for t in (q, k, v, o, do))
     s = (qf @ kf.transpose(-1, -2)) * scale
     if causal:
         T, S = q.shape[-2], k.shape[-2]
@@ -119,8 +126,9 @@ def fa2_backward_tiled(q, k, v, o, do, lse, causal: bool = False, block_q: int =
     *lead, T, D = q.shape
     S = k.shape[-2]
     scale = scale if scale is not None else 1.0 / math.sqrt(D)
-    qf, kf, vf, dof = q.float(), k.float(), v.float(), do.float()
-    delta = (o.float() * dof).sum(-1)                 # preprocessing kernel
+    cdt = _cdt(q)
+    qf, kf, vf, dof = q.to(cdt), k.to(cdt), v.to(cdt), do.to(cdt)
+    delta = (o.to(cdt) * dof).sum(-1)                 # preprocessing kernel
     shift = S - T
     dq = torch.zeros_like(qf)
     dk = torch.zeros_like(kf)
@@ -137,8 +145,8 @@ def fa2_backward_tiled(q, k, v, o, do, lse, causal: bool = False, block_q: int =
     # ---- pass 1: dK, dV (iterate over key tiles in the outer loop)
     for k0 in range(0, S, block_k):
         k1 = min(k0 + block_k, S)
-        dk_j = torch.zeros(*lead, k1 - k0, D, device=q.device)
-        dv_j = torch.zeros(*lead, k1 - k0, D, device=q.device)
+        dk_j = torch.zeros(*lead, k1 - k0, D, device=q.device, dtype=cdt)
+        dv_j = torch.zeros(*lead, k1 - k0, D, device=q.device, dtype=cdt)
         q_start = max(0, (k0 - shift) // block_q * block_q) if causal else 0
         for q0 in range(q_start, T, block_q):
             q1 = min(q0 + block_q, T)
@@ -152,7 +160,7 @@ def fa2_backward_tiled(q, k, v, o, do, lse, causal: bool = False, block_q: int =
     # ---- pass 2: dQ (iterate over query tiles in the outer loop)
     for q0 in range(0, T, block_q):
         q1 = min(q0 + block_q, T)
-        dq_i = torch.zeros(*lead, q1 - q0, D, device=q.device)
+        dq_i = torch.zeros(*lead, q1 - q0, D, device=q.device, dtype=cdt)
         k_end = min(S, q1 + shift) if causal else S
         for k0 in range(0, k_end, block_k):
             k1 = min(k0 + block_k, S)
