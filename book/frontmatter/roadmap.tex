@@ -1,0 +1,118 @@
+\chapter*{Roadmap and Coverage Map}
+\addcontentsline{toc}{chapter}{Roadmap and Coverage Map}
+\markboth{Roadmap}{Roadmap}
+
+\begin{figure}[h]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  stage/.style={draw, rounded corners=3pt, minimum width=2.7cm, minimum height=1.15cm,
+    text width=2.5cm, align=center, font=\small, line width=0.6pt},
+  model/.style={stage, fill=fcompute!18, draw=sysblue},
+  train/.style={stage, fill=fdata!18, draw=keygreen},
+  infer/.style={stage, fill=fmemory!20, draw=napkin},
+  reason/.style={stage, fill=fcomm!16, draw=labpurple},
+  found/.style={stage, fill=black!6, draw=black!60, minimum width=12.6cm, text width=12.4cm},
+  sys/.style={draw=sysblue, dashed, rounded corners=3pt, fill=sysbluebg, align=center,
+    font=\footnotesize, minimum height=0.75cm, inner sep=4pt},
+  arr/.style={-{Stealth[length=2.2mm]}, line width=0.7pt, draw=black!70},
+  partlbl/.style={font=\bfseries\footnotesize, text=black!70, align=right, text width=1.7cm, anchor=east}
+]
+\def\dx{3.3}\def\dy{-1.75}
+\node[found] (f) at (1.5*\dx,0) {Ch.~1 Landscape: LLMs, reasoning models, the systems view \quad$\cdot$\quad Ch.~2 PyTorch and the GPU underneath};
+\node[model] (tok) at (0,\dy) {Ch.~3\\Text \& tokens};
+\node[model] (att) at (\dx,\dy) {Ch.~4\\Attention};
+\node[model] (gpt) at (2*\dx,\dy) {Ch.~5\\GPT-2};
+\node[model] (qwen) at (3*\dx,\dy) {Ch.~6\\Qwen3 / MoE};
+\node[train] (pre) at (0,2*\dy) {Ch.~7\\Pretraining};
+\node[train] (dist) at (\dx,2*\dy) {Ch.~8\\Distributed training};
+\node[train] (cls) at (2*\dx,2*\dy) {Ch.~9\\Classification FT};
+\node[train] (ins) at (3*\dx,2*\dy) {Ch.~10\\Instruction FT + LoRA};
+\node[infer] (inf) at (0,3*\dy) {Ch.~11\\Generation \& KV cache};
+\node[infer] (srv) at (\dx,3*\dy) {Ch.~12\\Batching \& serving};
+\node[infer] (eff) at (2*\dx,3*\dy) {Ch.~13\\Quantisation, spec.\ decoding};
+\node[infer] (tri) at (3*\dx,3*\dy) {App.~A\\Triton kernels};
+\node[reason] (ev) at (0,4*\dy) {Ch.~14\\Evaluation \& verifiers};
+\node[reason] (tts) at (\dx,4*\dy) {Ch.~15--16\\Inference-time scaling};
+\node[reason] (rl) at (2*\dx,4*\dy) {Ch.~17--18\\GRPO / RLVR};
+\node[reason] (dis) at (3*\dx,4*\dy) {Ch.~20\\Distillation};
+\node[sys, minimum width=6cm] (rlsys) at (1.5*\dx,5*\dy+0.35) {Ch.~19 RL training systems: rollout engine (Ch.~12) + distributed trainer (Ch.~8)};
+\node[partlbl] at ([xshift=-0.25cm]f.west) {Part I};
+\node[partlbl] at ([xshift=-0.25cm]tok.west) {Part II\\build};
+\node[partlbl] at ([xshift=-0.25cm]pre.west) {Part III\\train};
+\node[partlbl] at ([xshift=-0.25cm]inf.west) {Part IV\\serve};
+\node[partlbl] at ([xshift=-0.25cm]ev.west) {Part V\\reason};
+\foreach \a/\b in {tok/att,att/gpt,gpt/qwen,pre/dist,dist/cls,cls/ins,inf/srv,srv/eff,eff/tri,ev/tts,tts/rl,rl/dis}
+  \draw[arr] (\a) -- (\b);
+\foreach \a/\b in {tok/pre,pre/inf,inf/ev}
+  \draw[arr] (\a) -- (\b);
+\draw[arr] (f.south -| tok) -- (tok);
+\draw[arr] (rl.south) -- (rl.south |- rlsys.north);
+\draw[arr] (tts.south) -- (tts.south |- rlsys.north);
+\end{tikzpicture}}
+\caption{How the book fits together. Each row is a part of the book, read left to right;
+the first column of each part builds directly on the part above it. Chapter~19 combines the
+serving engine of Part~IV with the distributed trainer of Part~III to run RL at scale.}
+\label{fig:roadmap:book}
+\end{figure}
+
+\section*{Coverage of the source books}
+
+The table below maps every chapter and appendix section of the two source books to the place
+where this book covers it. \textsf{LLM} is \emph{Build a Large Language Model (From Scratch)}
+(Raschka, 2024); \textsf{RM} is \emph{Build a Reasoning Model (From Scratch)} (Raschka). The
+material is reorganised so that overlapping topics appear once. For example, LLM~5.3 (temperature
+and top-$k$) and RM~4.4--4.5 (temperature and top-$p$) are both developed in
+\cref{ch:pretrain,ch:scaling}, and each later chapter builds on the earlier one. The margin tags
+inside the chapters give the precise locations.
+
+{\small
+\begin{longtable}{@{}p{0.11\linewidth}p{0.52\linewidth}p{0.31\linewidth}@{}}
+\toprule
+\textbf{Source} & \textbf{Topic} & \textbf{Covered in}\\
+\midrule\endhead
+\multicolumn{3}{@{}l}{\emph{Build a Large Language Model (From Scratch)}}\\
+LLM 1.1--1.7 & What an LLM is, applications, stages, transformer, datasets, GPT, roadmap & \cref{ch:landscape}\\
+LLM 2.1--2.8 & Embeddings, tokenisation, token IDs, special tokens, BPE, sliding-window sampling, token \& positional embeddings & \cref{ch:text}\\
+LLM 3.1--3.6 & Long-sequence problem, attention, simplified and trainable self-attention, causal masking, dropout, multi-head attention & \cref{ch:attention}\\
+LLM 4.1--4.7 & GPT architecture, LayerNorm, GELU MLP, shortcuts, transformer block, GPT model, generation & \cref{ch:gpt}\\
+LLM 5.1--5.2 & Generation loss, cross entropy, perplexity, train/val losses, training loop & \cref{ch:pretrain}\\
+LLM 5.3 & Temperature, top-$k$, modified generation function & \cref{ch:pretrain} (and \cref{ch:scaling})\\
+LLM 5.4--5.5 & Saving/loading weights, loading OpenAI GPT-2 weights & \cref{ch:pretrain}\\
+LLM 6.1--6.8 & Fine-tuning categories, spam dataset, loaders, classification head, loss/accuracy, training, inference & \cref{ch:classify}\\
+LLM 7.1--7.9 & Instruction data, prompt format, batching/collate, loaders, fine-tuning, response extraction, LLM-judge evaluation & \cref{ch:instruct}\\
+LLM App.\ A & PyTorch: tensors, autograd, models, data loaders, training loop, save/load, GPUs, DDP & \cref{ch:pytorch}\\
+LLM App.\ B & References and further reading & \cref{app:refs}\\
+LLM App.\ C & Exercise solutions & \cref{app:solutions} (our own exercises)\\
+LLM App.\ D & Warmup, cosine decay, gradient clipping, modified training function & \cref{ch:pretrain}\\
+LLM App.\ E & LoRA: idea, dataset, initialisation, parameter-efficient fine-tuning & \cref{ch:instruct}\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Build a Reasoning Model (From Scratch)}}\\
+RM 1.1--1.7 & Defining reasoning, training pipeline, training vs inference techniques, pattern matching vs logic, roadmap & \cref{ch:landscape}\\
+RM 2.1--2.9 & Text generation, environment, hardware, inputs, loading models, sequential generation, KV cache, compilation & \cref{ch:inference}\\
+RM 3.1--3.9 & Math verifier, answer extraction, normalisation, symbolic equivalence, grading, MATH-500 evaluation & \cref{ch:eval}\\
+RM 4.1--4.6 & Inference-time scaling, chain-of-thought, temperature, top-$p$, self-consistency & \cref{ch:scaling}\\
+RM 5.1--5.8 & Scoring, rule-based scores, token probabilities, log-probs, confidence, self-refinement & \cref{ch:refine}\\
+RM 6.1--6.12 & RLHF vs RLVR, GRPO, rollouts, rewards, advantages, log-probs, loss, training loop, checkpoints & \cref{ch:grpo}\\
+RM 7.1--7.6 & Metrics, advantage/entropy tracking, clipped ratios, KL term, format reward, GRPO variants & \cref{ch:grpo2}\\
+RM 8.1--8.10 & Distillation data, formatting, filtering, training, evaluation, future directions & \cref{ch:distill}\\
+RM App.\ A & References and further reading & \cref{app:refs}\\
+RM App.\ B & Exercise solutions & \cref{app:solutions} (our own exercises)\\
+RM App.\ C & Qwen3 source code: RMSNorm, FFN, RoPE, GQA, block, model, KV cache, tokenizer & \cref{ch:modern}\\
+RM App.\ D & Larger dense Qwen3 models, checkpoints, reasoning variants & \cref{ch:modern}\\
+RM App.\ E & Batching: padding, masks, batched evaluation/sampling/rollouts/distillation & \cref{ch:serving}\\
+RM App.\ F & Evaluation methods: answer-choice accuracy, verifiers, leaderboards, LLM-as-a-judge & \cref{ch:eval}\\
+RM App.\ G & Chat interface: single-turn and multi-turn & \cref{ch:efficient}\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{New systems material (not in either source book)}}\\
+--- & GPU architecture, roofline, numerics, profiling & \cref{ch:pytorch}\\
+--- & FlashAttention, data pipelines, activation memory, MoE, context extension & \cref{ch:text,ch:attention,ch:gpt,ch:modern}\\
+--- & Mixed precision, checkpointing, scaling laws, MFU & \cref{ch:pretrain}\\
+--- & Collectives, DDP, ZeRO/FSDP, tensor/pipeline/sequence/expert parallelism & \cref{ch:distributed}\\
+--- & Packing, QLoRA, multi-LoRA serving & \cref{ch:instruct}\\
+--- & Continuous batching, PagedAttention, prefix caching, chunked prefill, disaggregation & \cref{ch:serving}\\
+--- & Quantisation, speculative decoding, parallel inference, deployment & \cref{ch:efficient}\\
+--- & RL frameworks, async RL, weight sync, rollout systems & \cref{ch:rlsys}\\
+--- & Triton kernels & \cref{app:triton}\\
+\bottomrule
+\end{longtable}}

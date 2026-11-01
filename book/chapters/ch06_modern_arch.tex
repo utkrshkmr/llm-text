@@ -1,0 +1,1202 @@
+\chapter{Modern Architectures: Qwen3 from Scratch}\label{ch:modern}
+
+GPT-2 was released in 2019. Six years later the dominant open-weight models---Llama, Mistral,
+Gemma, DeepSeek, Qwen---are still decoder-only transformers with the same overall shape as the
+model of \cref{ch:gpt}: embed, stack $L$ residual blocks of attention plus an MLP, normalize, project to
+the vocabulary. What changed are the parts inside the block, and a striking number of those changes
+were driven not by modeling accuracy but by \emph{systems} concerns: cheaper normalization, attention
+whose KV cache is several times smaller, position encodings that need no learned table and extrapolate
+to longer contexts, and sparse MLPs that grow the parameter count without growing the FLOPs per token.
+
+This chapter rebuilds one representative modern model, Qwen3 (Qwen Team, 2025), component by
+component, and explains each design change from both angles: what it does to the model and what it
+does to the machine. Qwen3 is the base model for the whole second half of this book---inference
+(\cref{ch:inference}), serving (\cref{ch:serving}), evaluation (\cref{ch:eval}), reinforcement learning
+(\cref{ch:grpo}) and distillation (\cref{ch:distill})---so the code we write here is the code we will
+run for the next fourteen chapters. We finish with the larger members of the dense Qwen3 family, how to
+load and plan memory for them, and with mixture-of-experts layers, the main architectural lever for
+scaling past what a dense model can afford.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  stage/.style={draw=sysblue,fill=sysbluebg,rounded corners=2pt,minimum width=2.15cm,
+    minimum height=1.0cm,align=center,font=\small},
+  sysst/.style={stage,draw=napkin,fill=napkinbg},
+  num/.style={circle,fill=sysblue,text=white,font=\scriptsize\bfseries,inner sep=1.2pt},
+  arr/.style={-{Stealth[length=2.2mm]},thick,sysblue!70}]
+\node[stage] (a) {GPT-2 $\to$\\Qwen3 diff};
+\node[stage,right=0.35cm of a] (b) {RMSNorm};
+\node[stage,right=0.35cm of b] (c) {SwiGLU\\FFN};
+\node[stage,right=0.35cm of c] (d) {RoPE};
+\node[stage,right=0.35cm of d] (e) {GQA +\\QK-norm};
+\node[stage,below=0.85cm of e] (f) {Block \&\\model};
+\node[stage,left=0.35cm of f] (g) {KV cache,\\tokenizer};
+\node[stage,left=0.35cm of g] (h) {Load \&\\run 0.6B};
+\node[sysst,left=0.35cm of h] (i) {Larger\\models,\\memory plan};
+\node[sysst,left=0.35cm of i] (j) {Mixture of\\experts};
+\foreach \s/\n in {a/1,b/2,c/3,d/4,e/5,f/6,g/7,h/8,i/9,j/10} \node[num] at (\s.north west) {\n};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d); \draw[arr] (d)--(e); \draw[arr] (e)--(f);
+\draw[arr] (f)--(g); \draw[arr] (g)--(h); \draw[arr] (h)--(i); \draw[arr] (i)--(j);
+\end{tikzpicture}}
+\caption{Roadmap of this chapter: we replace GPT-2's components one at a time (1--5), assemble and load
+the real Qwen3-0.6B (6--8), then scale up to larger dense models and to sparse mixture-of-experts layers (9--10).}
+\label{fig:modern:roadmap}
+\end{figure}
+
+% =====================================================================
+\section{From GPT-2 to Qwen3}\label{sec:modern:diff}\covers{RM C}
+
+\Cref{fig:modern:sidebyside} places the two architectures next to each other. The skeleton is
+unchanged: token embedding, $L$ pre-norm residual blocks, final norm, linear head. The differences
+are all local and are summarized in \cref{tab:modern:diff}.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  op/.style={draw,rounded corners=2pt,minimum width=4.3cm,minimum height=0.55cm,font=\footnotesize},
+  new/.style={op,fill=keygreen!25,draw=keygreen},
+  old/.style={op,fill=white},
+  plus/.style={circle,draw,fill=white,inner sep=0.5pt,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick}]
+% ---- GPT-2
+\begin{scope}
+\node[font=\bfseries] at (0,9.6) {GPT-2 (2019)};
+\node[old] (g0) at (0,0) {Token emb.\ $+$ \textbf{learned pos.\ emb.}};
+\node[old] (g1) at (0,0.9) {Dropout};
+\node[old] (g2) at (0,1.9) {LayerNorm};
+\node[old,fill=fcompute!20] (g3) at (0,2.75) {Multi-head attention};
+\node[plus] (g4) at (0,3.55) {$+$};
+\node[old] (g5) at (0,4.3) {LayerNorm};
+\node[old,fill=fcompute!20] (g6) at (0,5.15) {FFN: Linear$\to$GELU$\to$Linear};
+\node[plus] (g7) at (0,5.95) {$+$};
+\node[old] (g8) at (0,7.0) {Final LayerNorm};
+\node[old] (g9) at (0,7.85) {Linear head (tied)};
+\node[font=\scriptsize,align=center] at (0,8.75) {$\vocab{=}\num{50257}$, $T_\text{max}{=}1024$};
+\foreach \a/\b in {g0/g1,g1/g2,g2/g3,g3/g4,g4/g5,g5/g6,g6/g7,g7/g8,g8/g9} \draw[arr] (\a)--(\b);
+\draw[thick,sysblue,rounded corners] (-2.4,1.5) rectangle (2.4,6.35);
+\node[font=\small,text=sysblue] at (-2.8,3.9) {$12\times$};
+\end{scope}
+% ---- Qwen3
+\begin{scope}[xshift=8.2cm]
+\node[font=\bfseries] at (0,9.6) {Qwen3-0.6B (2025)};
+\node[old] (q0) at (0,0) {Token embedding only};
+\node[new] (q2) at (0,1.9) {RMSNorm};
+\node[new,minimum height=0.85cm,align=center] (q3) at (0,2.85) {Grouped-query attention\\[-1pt]\scriptsize QK-RMSNorm, RoPE, no bias};
+\node[plus] (q4) at (0,3.7) {$+$};
+\node[new] (q5) at (0,4.3) {RMSNorm};
+\node[new] (q6) at (0,5.15) {SwiGLU FFN (3 linears)};
+\node[plus] (q7) at (0,5.95) {$+$};
+\node[new] (q8) at (0,7.0) {Final RMSNorm};
+\node[old] (q9) at (0,7.85) {Linear head (tied)};
+\node[font=\scriptsize,align=center] at (0,8.75) {$\vocab{=}\num{151936}$, trained at \num{32768}};
+\foreach \a/\b in {q0/q2,q2/q3,q3/q4,q4/q5,q5/q6,q6/q7,q7/q8,q8/q9} \draw[arr] (\a)--(\b);
+\draw[thick,sysblue,rounded corners] (-2.4,1.5) rectangle (2.4,6.35);
+\node[font=\small,text=sysblue] at (2.8,3.9) {$28\times$};
+\end{scope}
+\draw[-{Stealth},thick,keygreen,dashed] (2.5,1.9)--(5.7,1.9);
+\draw[-{Stealth},thick,keygreen,dashed] (2.5,2.75)--(5.7,2.75);
+\draw[-{Stealth},thick,keygreen,dashed] (2.5,5.15)--(5.7,5.15);
+\node[font=\scriptsize,text=keygreen,align=center] at (4.1,0.6) {green $=$ changed\\component};
+\end{tikzpicture}}
+\caption{GPT-2 small and Qwen3-0.6B side by side. Both are pre-norm decoder-only transformers;
+Qwen3 swaps every normalization for RMSNorm, the GELU MLP for a gated SwiGLU MLP, learned absolute
+positions for rotary embeddings applied inside attention, and multi-head for grouped-query attention
+with per-head query/key normalization. Dropout is gone.}
+\label{fig:modern:sidebyside}
+\end{figure}
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{lXX}
+\toprule
+Component & GPT-2 & Qwen3 (dense) \\
+\midrule
+Normalization & LayerNorm (mean, variance, scale, shift) & RMSNorm (RMS, scale only)\\
+MLP & $W_2\,\GELU(W_1x)$, biases, $\dff=4d$ & $W_3(\SiLU(W_1x)\odot W_2x)$, no biases\\
+Positions & learned absolute table added to input & rotary, applied to $q,k$ in every layer\\
+Attention & MHA, $H$ K/V heads & GQA, 8 K/V heads shared by $H$ query heads\\
+Extra norms & -- & RMSNorm on each query and key head\\
+Biases & everywhere & none\\
+Dropout & 0.1 & none (pretraining on enough data to not overfit)\\
+Vocabulary & \num{50257} & \num{151936} (padded)\\
+Context & 1024 & \num{32768} native, \num{40960} positions configured\\
+Weights dtype & fp32 checkpoint & bf16 checkpoint\\
+\bottomrule
+\end{tabularx}
+\caption{What changed between GPT-2 and Qwen3.}
+\label{tab:modern:diff}
+\end{table}
+
+Notice the absence of dropout. GPT-2 was trained for a few epochs over a 40\,GB corpus;
+modern models train for a single pass over tens of trillions of tokens, so they barely overfit and
+dropout would only add noise and a random-mask kernel per sublayer. Removing biases simplifies tensor
+parallelism (a bias on a row-parallel layer must be added exactly once after the all-reduce,
+\cref{ch:distributed}) and has no measurable cost in quality.
+
+% =====================================================================
+\section{RMSNorm}\label{sec:modern:rmsnorm}\covers{RM C.1}
+
+Root-mean-square normalization (Zhang and Sennrich, 2019) keeps only the rescaling half of layer
+norm. It divides each token vector by its root mean square and applies a learned per-feature gain,
+without subtracting the mean and without a shift:
+\begin{equation}
+\mathrm{RMSNorm}(\vect x) = \vect\gamma\odot\frac{\vect x}{\sqrt{\tfrac1d\sum_i x_i^2+\epsilon}} .
+\label{eq:modern:rms}
+\end{equation}
+The output is not centered: its mean is whatever the input's mean was, scaled. Empirically this does
+not hurt---re-centering turns out to be unnecessary for the optimization benefits of normalization,
+which come mainly from controlling the scale.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=0.95cm,y=0.95cm]
+\newcommand{\rowcells}[4]{% x y fill values
+  \foreach \v [count=\i from 0] in {#4}{\node[draw,fill=#3,minimum width=0.9cm,minimum height=0.5cm,font=\scriptsize] at (#1+\i,#2) {\v};}}
+\node[font=\small,anchor=east] at (-0.6,2) {input $\vect x$};
+\rowcells{0}{2}{white}{4.0,-1.0,2.0,3.0}
+\node[font=\small,anchor=east] at (-0.6,0.9) {LayerNorm};
+\rowcells{0}{0.9}{fdata!20}{1.07,-1.60,0.00,0.53}
+\node[font=\small,anchor=east] at (-0.6,-0.2) {RMSNorm};
+\rowcells{0}{-0.2}{keygreen!20}{1.46,-0.37,0.73,1.10}
+\node[font=\scriptsize,anchor=west,align=left] at (4.1,0.9) {mean $0$, variance $1$\\(subtract $\mu{=}2$, divide by $\sigma{=}1.87$)};
+\node[font=\scriptsize,anchor=west,align=left] at (4.1,-0.2) {mean $0.73$, RMS $1$\\(divide by $\RMS{=}2.74$ only)};
+\end{tikzpicture}
+\caption{The same four-feature token normalized by LayerNorm and by RMSNorm ($\gamma=1$). Both put
+the vector on a fixed scale; only LayerNorm also removes the mean.}
+\label{fig:modern:rmsvsln}
+\end{figure}
+
+\begin{lstlisting}[caption={RMSNorm with an fp32 accumulation (cf.\ \ident{llmsys/layers.py}).},label={lst:modern:rms}]
+class RMSNorm(nn.Module):
+    def __init__(self, emb_dim, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.scale = nn.Parameter(torch.ones(emb_dim))   # gamma; no shift
+
+    def forward(self, x):
+        in_dtype = x.dtype
+        x = x.to(torch.float32)                    # square and mean in fp32
+        x = x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return (x * self.scale.to(torch.float32)).to(in_dtype)
+\end{lstlisting}
+
+The explicit up-cast matters. The model runs in bf16, whose 8-bit mantissa gives only about three
+significant decimal digits; summing $\dmodel=1024$ squares in bf16 accumulates rounding error, and
+squaring large activations can overflow fp16. Doing the reduction in fp32 and casting back is what
+every production kernel does, and it is required to reproduce the official logits.
+
+\begin{systemslens}[Why RMSNorm is faster]
+LayerNorm needs two row statistics, the mean and the variance; RMSNorm needs one,
+$\sum_i x_i^2$. In a fused kernel both read the row once, so the bandwidth cost is identical; the
+win is in the reduction itself (one warp-level tree reduction instead of two, fewer registers, no
+dependency between mean and variance) and in having one parameter vector instead of two. Reported
+end-to-end speedups are modest (Zhang and Sennrich report 7--64\% for the norm itself depending on
+the model), but at the scale of thousands of GPUs every elementwise microsecond counts. More
+importantly for fusion, RMSNorm's output depends on $\vect x$ only through one scalar per row, so it
+fuses especially cleanly into the preceding residual add (``add + RMSNorm'' kernels are standard in
+vLLM and TensorRT-LLM) and even into the following GEMM's prologue.
+\end{systemslens}
+
+% =====================================================================
+\section{Gated feed-forward networks: SwiGLU}\label{sec:modern:swiglu}\covers{RM C.2}
+
+Qwen3's MLP is a \emph{gated linear unit} (Dauphin et al., 2017; Shazeer, 2020). Instead of one
+up-projection followed by a nonlinearity, it computes two up-projections of the same input; one
+passes through a nonlinearity and acts as a soft, input-dependent \emph{gate} on the other, and the
+elementwise product is projected back down:
+\begin{equation}
+\mathrm{SwiGLU}(\vect x) = \mat W_3\big(\SiLU(\mat W_1\vect x)\odot \mat W_2\vect x\big),\qquad
+\SiLU(z)=z\,\sigma(z) .
+\label{eq:modern:swiglu}
+\end{equation}
+The name combines Swish (= SiLU with unit temperature) and GLU. \Cref{fig:modern:swiglu} shows the
+data flow; in the code we keep the names \code{fc1} (gate), \code{fc2} (up) and \code{fc3} (down)
+for the three bias-free linear layers.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  op/.style={draw,rounded corners=2pt,minimum height=0.6cm,font=\small,align=center},
+  arr/.style={-{Stealth[length=2mm]},thick}]
+\node[op,fill=fdata!20] (x) at (0,0) {$\vect x$\\[-2pt]\scriptsize$(B,T,d)$};
+\node[op,fill=fcompute!25] (f1) at (2.6,0.85) {fc1 (gate)\\[-2pt]\scriptsize $d\to h$};
+\node[op,fill=fcompute!25] (f2) at (2.6,-0.85) {fc2 (up)\\[-2pt]\scriptsize $d\to h$};
+\node[op,fill=keygreen!25] (act) at (5.0,0.85) {SiLU};
+\node[circle,draw,inner sep=1pt] (mul) at (6.6,0) {$\odot$};
+\node[op,fill=fcompute!25] (f3) at (8.4,0) {fc3 (down)\\[-2pt]\scriptsize $h\to d$};
+\node[op,fill=fdata!20] (y) at (10.4,0) {$\vect y$};
+\draw[arr] (x.east)--++(0.4,0)|-(f1.west); \draw[arr] (x.east)--++(0.4,0)|-(f2.west);
+\draw[arr] (f1)--(act); \draw[arr] (act.east)-|(mul.north); \draw[arr] (f2.east)-|(mul.south);
+\draw[arr] (mul)--(f3); \draw[arr] (f3)--(y);
+\node[font=\scriptsize,text=srcgray,align=center] at (5.0,-1.5) {Qwen3-0.6B: $d=1024$, $h=3072$ \quad (three $1024\times3072$ matrices)};
+\end{tikzpicture}
+\caption{The SwiGLU feed-forward block: two parallel up-projections, one gated by SiLU, multiplied
+elementwise and projected back down.}
+\label{fig:modern:swiglu}
+\end{figure}
+
+\begin{lstlisting}[caption={SwiGLU feed-forward network.},label={lst:modern:swiglu}]
+class SwiGLUFeedForward(nn.Module):
+    def __init__(self, emb_dim, hidden_dim, dtype=None):
+        super().__init__()
+        self.fc1 = nn.Linear(emb_dim, hidden_dim, bias=False, dtype=dtype)  # gate
+        self.fc2 = nn.Linear(emb_dim, hidden_dim, bias=False, dtype=dtype)  # up
+        self.fc3 = nn.Linear(hidden_dim, emb_dim, bias=False, dtype=dtype)  # down
+
+    def forward(self, x):
+        return self.fc3(nn.functional.silu(self.fc1(x)) * self.fc2(x))
+\end{lstlisting}
+
+\paragraph{Same budget, different shape.}
+A GELU MLP with $\dff=4d$ has $8d^2$ weights; a SwiGLU MLP with hidden width $h$ has $3dh$. Matching
+the parameter (and FLOP) budget therefore means $h=\tfrac83 d$, which is why Llama-style models
+often have hidden sizes that look odd (e.g.\ $\tfrac83\cdot4096\approx11008$ in Llama~2-7B). It is a
+common misconception that the gated MLP is ``more expensive'': at equal parameters it costs the same,
+and Shazeer (2020) found it trains to lower perplexity. Qwen3 spends a bit more than parity: $h=3d$ for
+0.6B, 1.7B and 8B, and $h=5d$ for 32B (\cref{tab:modern:family}).
+
+\begin{systemslens}[Three GEMMs or two?]
+Written naively, SwiGLU launches three GEMMs, a SiLU kernel and a multiply kernel, and stores two
+$h$-wide intermediates for the backward pass. Production implementations concatenate $\mat W_1$ and
+$\mat W_2$ into one $d\times 2h$ matrix, so a single GEMM with twice the output width produces both
+branches (better tile utilization, one weight read), then apply a fused ``SiLU-and-multiply'' kernel
+that reads $2h$ and writes $h$ values per token. Under tensor parallelism (\cref{ch:distributed}) the
+gate and up matrices are split column-wise across GPUs with the \emph{same} partition, so each GPU
+can apply the gate locally and only the down projection needs an all-reduce---one reason gated MLPs
+fit Megatron-style parallelism so naturally.
+\end{systemslens}
+
+\begin{deepdive}[GELU, SiLU, and friends]
+GELU weights its input by a Gaussian CDF; SiLU weights it by a logistic sigmoid; their curves differ by
+a few percent (\cref{fig:gpt:gelu}). SiLU is cheaper to compute exactly (one exponential), which is one
+reason it became the default in gated MLPs. Variants with GELU as the gate (GeGLU, used in Gemma) behave
+almost identically. What matters far more than the choice of smooth activation is the multiplicative
+gate, which lets the network represent products of features directly.
+\end{deepdive}
+
+% =====================================================================
+\section{Rotary position embeddings}\label{sec:modern:rope}\covers{RM C.3}
+
+GPT-2 adds a learned vector $\vect p_t$ to each token embedding. That has three drawbacks: the table
+has a fixed size (GPT-2 cannot see position 1024 at all), the position signal must survive through
+every layer's residual stream, and attention scores depend on absolute positions even though language
+is mostly translation invariant (``the cat'' means the same at position 5 and 5000). Rotary position
+embeddings (RoPE; Su et al., 2021) inject position \emph{inside} attention, by rotating queries and
+keys, in such a way that the score between a query at position $m$ and a key at position $n$ depends
+only on their offset $m-n$.
+
+\paragraph{The idea in two dimensions.}
+Take a 2-D query $\vect q$ and key $\vect k$. Rotate the query by angle $m\theta$ and the key by
+$n\theta$, where $R(\alpha)$ is the $2\times2$ rotation matrix:
+\begin{equation}
+\langle R(m\theta)\vect q,\ R(n\theta)\vect k\rangle = \vect q^\top R(m\theta)^\top R(n\theta)\vect k
+= \vect q^\top R\big((n-m)\theta\big)\vect k .
+\label{eq:modern:roperel}
+\end{equation}
+Rotations compose by adding angles and $R^\top=R^{-1}$, so the dot product sees only the relative
+rotation. In $\dhead$ dimensions, RoPE splits the head vector into $\dhead/2$ pairs and rotates pair
+$i$ at its own frequency
+\begin{equation}
+\theta_i = \beta^{-2i/\dhead},\qquad i=0,\ldots,\dhead/2-1,
+\label{eq:modern:ropefreq}
+\end{equation}
+where $\beta$ is the \emph{base} (\num{10000} in the original paper, \num{1000000} in Qwen3). The first
+pairs rotate quickly (one radian per token for $i=0$), the last ones very slowly; together they act
+like the hands of a clock with many hands, giving every position a unique, smoothly varying signature
+(\cref{fig:modern:ropeclock}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\foreach \cx/\th/\lab in {0/40/{pair $i=0$ (fast)}, 4.2/14/{pair $i=16$}, 8.4/4/{pair $i=63$ (slow)}}{
+  \begin{scope}[shift={(\cx,0)}]
+  \draw[gray!40] (0,0) circle (1.35);
+  \draw[gray!50,->] (-1.6,0)--(1.6,0); \draw[gray!50,->] (0,-1.6)--(0,1.6);
+  \foreach \m/\c in {0/sysblue!25,1/sysblue!45,2/sysblue!65,3/sysblue!85,4/sysblue}{
+    \draw[-{Stealth[length=1.6mm]},thick,\c] (0,0)--({1.25*cos(20+\m*\th)},{1.25*sin(20+\m*\th)});}
+  \node[font=\scriptsize,align=center] at (0,-1.95) {\lab};
+  \end{scope}}
+\node[font=\scriptsize,text=srcgray] at (4.2,1.9) {the same pair vector at positions $m=0,\ldots,4$ (lighter $\to$ darker)};
+\end{tikzpicture}
+\caption{RoPE rotates each 2-D pair of a query/key head by an angle proportional to the token
+position, with a different speed per pair. (Angles exaggerated for visibility.)}
+\label{fig:modern:ropeclock}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.72\linewidth,height=5.3cm,ymode=log,xmin=0,xmax=63,ymin=4,ymax=1e7,
+  xlabel={pair index $i$ ($\dhead=128$)},ylabel={wavelength $2\pi/\theta_i$ (tokens)},
+  grid=major,grid style={gray!20},legend pos=north west,legend style={font=\scriptsize,draw=none,fill=white,fill opacity=0.85},
+  tick label style={font=\scriptsize},label style={font=\small}]
+\addplot[sysblue,very thick,domain=0:63,samples=64] {2*pi*10000^(2*x/128)};
+\addlegendentry{base $\beta=10^4$}
+\addplot[keygreen,very thick,domain=0:63,samples=64] {2*pi*1000000^(2*x/128)};
+\addlegendentry{base $\beta=10^6$ (Qwen3)}
+\addplot[warnred,dashed,thick,domain=0:63,samples=2] {32768};
+\addlegendentry{trained context \num{32768}}
+\end{axis}
+\end{tikzpicture}
+\caption{Wavelength of each RoPE frequency (analytic). With $\beta=10^4$ the slowest pair completes
+a full turn every $\approx\num{54000}$ tokens; with $\beta=10^6$ every $\approx\num{5.1e6}$ tokens, so
+many more pairs rotate by less than one turn across a long context and can encode coarse position.}
+\label{fig:modern:ropewave}
+\end{figure}
+
+\paragraph{Two equivalent layouts.}
+The original formulation pairs \emph{adjacent} dimensions $(2i,2i+1)$; the GPT-NeoX/Llama/Qwen code
+pairs dimension $i$ with $i+\dhead/2$ (``rotate half''), which is cheaper to implement with slicing.
+The two are the same function up to a fixed permutation of the head dimensions: interleaved slot $2i$
+holds halves-dimension $i$ and slot $2i+1$ holds $i+\dhead/2$. Since the query and key projections are
+learned, permuting the rows of $\mat W_Q$ and $\mat W_K$ converts a checkpoint from one layout to the
+other, which is exactly what weight converters between frameworks do. Lab~6 verifies the equivalence
+numerically. We use the rotate-half layout throughout:
+
+\begin{lstlisting}[caption={RoPE tables and application (rotate-half layout).},label={lst:modern:rope}]
+def compute_rope_params(head_dim, theta_base=10_000.0, context_length=4096):
+    i2 = torch.arange(0, head_dim, 2).float()
+    inv_freq = 1.0 / theta_base ** (i2 / head_dim)      # theta_i
+    pos = torch.arange(context_length).float()
+    angles = pos[:, None] * inv_freq[None, :]           # (T, D/2)
+    angles = torch.cat([angles, angles], dim=1)         # freq i at i and i+D/2
+    return torch.cos(angles), torch.sin(angles)
+
+def apply_rope(x, cos, sin, offset=0):                 # x: (B, H, T, D)
+    T, D = x.shape[-2], x.shape[-1]
+    x1, x2 = x[..., : D // 2], x[..., D // 2:]
+    rotated = torch.cat((-x2, x1), dim=-1)             # (x1, x2) -> (-x2, x1)
+    c, s = cos[offset:offset + T], sin[offset:offset + T]
+    return (x.float() * c + rotated.float() * s).to(x.dtype)
+\end{lstlisting}
+
+For each pair $(x_1,x_2)$ the last line computes $(x_1\cos\phi - x_2\sin\phi,\; x_2\cos\phi+x_1\sin\phi)$,
+a rotation by $\phi$. The \code{offset} argument is the absolute position of the first token in
+\code{x}; during cached decoding (\cref{sec:modern:kvcache}) we process one token at a time and must
+rotate it by its true position, not by zero.
+
+\begin{systemslens}[RoPE in a serving engine]
+RoPE has three systems consequences. (i) \emph{No position table in the weights}: the cos/sin tables
+are recomputed at load time (we store them as non-persistent buffers so they never appear in the
+checkpoint), and the context limit becomes a property of training data rather than of the
+parameter file. (ii) \emph{The KV cache stores rotated keys}: keys are rotated before they are
+written to the cache, so a cached key never needs to be touched again, and decoding applies RoPE to
+just one new query and key per layer. (iii) \emph{Relative positions make left padding free}: in a
+batch whose rows are left-padded by different amounts (\cref{ch:serving}), every row is shifted by a
+constant, which cancels in \cref{eq:modern:roperel}; with GPT-2's absolute embeddings the same
+padding changes the outputs. Production kernels fuse RoPE into the QKV projection's epilogue or into
+the attention kernel's load of $q$ and $k$, so the rotation costs no extra memory traffic.
+\end{systemslens}
+
+\begin{deepdive}[Stretching the context: PI, NTK-aware scaling, YaRN]
+A RoPE model sees angles $m\theta_i$ only for $m$ up to its training length. Beyond it, the
+fast pairs have wrapped around many times (fine) but the slow pairs reach angles never seen in
+training (not fine). \emph{Position interpolation} (Chen et al., 2023) divides all positions by a
+factor $s$, squeezing a context of $sT$ into the trained range at the cost of resolution between
+neighbouring tokens; it works with a short fine-tune. \emph{NTK-aware} scaling instead enlarges the
+base to $\beta' = \beta\, s^{\dhead/(\dhead-2)}$, which leaves the fastest frequency unchanged and slows
+the slowest by exactly $s$---high-frequency (local) information is preserved, low-frequency (global)
+information is interpolated. \emph{YaRN} (Peng et al., 2023) interpolates per frequency band and
+rescales attention temperature; it is what Qwen3 recommends for running beyond its native
+\num{32768} tokens (up to $4\times$). Static YaRN scaling applies to every input regardless of length
+and can slightly hurt short prompts, so it should be enabled only when long inputs are actually
+expected. Lab~6 implements PI and the NTK base formula.
+\end{deepdive}
+
+% =====================================================================
+\section{Grouped-query attention}\label{sec:modern:gqa}\covers{RM C.4}
+
+In multi-head attention every query head has its own key and value head. During autoregressive
+decoding, keys and values of all past tokens are cached (\cref{sec:modern:kvcache}), and reading that
+cache is the dominant memory traffic of long-context inference. \emph{Multi-query attention}
+(MQA; Shazeer, 2019) shares a single key/value head among all query heads, shrinking the cache by
+$H\times$ but costing some quality. \emph{Grouped-query attention} (GQA; Ainslie et al., 2023)
+interpolates: the $H$ query heads are divided into $G$ groups and each group shares one key/value head
+(\cref{fig:modern:gqa}). With $G=H$ it is MHA, with $G=1$ it is MQA; Qwen3 uses $G=8$ for every model
+size.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  qh/.style={draw,fill=fcompute!30,minimum width=0.45cm,minimum height=0.45cm,font=\scriptsize},
+  kh/.style={draw,fill=fmemory!45,minimum width=0.45cm,minimum height=0.45cm,font=\scriptsize},
+  link/.style={gray!70,thick}]
+\foreach \title/\x/\G in {{MHA ($G{=}H{=}8$)}/0/8, {GQA ($G{=}4$)}/5/4, {GQA ($G{=}2$)}/10/2}{
+  \begin{scope}[shift={(\x,0)}]
+  \node[font=\small] at (1.75,2.25) {\title};
+  \foreach \h in {0,...,7} \node[qh] (q\h) at (\h*0.5,1.4) {};
+  \pgfmathtruncatemacro{\gs}{8/\G}
+  \pgfmathtruncatemacro{\last}{\G-1}
+  \foreach \g in {0,...,\last}{
+    \pgfmathsetmacro{\kx}{(\g+0.5)*\gs*0.5-0.25}
+    \node[kh] (k\g) at (\kx,0) {};
+    \pgfmathtruncatemacro{\hs}{\g*\gs}
+    \pgfmathtruncatemacro{\he}{\g*\gs+\gs-1}
+    \foreach \h in {\hs,...,\he} \draw[link] (q\h.south)--(k\g.north);}
+  \end{scope}}
+\node[qh] at (0,-1) {}; \node[font=\scriptsize,anchor=west] at (0.3,-1) {query head};
+\node[kh] at (3,-1) {}; \node[font=\scriptsize,anchor=west] at (3.3,-1) {key/value head (cached)};
+\end{tikzpicture}
+\caption{Multi-head vs.\ grouped-query attention with 8 query heads. Each orange square is a K/V head
+that must be stored in the KV cache; GQA keeps all query heads but cuts the cache by $H/G$.}
+\label{fig:modern:gqa}
+\end{figure}
+
+\begin{lstlisting}[caption={Grouped-query attention with QK-norm, RoPE and an optional KV cache.},label={lst:modern:gqa}]
+class GroupedQueryAttention(nn.Module):
+    def __init__(self, d_in, num_heads, num_kv_groups, head_dim,
+                 qk_norm=True, dtype=None):
+        super().__init__()
+        self.H, self.G, self.D = num_heads, num_kv_groups, head_dim
+        self.group_size = num_heads // num_kv_groups
+        kw = dict(bias=False, dtype=dtype)
+        self.W_query = nn.Linear(d_in, self.H * self.D, **kw)
+        self.W_key = nn.Linear(d_in, self.G * self.D, **kw)     # G, not H, heads
+        self.W_value = nn.Linear(d_in, self.G * self.D, **kw)
+        self.out_proj = nn.Linear(self.H * self.D, d_in, **kw)
+        self.q_norm = RMSNorm(self.D) if qk_norm else None
+        self.k_norm = RMSNorm(self.D) if qk_norm else None
+
+    def forward(self, x, cos, sin, cache=None):
+        B, T, _ = x.shape
+        q = self.W_query(x).view(B, T, self.H, self.D).transpose(1, 2)
+        k = self.W_key(x).view(B, T, self.G, self.D).transpose(1, 2)
+        v = self.W_value(x).view(B, T, self.G, self.D).transpose(1, 2)
+        if self.q_norm is not None:                   # QK-norm, per head
+            q, k = self.q_norm(q), self.k_norm(k)
+        off = cache.seq_len(self.layer_idx) if cache is not None else 0
+        q, k = apply_rope(q, cos, sin, off), apply_rope(k, cos, sin, off)
+        if cache is not None:                         # cache holds G heads only
+            k, v = cache.update(self.layer_idx, k, v)
+        k = k.repeat_interleave(self.group_size, dim=1)   # expand to H heads
+        v = v.repeat_interleave(self.group_size, dim=1)
+        mask = causal_mask(T, k.shape[2], x.device)       # handles the offset
+        scores = (q @ k.transpose(-2, -1)) / self.D ** 0.5
+        scores = scores.masked_fill(mask, float("-inf"))
+        w = torch.softmax(scores.float(), dim=-1).to(q.dtype)
+        ctx = (w @ v).transpose(1, 2).reshape(B, T, self.H * self.D)
+        return self.out_proj(ctx)
+\end{lstlisting}
+
+Compared to the MHA of \cref{ch:attention}, four lines changed: the key and value projections are
+$G/H$ as wide; QK-norm normalizes each query and key head; RoPE rotates $q$ and $k$ with the cache
+offset; and \code{repeat\_interleave} copies each K/V head to the $H/G$ query heads of its group
+\emph{after} the cache update, so the cache itself stays small. Note also that Qwen3-0.6B's query
+projection maps $\dmodel=1024$ to $H\dhead=16\times128=2048$: the attention width is decoupled from
+the residual width.
+
+\subsection{QK-norm}\covers{RM C.4}
+Qwen3 additionally applies an RMSNorm (with its own learned gain, shared across heads) to every query
+and key head vector before RoPE. Attention logits are dot products $\vect q\cdot\vect k$; if the norms
+of $\vect q$ and $\vect k$ drift upwards during training, the softmax saturates into near one-hot
+distributions, gradients vanish and the loss can spike. Normalizing $q$ and $k$ bounds the logits
+(Dehghani et al., 2023 used it to stabilize 22B-parameter vision transformers) and lets large models
+train at higher learning rates. The cost is two tiny RMSNorms over $\dhead=128$ elements per head.
+
+\begin{napkinmath}[KV-cache bytes per token]
+Each cached token stores one key and one value vector per KV head per layer:
+\[
+\text{KV bytes/token} = 2\times L\times G\times \dhead\times \text{bytes/element}.
+\]
+For Qwen3-0.6B in bf16: $2\times28\times8\times128\times2=\num{114688}$\,B $=\SI{112}{\kibi\byte}$.
+With full MHA (16 K/V heads) it would be \SI{224}{\kibi\byte}. For Qwen3-32B the saving is
+$64/8=8\times$: \SI{256}{\kibi\byte} instead of \SI{2}{\mebi\byte} per token. A single
+\num{32768}-token conversation with the 32B model therefore needs \SI{8.6}{\giga\byte} of cache with
+GQA and would need \SI{69}{\giga\byte} with MHA---more than the model's own weights. (For comparison,
+GPT-2 small needs only \SI{36}{\kibi\byte} per token; Qwen3-0.6B's cache is three times larger because
+it is deeper and its attention is twice as wide as its residual stream.)
+\end{napkinmath}
+
+\begin{systemslens}[GQA raises the arithmetic intensity of decoding]
+During a decode step each sequence contributes one query per head. Attention over a context of $T$
+tokens then costs $4T H\dhead$ FLOPs and must read $2\cdot2TG\dhead$ bytes of bf16 cache, an
+arithmetic intensity of $H/G$ FLOP/byte: 1 for MHA, the group size for GQA (2 for Qwen3-0.6B, 4 for
+8B, 8 for 32B). That is still far below any GPU's ridge point---decode attention is memory bound no
+matter what---but it means the time spent reading the cache, which dominates long-context decoding,
+drops by the group size. A well-written kernel therefore does \emph{not} materialize the
+\code{repeat\_interleave}'d tensors as our reference code does; it loads each K/V tile once into
+shared memory and lets all $H/G$ query heads of the group consume it (FlashAttention and FlashInfer do
+this; PyTorch's SDPA exposes it via \code{enable\_gqa=True}). Our explicit expansion multiplies the
+bytes read back up by $H/G$ and throws the benefit away---a good example of an optimization that exists
+only if the kernel knows about it.
+\end{systemslens}
+
+% =====================================================================
+\section{The Qwen3 transformer block}\label{sec:modern:block}\covers{RM C.5}
+
+The block is the GPT-2 block with the new parts slotted in (\cref{fig:modern:block}): RMSNorm before
+attention, GQA with QK-norm and RoPE, residual add, RMSNorm before the SwiGLU MLP, residual add. There
+is no dropout and no bias anywhere. The RoPE tables are owned by the model and passed down, so all
+28 layers share one copy.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  op/.style={draw,rounded corners=2pt,minimum width=5.4cm,minimum height=0.58cm,font=\small},
+  plus/.style={circle,draw,fill=white,inner sep=0.6pt,font=\small},
+  arr/.style={-{Stealth[length=2mm]},thick}]
+\node[font=\small] (in) at (0,0) {$x$ \ (B, T, 1024)};
+\node[op,fill=keygreen!20] (n1) at (0,1.0) {RMSNorm 1};
+\node[op,fill=fcompute!15] (proj) at (0,1.85) {$W_Q$ (16 heads), $W_K,W_V$ (8 heads)};
+\node[op,fill=keygreen!20] (qk) at (0,2.65) {QK-RMSNorm, then RoPE};
+\node[op,fill=fcompute!30] (att) at (0,3.45) {Masked GQA $\to$ $W_O$};
+\node[plus] (a1) at (0,4.25) {$+$};
+\node[op,fill=keygreen!20] (n2) at (0,5.05) {RMSNorm 2};
+\node[op,fill=fcompute!30] (ff) at (0,5.85) {SwiGLU MLP, $1024\to3072\to1024$};
+\node[plus] (a2) at (0,6.65) {$+$};
+\node[font=\small] (out) at (0,7.45) {$x'$};
+\foreach \a/\b in {in/n1,n1/proj,proj/qk,qk/att,att/a1,a1/n2,n2/ff,ff/a2,a2/out} \draw[arr] (\a)--(\b);
+\draw[arr,keygreen] (0,0.4)--(-3.3,0.4)|-(a1.west);
+\draw[arr,keygreen] (0,4.6)--(-3.3,4.6)|-(a2.west);
+\node[op,fill=fmemory!30,minimum width=2.4cm,align=center] (cache) at (4.8,2.65) {KV cache\\[-2pt]\scriptsize rotated $k$, $v$};
+\draw[arr,napkin] (qk.east)--(cache.west);
+\draw[arr,napkin] (cache.north)|-(att.east);
+\node[font=\scriptsize,text=srcgray,align=left,anchor=west] at (3.35,5.85) {no biases,\\no dropout};
+\end{tikzpicture}
+\caption{One Qwen3-0.6B transformer block (repeated 28 times), showing where the KV cache plugs in.}
+\label{fig:modern:block}
+\end{figure}
+
+\begin{lstlisting}[caption={The Qwen3 transformer block.},label={lst:modern:block}]
+class Qwen3Block(nn.Module):
+    def __init__(self, cfg, dtype=None):
+        super().__init__()
+        self.att = GroupedQueryAttention(
+            d_in=cfg["emb_dim"], num_heads=cfg["n_heads"],
+            num_kv_groups=cfg["n_kv_groups"], head_dim=cfg["head_dim"],
+            qk_norm=cfg["qk_norm"], dtype=dtype)
+        self.ff = SwiGLUFeedForward(cfg["emb_dim"], cfg["hidden_dim"], dtype=dtype)
+        self.norm1 = RMSNorm(cfg["emb_dim"])
+        self.norm2 = RMSNorm(cfg["emb_dim"])
+
+    def forward(self, x, cos, sin, cache=None, pad_mask=None):
+        x = x + self.att(self.norm1(x), cos, sin, cache, pad_mask)
+        x = x + self.ff(self.norm2(x))
+        return x
+\end{lstlisting}
+
+% =====================================================================
+\section{The main model}\label{sec:modern:model}\covers{RM C.6}
+
+\begin{lstlisting}[caption={Qwen3 configuration and model (cf.\ \ident{llmsys/qwen3.py}).},label={lst:modern:model}]
+QWEN3_CONFIG_06B = dict(
+    vocab_size=151_936, context_length=40_960, emb_dim=1024,
+    n_heads=16, n_kv_groups=8, head_dim=128, qk_norm=True,
+    n_layers=28, hidden_dim=3072, rope_base=1_000_000.0, tie_embeddings=True)
+
+class Qwen3Model(nn.Module):
+    def __init__(self, cfg, dtype=None):
+        super().__init__()
+        self.cfg = cfg
+        V, d = cfg["vocab_size"], cfg["emb_dim"]
+        self.tok_emb = nn.Embedding(V, d, dtype=dtype)
+        self.trf_blocks = nn.ModuleList(
+            Qwen3Block(cfg, dtype) for _ in range(cfg["n_layers"]))
+        for i, blk in enumerate(self.trf_blocks):
+            blk.att.layer_idx = i                 # each layer knows its cache slot
+        self.final_norm = RMSNorm(d)
+        self.out_head = nn.Linear(d, V, bias=False, dtype=dtype)
+        if cfg["tie_embeddings"]:
+            self.out_head.weight = self.tok_emb.weight
+        cos, sin = compute_rope_params(cfg["head_dim"], cfg["rope_base"],
+                                       cfg["context_length"])
+        self.register_buffer("cos", cos, persistent=False)  # not in checkpoint
+        self.register_buffer("sin", sin, persistent=False)
+
+    def forward(self, in_idx, cache=None, pad_mask=None):
+        x = self.tok_emb(in_idx)                  # no position embedding!
+        for blk in self.trf_blocks:
+            x = blk(x, self.cos, self.sin, cache=cache, pad_mask=pad_mask)
+        return self.out_head(self.final_norm(x))
+\end{lstlisting}
+
+A few configuration values deserve comment. The vocabulary of \num{151936} rows is padded beyond the
+roughly \num{151.7}k tokens the tokenizer actually defines---a multiple of 128 for the GEMM reasons
+of \cref{sec:gpt:arch}. \code{context\_length} is \num{40960} because the RoPE tables must cover the
+longest sequence we ever run, and Qwen configures that much headroom, although the model was trained on
+sequences of up to \num{32768} tokens. Finally, the checkpoint is stored in bfloat16; we instantiate in
+bf16 directly (\code{dtype=torch.bfloat16}) so the 0.6B model needs about \SI{1.2}{\giga\byte} rather
+than \SI{2.4}{\giga\byte}, while the RoPE tables stay in fp32 for accuracy at large positions.
+
+\begin{pitfall}[Casting the whole model to bf16]
+\code{model.to(torch.bfloat16)} converts \emph{all} floating-point buffers, including our cos/sin
+tables. In bf16, positions above a few hundred are already represented with errors of several units
+in the last place of the angle, and the rotation becomes visibly wrong at long range. Construct the
+parameters in bf16 (or cast only \code{model.parameters()}), and keep the RoPE tables in fp32. Lab~6's
+\code{run.py} does the latter.
+\end{pitfall}
+
+\begin{napkinmath}[Where Qwen3-0.6B's parameters are]
+Using the Lab~6 formula: the tied embedding is $\num{151936}\times1024=\SI{155.6}{M}$ parameters (26\% of
+the model); each block has $1024\cdot2048\cdot2 + 1024\cdot1024\cdot2 + 3\cdot1024\cdot3072 \approx
+\SI{15.7}{M}$ (attention 6.3M, MLP 9.4M); 28 blocks give \SI{440}{M}; total \SI{596}{M}. In bf16 the
+weights take \SI{1.19}{\giga\byte}. A decode step at batch 1 reads all of them: on an H100 at
+\SI{3.35}{\tera\byte\per\second} the lower bound is $\SI{1.19}{\giga\byte}/\SI{3.35}{\tera\byte\per\second}
+\approx\SI{0.36}{\milli\second}$, i.e.\ at most $\approx\num{2800}$ tokens/s for a single stream---before
+any kernel launch overhead, which in practice dominates a model this small (\cref{ch:inference}).
+\end{napkinmath}
+
+% =====================================================================
+\section{KV cache}\label{sec:modern:kvcache}\covers{RM C.7}
+
+Autoregressive generation re-reads the whole prefix at every step (\cref{sec:gpt:generate}). Since a
+past token's keys and values in every layer depend only on the tokens before it, they never change and
+can be stored. With a KV cache, the first forward pass processes the prompt (\emph{prefill}) and stores
+its keys and values; each later step processes \emph{only} the newest token (\emph{decode}), appends
+its key and value to the cache, and attends over the cached history. \Cref{ch:inference} studies the
+cache in depth; here we need only its interface, which our attention module already uses:
+
+\begin{lstlisting}[caption={The two cache flavours (from \ident{llmsys/kvcache.py}, abridged).},label={lst:modern:kv}]
+class KVCache:                     # grows by concatenation
+    def __init__(self, n_layers):
+        self.k, self.v = [None] * n_layers, [None] * n_layers
+    def seq_len(self, layer_idx=0):
+        return 0 if self.k[layer_idx] is None else self.k[layer_idx].shape[2]
+    def update(self, layer_idx, k_new, v_new):
+        if self.k[layer_idx] is None:
+            self.k[layer_idx], self.v[layer_idx] = k_new, v_new
+        else:
+            self.k[layer_idx] = torch.cat([self.k[layer_idx], k_new], dim=2)
+            self.v[layer_idx] = torch.cat([self.v[layer_idx], v_new], dim=2)
+        return self.k[layer_idx], self.v[layer_idx]
+
+class StaticKVCache:               # preallocated (B, G, max_len, D) buffers
+    def update(self, layer_idx, k_new, v_new):
+        s = self.lengths[layer_idx]; e = s + k_new.shape[2]
+        self.k[layer_idx][:, :, s:e] = k_new
+        self.v[layer_idx][:, :, s:e] = v_new
+        self.lengths[layer_idx] = e
+        return self.k[layer_idx][:, :, :e], self.v[layer_idx][:, :, :e]
+\end{lstlisting}
+
+The only subtle point is the causal mask. With $T_q$ new queries and $T_k=T_\text{past}+T_q$ keys, query
+$i$ sits at absolute position $T_\text{past}+i$ and may attend to keys $0,\ldots,T_\text{past}+i$. The
+mask is therefore a rectangular $(T_q\times T_k)$ matrix whose forbidden region starts at diagonal
+$T_\text{past}+1$ (\cref{fig:modern:cachemask}); in the decode case $T_q=1$ and the mask is empty.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=0.42cm,y=0.42cm]
+\foreach \col in {0,...,9}{\foreach \row in {0,...,3}{
+  \pgfmathtruncatemacro{\pos}{6+\row}
+  \ifnum\col>\pos \fill[warnred!35] (\col,-\row) rectangle ++(1,1);
+  \else \ifnum\col<6 \fill[fmemory!35] (\col,-\row) rectangle ++(1,1);
+  \else \fill[fcompute!30] (\col,-\row) rectangle ++(1,1);\fi\fi
+  \draw[gray!60] (\col,-\row) rectangle ++(1,1);}}
+\draw[decorate,decoration={brace,amplitude=4pt}] (0,1.2)--(6,1.2) node[midway,above=4pt,font=\scriptsize]{6 cached keys};
+\draw[decorate,decoration={brace,amplitude=4pt}] (6,1.2)--(10,1.2) node[midway,above=4pt,font=\scriptsize]{4 new keys};
+\draw[decorate,decoration={brace,amplitude=4pt,mirror}] (-0.3,1)--(-0.3,-3) node[midway,left=4pt,font=\scriptsize,align=right]{4 new\\queries};
+\fill[fmemory!35] (12,0) rectangle ++(1,1); \node[font=\scriptsize,anchor=west] at (13.2,0.5) {allowed (cache)};
+\fill[fcompute!30] (12,-1.5) rectangle ++(1,1); \node[font=\scriptsize,anchor=west] at (13.2,-1) {allowed (new)};
+\fill[warnred!35] (12,-3) rectangle ++(1,1); \node[font=\scriptsize,anchor=west] at (13.2,-2.5) {masked (future)};
+\end{tikzpicture}
+\caption{Causal mask for a chunk of 4 new tokens attending over a cache of 6 earlier tokens. The mask
+is \code{triu(ones(4,10), diagonal=6+1)}; for single-token decode it disappears entirely.}
+\label{fig:modern:cachemask}
+\end{figure}
+
+\begin{systemslens}[Concatenation vs.\ preallocation]
+\code{torch.cat} allocates a new tensor and copies the whole history at every step, so generating $n$
+tokens moves $O(n^2)$ bytes per layer and fragments the allocator. The static cache allocates
+$(B,G,T_\text{max},\dhead)$ once and writes one slice per step: $O(n)$ bytes, fixed addresses, and
+fixed shapes---which is what CUDA graphs and \code{torch.compile(mode="reduce-overhead")} need
+(\cref{ch:inference}). Its weakness is the opposite: it reserves memory for $T_\text{max}$ tokens per
+sequence even if most sequences are short, which is exactly the waste PagedAttention eliminates
+(\cref{ch:serving}).
+\end{systemslens}
+
+% =====================================================================
+\section{The tokenizer}\label{sec:modern:tokenizer}\covers{RM C.8}
+
+Qwen3 uses a byte-level BPE tokenizer of the kind we built in \cref{ch:text}, with roughly
+\num{151.6}k learned tokens covering many languages and code, plus a few dozen \emph{special tokens}
+that structure conversations and reasoning. The ones we need are:
+
+\begin{center}\small
+\begin{tabular}{ll}
+\toprule
+Token & Role\\
+\midrule
+\code{<|endoftext|>} & document separator in pretraining; used as padding\\
+\code{<|im\_start|>}, \code{<|im\_end|>} & begin/end of a chat turn (ChatML); \code{<|im\_end|>} stops generation\\
+\code{<think>}, \code{</think>} & delimit the model's reasoning trace\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A chat-tuned model expects its input in the format it was trained on. For Qwen3 that is ChatML:
+
+\begin{lstlisting}[style=plain,caption={The Qwen3 chat format for one user turn, thinking disabled.},label={lst:modern:chatml}]
+<|im_start|>user
+What is 7 * 8?<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+\end{lstlisting}
+
+Qwen3's post-trained checkpoints are \emph{hybrid} reasoning models: by default the assistant first
+writes a reasoning trace inside \code{<think>...</think>} and then the answer. Prefilling an
+\emph{empty} think block, as above, switches thinking off; leaving it out lets the model think.
+Our tokenizer wrapper (\ident{llmsys.qwen3.Qwen3Tokenizer}) delegates the BPE itself to the fast Rust
+implementation in the \code{tokenizers} library and adds the chat template:
+
+\begin{lstlisting}[caption={Applying the chat template (from \ident{llmsys/qwen3.py}).},label={lst:modern:tok}]
+def apply_chat_template(self, prompt_or_messages, enable_thinking=False):
+    msgs = prompt_or_messages
+    if isinstance(msgs, str):
+        msgs = [{"role": "user", "content": msgs}]
+    s = "".join(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n"
+                for m in msgs)
+    s += "<|im_start|>assistant\n"
+    if not enable_thinking:
+        s += "<think>\n\n</think>\n\n"       # empty trace = answer directly
+    return s
+\end{lstlisting}
+
+\begin{pitfall}[Base vs.\ chat formatting]
+A \emph{base} checkpoint (e.g.\ \code{Qwen3-0.6B-Base}) has never been trained on ChatML; feed it plain
+text, and stop on \code{<|endoftext|>}. A post-trained checkpoint should always receive the template,
+and generation should stop on \code{<|im\_end|>}. Mixing these up is the most common reason a
+from-scratch implementation ``works'' but produces rambling output. Evaluation numbers are also
+sensitive to the exact template; \cref{ch:eval} returns to this.
+\end{pitfall}
+
+% =====================================================================
+\section{Using the model}\label{sec:modern:use}\covers{RM C.9}
+
+Loading the official weights is a matter of mapping names. The Hugging Face checkpoint is a set of
+safetensors files whose tensor names follow the \code{transformers} implementation;
+\cref{tab:modern:names} gives the mapping to our modules, and \ident{load_qwen3_hf_state_dict} applies
+it with a shape check on every tensor.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Hugging Face name & Our module\\
+\midrule
+\code{model.embed\_tokens.weight} & \code{tok\_emb.weight} (also the head if tied)\\
+\code{model.layers.$i$.input\_layernorm.weight} & \code{trf\_blocks[$i$].norm1.scale}\\
+\code{model.layers.$i$.self\_attn.\{q,k,v,o\}\_proj.weight} & \code{att.W\_query/W\_key/W\_value/out\_proj}\\
+\code{model.layers.$i$.self\_attn.\{q,k\}\_norm.weight} & \code{att.q\_norm.scale}, \code{att.k\_norm.scale}\\
+\code{model.layers.$i$.post\_attention\_layernorm.weight} & \code{trf\_blocks[$i$].norm2.scale}\\
+\code{model.layers.$i$.mlp.\{gate,up,down\}\_proj.weight} & \code{ff.fc1}, \code{ff.fc2}, \code{ff.fc3}\\
+\code{model.norm.weight} & \code{final\_norm.scale}\\
+\code{lm\_head.weight} (untied models only) & \code{out\_head.weight}\\
+\bottomrule
+\end{tabular}
+\caption{Weight-name mapping between the Hugging Face Qwen3 checkpoint and our implementation.}
+\label{tab:modern:names}
+\end{table}
+
+\begin{lstlisting}[caption={Loading Qwen3-0.6B and streaming a reply.},label={lst:modern:use}]
+# one-time, on a machine with internet:
+#   huggingface-cli download Qwen/Qwen3-0.6B --local-dir qwen3-0.6b
+from llmsys.qwen3 import load_qwen3_from_dir, Qwen3Tokenizer
+from llmsys.generate import generate_stream
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = load_qwen3_from_dir("qwen3-0.6b", size="0.6B",
+                            dtype=torch.bfloat16, device=device)
+tok = Qwen3Tokenizer("qwen3-0.6b/tokenizer.json")
+
+prompt = "Explain RoPE in two sentences."
+ids = torch.tensor([tok.encode(prompt, chat=True)], device=device)
+for t in generate_stream(model, ids, 200, eos_id=tok.eos_token_id):
+    print(tok.decode(t[0].tolist()), end="", flush=True)
+\end{lstlisting}
+
+Before trusting a from-scratch port, compare its logits with a reference implementation on a few
+prompts. Expect agreement to within bf16 noise (maximum absolute logit differences of order
+$10^{-2}$), not bit-exactness: two correct implementations can sum in different orders, use different
+attention kernels, or upcast at different points. Large discrepancies almost always come from one of
+four bugs: a wrong RoPE layout, RoPE tables in bf16, forgetting QK-norm, or a missing chat template.
+
+% =====================================================================
+\section{Scaling up: larger Qwen3 models}\label{sec:modern:larger}
+
+The 0.6B model is ideal for learning: it runs on a laptop and every experiment is fast. But the code
+in this chapter is size-agnostic, and running a larger model is mostly a matter of a different
+configuration and a different checkpoint.
+
+\subsection{Larger dense configurations}\covers{RM D.1}
+\Cref{tab:modern:family} lists the dense Qwen3 family. All members share the vocabulary, head
+dimension 128, eight KV heads, QK-norm and the RoPE base; they differ in width, depth, number of query
+heads and MLP width. The smaller three tie their embeddings; from 8B on, the output head is a separate
+matrix.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Model & $\dmodel$ & $L$ & $H$ & $G$ & $h$ (MLP) & Tied & Params & KV/token (bf16)\\
+\midrule
+0.6B & 1024 & 28 & 16 & 8 & 3072  & yes & 0.60B & \SI{112}{\kibi\byte}\\
+1.7B & 2048 & 28 & 16 & 8 & 6144  & yes & 1.72B & \SI{112}{\kibi\byte}\\
+4B   & 2560 & 36 & 32 & 8 & 9728  & yes & 4.02B & \SI{144}{\kibi\byte}\\
+8B   & 4096 & 36 & 32 & 8 & 12288 & no  & 8.19B & \SI{144}{\kibi\byte}\\
+14B  & 5120 & 40 & 40 & 8 & 17408 & no  & 14.77B & \SI{160}{\kibi\byte}\\
+32B  & 5120 & 64 & 64 & 8 & 25600 & no  & 32.76B & \SI{256}{\kibi\byte}\\
+\bottomrule
+\end{tabular}
+\caption{The dense Qwen3 family. Parameter and KV-cache sizes computed from the configurations with
+the Lab~6 code. Note how the KV cache per token grows much more slowly than the parameter count.}
+\label{tab:modern:family}
+\end{table}
+
+\subsection{Downloading larger checkpoints}\covers{RM D.2}
+Checkpoints above a few gigabytes are split into \emph{shards}
+(\code{model-00001-of-00005.safetensors}, \ldots) plus a JSON index, \code{model.safetensors.index.json},
+that maps every tensor name to the shard containing it. The simplest robust approach is to download the
+whole repository snapshot (\code{huggingface-cli download Qwen/Qwen3-8B --local-dir qwen3-8b}) and let the
+loader read every \code{*.safetensors} file in the directory, as \ident{load_qwen3_from_dir} does. Keep
+each model in its own directory; mixing shards of different models in one folder is a classic way to
+load garbage silently, which is why our loader checks every tensor's shape.
+
+\subsection{Loading a larger base model}\covers{RM D.3}
+Naive loading of an 8B model needs memory for \emph{two} copies of the weights: the randomly
+initialized model and the state dict read from disk. Three standard tricks avoid that (Lab~6's
+\code{run.py} uses the first and third):
+
+\begin{lstlisting}[caption={Memory-frugal loading: meta-device construction and per-shard copy.},label={lst:modern:meta}]
+from safetensors import safe_open
+
+with torch.device("meta"):             # 1) allocate no storage at all
+    model = Qwen3Model(QWEN3_CONFIGS["8B"], dtype=torch.bfloat16)
+model = model.to_empty(device="cuda")  # 2) uninitialized storage on the GPU
+for shard in sorted(glob.glob("qwen3-8b/*.safetensors")):
+    # 3) memory-map the shard and copy one tensor at a time
+    with safe_open(shard, framework="pt", device="cuda") as f:
+        for name in f.keys():
+            copy_into(model, name, f.get_tensor(name))  # name map: Table 6.2
+# buffers created on the meta device (RoPE tables) must be recomputed
+\end{lstlisting}
+
+Meta-device construction skips the random initialization (which for 8B parameters is also tens of
+seconds of CPU time), \code{to\_empty} materializes uninitialized storage directly on the GPU, and
+\code{safe\_open} memory-maps each shard so only one tensor at a time is resident in host memory.
+Peak memory is then the model plus one tensor, rather than twice the model.
+
+\subsection{Loading a larger reasoning variant}\covers{RM D.4}
+Each Qwen3 size is published as a \code{-Base} checkpoint (pretrained only) and as a post-trained
+hybrid-thinking checkpoint without suffix. Switching between them changes only the weights directory
+and the tokenizer settings: the reasoning variant needs the chat template and stops on
+\code{<|im\_end|>}, and thinking is controlled by the empty-think-block trick of
+\cref{sec:modern:tokenizer}. Everything else---model class, generation loop, KV cache---is identical.
+In \cref{ch:eval,ch:scaling} we will use the base 0.6B model as the student we try to improve, and the
+reasoning variants as reference points and as distillation teachers (\cref{ch:distill}).
+
+\subsection{Practical recommendations and memory planning}\covers{RM D.5}
+Which size should you use? The honest systems answer is: the largest one whose weights \emph{plus the
+KV cache you need} fit in memory with headroom. \Cref{tab:modern:plan} applies the formulas of this
+chapter to two common devices, assuming bf16 weights and cache and 10\% of memory reserved for
+activations, workspace and fragmentation.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lrrrr}
+\toprule
+& \multicolumn{2}{c}{24\,GB GPU (e.g.\ RTX 4090, L4)} & \multicolumn{2}{c}{80\,GB GPU (A100/H100)}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Model & weights & max.\ 8k-token sequences & weights & max.\ 8k-token sequences\\
+\midrule
+0.6B & 1.2 GB & 21 & 1.2 GB & 75\\
+1.7B & 3.4 GB & 19 & 3.4 GB & 72\\
+4B   & 8.0 GB & 11 & 8.0 GB & 52\\
+8B   & 16.4 GB & 4 & 16.4 GB & 46\\
+14B  & 29.5 GB & -- & 29.5 GB & 31\\
+32B  & 65.5 GB & -- & 65.5 GB & 3\\
+\bottomrule
+\end{tabular}
+\caption{How many concurrent 8192-token sequences fit next to the weights (bf16, 10\% reserve), from
+\code{max\_concurrent\_sequences} in Lab~6. This number bounds the batch size, and hence the throughput,
+of a serving engine.}
+\label{tab:modern:plan}
+\end{table}
+
+A few rules of thumb follow. For the experiments in this book, 0.6B on any GPU (or even CPU) is enough.
+If you have a 24\,GB card, the 4B model is the sweet spot for RL and evaluation: it fits with room for
+a useful batch. The 8B model fits on 24\,GB but leaves room for only a handful of long sequences, which
+makes batched sampling (\cref{ch:scaling,ch:grpo}) slow; quantization (\cref{ch:efficient}) or a larger
+GPU helps. The 32B model needs either an 80\,GB GPU with 8-bit weights, or tensor parallelism across
+two or more GPUs (\cref{ch:distributed,ch:efficient}).
+
+% =====================================================================
+\section{Beyond dense models: mixture of experts}\label{sec:modern:moe}
+
+Every token in a dense model uses every parameter. A \emph{mixture-of-experts} (MoE) layer replaces the
+single MLP with $E$ smaller MLPs (``experts'') and a learned \emph{router} that sends each token to only
+$k\ll E$ of them (Shazeer et al., 2017; Fedus et al., 2022). The parameter count grows with $E$, but the
+FLOPs per token grow only with $k$. Qwen3 itself ships two MoE models next to the dense ones;
+Qwen3-30B-A3B, for example, has 48 layers each with $E=128$ experts of hidden width 768, of which $k=8$
+are active per token. Its total parameter count is about 30.5B, but only about 3.3B are used for any given
+token (both numbers from our \code{moe\_param\_counts} applied to its configuration), so its per-token
+compute is close to a 3B dense model while its capacity is closer to a 30B one.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  tok/.style={draw,fill=fdata!25,minimum width=0.55cm,minimum height=0.5cm,font=\scriptsize},
+  exp/.style={draw,fill=fcompute!25,rounded corners=2pt,minimum width=1.25cm,minimum height=1.6cm,font=\scriptsize,align=center},
+  arr/.style={-{Stealth[length=1.6mm]},thick}]
+\foreach \i/\c in {0/a,1/b,2/c,3/d,4/e}{\node[tok] (t\i) at (0,-\i*0.7) {$x_\c$};}
+\node[draw,fill=keygreen!25,rounded corners=2pt,minimum height=3.3cm,minimum width=1.3cm,align=center,font=\scriptsize] (r) at (2.0,-1.4) {router\\$\softmax(W_rx)$\\top-$k$};
+\foreach \i in {0,...,4} \draw[arr] (t\i)--(r.west|-t\i);
+\node[draw,fill=fmemory!30,minimum width=1.3cm,minimum height=3.3cm,align=center,font=\scriptsize] (perm) at (4.2,-1.4) {permute:\\sort\\(token, slot)\\by expert};
+\draw[arr] (r)--(perm);
+\foreach \e/\y in {1/0.25,2/-1.4,3/-3.05}{\node[exp] (e\e) at (6.6,\y) {expert \e\\SwiGLU};}
+\draw[arr] (perm.east)--(e1.west); \draw[arr] (perm.east)--(e2.west); \draw[arr] (perm.east)--(e3.west);
+\node[draw,fill=fmemory!30,minimum width=1.3cm,minimum height=3.3cm,align=center,font=\scriptsize] (comb) at (8.9,-1.4) {un-permute,\\weight by\\gate, sum};
+\draw[arr] (e1.east)--(comb.west); \draw[arr] (e2.east)--(comb.west); \draw[arr] (e3.east)--(comb.west);
+\foreach \i/\c in {0/a,1/b,2/c,3/d,4/e}{\node[tok] (o\i) at (11,-\i*0.7) {$y_\c$};}
+\foreach \i in {0,...,4} \draw[arr] (comb.east|-o\i)--(o\i);
+\node[font=\scriptsize,text=srcgray,align=center] at (5.5,-4.4) {each expert runs one contiguous GEMM over the tokens routed to it};
+\end{tikzpicture}
+\caption{The MoE data path as implemented in \ident{llmsys/moe.py}: route, permute token copies into
+per-expert contiguous groups, run each expert as one batched GEMM, then un-permute and combine with the
+gate weights. In expert-parallel training the permute and un-permute steps become all-to-all exchanges
+between GPUs.}
+\label{fig:modern:moe}
+\end{figure}
+
+\paragraph{Routing.}
+For a token $\vect x$ the router computes probabilities $\vect p=\softmax(\mat W_r\vect x)$ over the
+$E$ experts, keeps the $k$ largest, renormalizes them to sum to one (the Qwen-MoE and Mixtral
+convention), and outputs $\vect y=\sum_{e\in\text{top-}k} p_e\,\mathrm{Expert}_e(\vect x)$.
+The reference implementation in \cref{lst:modern:moe} makes the systems structure explicit: rather than
+looping over tokens, it sorts the $(\text{token},\text{slot})$ assignments by expert so that each expert
+processes one contiguous slice---the single-GPU analogue of the permutation that expert-parallel systems
+perform with an all-to-all.
+
+\begin{lstlisting}[caption={Sort-based MoE dispatch (from \ident{llmsys/moe.py}, abridged).},label={lst:modern:moe}]
+def forward(self, x):
+    x2d = x.reshape(-1, x.shape[-1]); N = x2d.shape[0]
+    probs = torch.softmax(self.gate(x2d).float(), dim=-1)       # (N, E)
+    w, idx = torch.topk(probs, self.top_k, dim=-1)              # (N, k)
+    w = (w / w.sum(-1, keepdim=True)).to(x.dtype)
+    expert = idx.flatten()                                      # (N*k,)
+    token = torch.arange(N).repeat_interleave(self.top_k)
+    order = torch.argsort(expert, stable=True)                  # permute
+    expert, weight, token = expert[order], w.flatten()[order], token[order]
+    counts = torch.bincount(expert, minlength=self.n_experts).tolist()
+    out, start = torch.zeros_like(x2d), 0
+    for e, n in enumerate(counts):
+        if n:
+            t, g = token[start:start + n], weight[start:start + n, None]
+            out.index_add_(0, t, g * self.experts[e](x2d[t]))   # combine
+            start += n
+    return out.reshape(x.shape)
+\end{lstlisting}
+
+\paragraph{Load balancing.}
+Left alone, the router tends to collapse: a few experts win early, receive more gradient, get better,
+and win more. The standard remedy is an auxiliary loss that is minimized by uniform routing. With $f_e$
+the fraction of token slots routed to expert $e$ (a count, not differentiable) and $P_e$ the mean router
+probability of expert $e$ (differentiable),
+\begin{equation}
+\mathcal L_\text{aux} = E\sum_{e=1}^{E} f_e\,P_e ,
+\label{eq:modern:aux}
+\end{equation}
+which equals 1 under perfect balance and grows towards $E$ under collapse (Fedus et al., 2022). It is
+added to the language-modeling loss with a small coefficient. Some recent models replace it with
+bias-based ``auxiliary-loss-free'' balancing (DeepSeek-V3), or compute balance statistics over a global
+batch rather than per micro-batch (as the Qwen team reports doing).
+
+\begin{systemslens}[Why MoE is a systems problem]
+MoE trades FLOPs for memory and communication. (i) \emph{Memory}: all $E$ experts must be resident
+somewhere, so a 30B-total MoE needs the memory of a 30B dense model even though it computes like a 3B
+one; it is cheap to \emph{run} only once you can afford to \emph{hold} it. (ii) \emph{Expert parallelism}:
+experts are spread across GPUs, and every MoE layer performs two all-to-all exchanges (dispatch tokens to
+their experts, return results). Per token and layer that is $2k\dmodel$ bf16 values on the wire---for
+Qwen3-30B-A3B, $2\cdot8\cdot2048\cdot2=\SI{64}{\kibi\byte}$ per token per layer, which at 48 layers and
+thousands of tokens per batch quickly approaches NVLink bandwidth (\cref{ch:distributed}). (iii)
+\emph{Load imbalance}: the slowest expert determines the layer's latency, so systems either impose a
+\emph{capacity} (each expert processes at most $c\cdot Nk/E$ tokens; overflow tokens are dropped and pass
+through the residual connection) or use dropless grouped-GEMM kernels (MegaBlocks; Gale et al., 2023) that
+handle ragged per-expert batches efficiently. (iv) \emph{Small GEMMs}: each expert sees only about $Nk/E$
+tokens, so expert GEMMs are much narrower than a dense MLP's and are often memory bound---during decode
+especially, where an MoE model reads far more distinct weights per step than a dense model of equal
+active size.
+\end{systemslens}
+
+\begin{napkinmath}[Total vs.\ active parameters]
+Per MoE layer with SwiGLU experts of hidden width $h$: each expert has $3dh$ weights; the router has
+$dE$. For Qwen3-30B-A3B ($d=2048$, $h=768$, $E=128$, $k=8$) one expert is \SI{4.72}{M} parameters,
+so a layer holds \SI{604}{M} expert parameters but activates \SI{37.7}{M}. Over 48 layers plus attention
+(\SI{18.9}{M} per layer with 32 query and 4 KV heads) and untied embeddings (\SI{622}{M}), the total is
+$\approx\SI{30.5}{B}$ and the active count $\approx\SI{3.35}{B}$. Training FLOPs scale with the active
+count ($6\times3.35$B per token), but serving memory scales with the total. At batch 1 a decode step
+reads $\approx\SI{6.7}{\giga\byte}$ of active bf16 weights; at large batch, nearly all experts are hit and
+the step reads close to all \SI{61}{\giga\byte}.
+\end{napkinmath}
+
+\begin{deepdive}[Other directions in attention design]
+GQA is not the only way to shrink the KV cache. \emph{Multi-head latent attention} (MLA, DeepSeek-V2,
+2024) caches a single low-rank latent vector per token from which per-head keys and values are
+reconstructed, compressing the cache further than GQA while keeping per-head expressivity.
+\emph{Sliding-window} attention (Mistral, Gemma) limits some or all layers to the last $w$ tokens, bounding
+their cache at $w$ entries. \emph{Hybrid} architectures interleave a minority of full-attention layers
+with linear-attention or state-space layers whose state is constant-size, so most layers need no
+growing cache at all (Qwen3-Next is one such design). All of these are, at heart, answers to the same
+napkin-math question as GQA: how many bytes per token does the model need to remember, and how fast can
+the hardware read them?
+\end{deepdive}
+
+% =====================================================================
+\section{Summary}
+\begin{itemize}
+\item Qwen3 keeps GPT-2's pre-norm decoder skeleton but replaces LayerNorm with RMSNorm, the GELU MLP with
+  SwiGLU, learned positions with RoPE, and MHA with GQA plus QK-norm; it drops biases and dropout.
+\item RMSNorm needs one row statistic instead of two and fuses cleanly with residual adds; compute it in
+  fp32.
+\item SwiGLU at hidden width $\tfrac83 d$ matches a GELU MLP's budget; production code fuses gate and up
+  projections into one GEMM.
+\item RoPE rotates query/key pairs at geometrically spaced frequencies so that scores depend only on
+  relative position; it needs no weights, makes the cache store rotated keys, and makes left padding
+  harmless. Keep its tables in fp32.
+\item GQA shares each K/V head among $H/G$ query heads, cutting the KV cache (and decode attention
+  traffic) by $H/G$; kernels must avoid materializing the expanded heads to realize the gain.
+\item KV bytes per token $=2LG\dhead\cdot$bytes; Qwen3-0.6B needs \SI{112}{\kibi\byte}, Qwen3-32B
+  \SI{256}{\kibi\byte}. Together with the weights, this determines how many sequences fit on a device.
+\item Larger dense Qwen3 models use the same code; load them with meta-device construction and per-shard
+  copying to avoid holding two copies.
+\item Mixture-of-experts layers decouple parameters from per-token FLOPs at the cost of memory, all-to-all
+  communication and load-balancing complexity.
+\end{itemize}
+
+% =====================================================================
+\section{Exercises}
+
+\begin{exercise}[RMSNorm vs.\ LayerNorm]
+Show that if every token vector has zero mean, RMSNorm and LayerNorm (with $\beta=0$) produce identical
+outputs. Then measure, with \code{saved\_tensors\_hooks} from \cref{ch:gpt}, how many bytes each of the two
+explicit implementations saves for the backward pass on a $(4,256,1024)$ input.
+\end{exercise}
+
+\begin{exercise}[SwiGLU parity]
+A GELU MLP with $\dff=4d$ and a SwiGLU MLP with hidden width $h$ are to have equal parameter counts.
+Derive $h$. Llama~2-7B uses $d=4096$ and $h=11008$; by what percentage does it deviate from parity, and
+why might a model designer round $h$ to a multiple of 256?
+\end{exercise}
+
+\begin{exercise}[RoPE relativity]
+Prove \cref{eq:modern:roperel} for the $\dhead$-dimensional case in the rotate-half layout by writing
+the rotation as a block-diagonal matrix in a permuted basis. Then verify numerically that
+$\langle\mathrm{RoPE}_m(q),\mathrm{RoPE}_n(k)\rangle$ is unchanged when both $m$ and $n$ are shifted by
+the same amount, and explain why that makes left padding harmless.
+\end{exercise}
+
+\begin{exercise}[Layout conversion]
+Write a function that converts the $\mat W_Q$ and $\mat W_K$ weights of a checkpoint trained with
+interleaved RoPE into the rotate-half layout, and test it end to end with a tiny GQA module. Does
+$\mat W_V$ need to be permuted? Why or why not?
+\end{exercise}
+
+\begin{exercise}[KV budget]
+For Qwen3-8B, compute the KV-cache size of one \num{131072}-token context in bf16 and in fp8. Could one
+such context fit on an 80\,GB GPU next to the bf16 weights? What if you also quantize the weights to
+8 bits?
+\end{exercise}
+
+\begin{exercise}[GQA intensity]
+Derive the arithmetic intensity of single-token decode attention as a function of $H$, $G$ and the bytes
+per cache element, and evaluate it for Qwen3-0.6B, 8B and 32B in bf16 and fp8. How does the materialized
+\code{repeat\_interleave} in our reference code change the bytes actually read?
+\end{exercise}
+
+\begin{exercise}[RoPE precision]
+Compute the RoPE tables for Qwen3 in fp32 and in bf16 and plot the absolute angle error
+$|\phi_\text{bf16}-\phi_\text{fp32}|$ for the fastest frequency at positions 0 to \num{32768}. At roughly
+what position does the error exceed $0.1$ radians?
+\end{exercise}
+
+\begin{exercise}[Context extension]
+Using Lab~6's \code{ntk\_aware\_base}, compute the base Qwen3 would need to stretch its trained context
+by $4\times$ with NTK-aware scaling. Which pair index $i$ has its wavelength changed by the largest factor,
+and which by the smallest?
+\end{exercise}
+
+\begin{exercise}[MoE capacity]
+With $N=4096$ tokens, $E=64$, $k=2$ and capacity factor $c=1.25$, how many token slots can each expert
+accept? If routing were uniformly random, use a normal approximation to estimate the expected fraction of
+dropped token slots. How does the answer change with $c=1.0$ and $c=2.0$?
+\end{exercise}
+
+\begin{exercise}[Expert-parallel communication]
+Qwen3-30B-A3B runs with its 128 experts split evenly over 8 GPUs. For a batch of \num{16384} tokens,
+estimate the all-to-all bytes per MoE layer per GPU (dispatch plus combine, bf16), and the time on
+NVLink at \SI{450}{\giga\byte\per\second} per direction. Compare with the time of the experts' GEMMs on
+one H100.
+\end{exercise}
+
+\begin{exercise}[Memory-frugal loading]
+Instrument \cref{lst:modern:meta} to record peak memory (CUDA's \code{max\_memory\_allocated}, or the
+resident set size on CPU) and compare it with naive loading via \code{load\_state\_dict} for the 1.7B
+model.
+\end{exercise}
+
+% =====================================================================
+\section{Lab 6: Qwen3 from scratch, and planning its memory}\label{sec:modern:lab}
+
+\begin{labbox}{6}{Qwen3 from scratch, and planning its memory}
+\labdir{lab06_qwen3}
+\labsection{Goals}
+Re-implement every Qwen3 component so that your model is logit-identical to \ident{llmsys.qwen3}
+(and therefore loads the official weights), prove RoPE's properties numerically, implement MoE dispatch the
+way systems do, and turn the chapter's memory formulas into a planning tool.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+pytest -q labs/lab06_qwen3                      # tests your starter.py
+python labs/lab06_qwen3/run.py --impl starter --plan --gpu-gb 24 --seq 8192
+\end{lstlisting}
+
+\labsection{Tasks}
+\begin{enumerate}
+\item \textbf{RMSNorm.} Implement \code{rms\_norm} with fp32 accumulation.
+\item \textbf{RoPE.} Implement \code{compute\_rope}, \code{apply\_rope} (rotate-half),
+  \code{apply\_rope\_interleaved} (complex arithmetic), and \code{halves\_to\_interleaved\_perm}.
+  The tests check the relative-position property and the layout equivalence. Implement
+  \code{position\_interpolation\_rope} and \code{ntk\_aware\_base}.
+\item \textbf{SwiGLU.} Implement \code{SwiGLU.forward}.
+\item \textbf{GQA.} Implement \code{GroupedQueryAttention.forward} with QK-norm, RoPE with cache offset,
+  cache update storing only $G$ heads, and masked attention. The test checks prefill-then-decode against
+  the library.
+\item \textbf{Model.} Implement \code{Qwen3Block.forward} and \code{Qwen3Model.forward}.
+\item \textbf{Memory planning.} Implement \code{kv\_cache\_bytes}, \code{count\_params} (exact, tied
+  embeddings counted once) and \code{max\_concurrent\_sequences}.
+\item \textbf{MoE.} Implement \code{route\_topk}, \code{load\_balancing\_loss} and the sort-based
+  \code{moe\_dispatch\_forward}, checked against \ident{llmsys.moe.MoEFeedForward.forward_reference}.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{itemize}
+\item With internet access, download \code{Qwen/Qwen3-0.6B} and run
+  \code{run.py --impl starter --weights-dir qwen3-0.6b}, once with and once without \code{--thinking}.
+  Record tokens/s on your device and compare with the napkin-math bound of \cref{sec:modern:model}.
+\item Plot decode time per token versus context length (512 to 16k) with the materialized
+  \code{repeat\_interleave} and with \code{F.scaled\_dot\_product\_attention(..., enable\_gqa=True)} on a
+  GPU. Expect the gap to widen with context.
+\item Time \code{MoEFeedForward.forward} vs.\ \code{forward\_reference} for $E\in\{8,32,128\}$; record the
+  tokens-per-expert histogram and the auxiliary loss for a random router.
+\end{itemize}
+
+\labsection{Deliverables}
+Passing tests; your memory-planning table for the GPU you actually have; the decode-time plot with a
+paragraph relating it to \cref{sec:modern:gqa}'s intensity argument.
+
+\labsection{Stretch goals}
+\begin{itemize}
+\item Load \code{Qwen/Qwen3-4B} or \code{-8B} with the meta-device loader and report peak memory.
+\item Add a capacity factor to your dispatch and measure the fraction of dropped tokens for a trained vs.\
+  a random router.
+\item Fuse gate and up projections into a single $d\times2h$ \code{nn.Linear}, convert the checkpoint
+  weights accordingly, and measure the speedup.
+\end{itemize}
+\end{labbox}

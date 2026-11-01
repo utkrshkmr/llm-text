@@ -1,0 +1,11 @@
+torch>=2.3
+numpy
+tiktoken
+tokenizers
+safetensors
+huggingface_hub
+sympy
+matplotlib
+pytest
+# optional, GPU only:
+# triton

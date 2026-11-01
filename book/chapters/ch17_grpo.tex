@@ -1,0 +1,1291 @@
+\chapter{Reinforcement Learning with Verifiable Rewards: GRPO}\label{ch:grpo}
+
+Chapters~\ref{ch:scaling} and~\ref{ch:refine} improved reasoning by spending more
+compute \emph{per query}: sample many answers and vote, or let the model critique and
+revise itself. Every one of those tricks leaves the weights untouched, so the bill is paid
+again on every request. This chapter takes the opposite trade. We spend compute
+\emph{once}, during training, so that the model itself becomes a better reasoner and every
+later query is cheaper. The method is reinforcement learning (RL) with \emph{verifiable
+rewards} (RLVR), and the optimiser is Group Relative Policy Optimization (GRPO), the
+algorithm behind DeepSeek-R1 and many of the open reasoning models that followed it.
+
+For a systems person, RL post-training is the most interesting workload in the LLM
+lifecycle because it fuses the two workloads we have studied separately. Each step is an
+\emph{inference} job (generate thousands of tokens per prompt, autoregressively,
+memory-bound) followed by a \emph{training} job (a differentiable forward and backward
+pass over the same tokens, compute-bound). Get the balance between the two wrong and
+either your GPUs idle while the sampler crawls, or your sampler idles while the optimiser
+waits. In this chapter we build GRPO from first principles, keeping the code small enough
+to read in one sitting, and we mark where each design decision has a systems cost.
+\Cref{ch:grpo2} then makes the algorithm robust, and \cref{ch:rlsys} scales it into a
+distributed system.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  st/.style={draw=sysblue,rounded corners=3pt,fill=sysblue!8,minimum height=11mm,
+    text width=24mm,align=center,font=\small},
+  im/.style={st,draw=labpurple,fill=labpurple!8},
+  num/.style={circle,fill=#1,text=white,font=\scriptsize\bfseries,inner sep=1.5pt},
+  >={Stealth[length=2.2mm]}]
+\node[st] (a) at (0,0) {RL for LLMs\\(\S\ref{sec:grpo:rl})};
+\node[st] (b) at (3,0) {RLHF\\recap};
+\node[st] (c) at (6,0) {Verifiable\\rewards};
+\node[st] (d) at (9,0) {GRPO at a\\glance};
+\node[im] (e) at (9,-2.1) {Model \&\\MATH data};
+\node[im] (f) at (6,-2.1) {Rollouts $\to$ rewards\\$\to$ advantages};
+\node[im] (g) at (3,-2.1) {Log-probs $\to$\\loss $\to$ loop};
+\node[im] (h) at (0,-2.1) {Checkpoints \&\\evaluation};
+\foreach \n/\c/\i in {a/sysblue/1,b/sysblue/2,c/sysblue/3,d/sysblue/4,e/labpurple/5,f/labpurple/6,g/labpurple/7,h/labpurple/8}
+  \node[num=\c] at (\n.north west) {\i};
+\draw[->,thick,sysblue!70] (a)--(b); \draw[->,thick,sysblue!70] (b)--(c);
+\draw[->,thick,sysblue!70] (c)--(d); \draw[->,thick,labpurple!70] (d)--(e);
+\draw[->,thick,labpurple!70] (e)--(f); \draw[->,thick,labpurple!70] (f)--(g);
+\draw[->,thick,labpurple!70] (g)--(h);
+\node[font=\footnotesize\itshape,sysblue,anchor=south] at (4.5,0.75) {concepts};
+\node[font=\footnotesize\itshape,labpurple,anchor=north] at (4.5,-2.85) {implementation (Lab 17)};
+\end{tikzpicture}}
+\caption{Roadmap of this chapter. The top row builds the conceptual picture (why RL, how
+RLHF works, what changes when rewards are verifiable, what GRPO computes). The bottom
+row implements GRPO stage by stage and trains a model with it.}
+\label{fig:grpo:roadmap}
+\end{figure}
+
+% ======================================================================
+\section{Reinforcement learning for LLMs}\label{sec:grpo:rl}\covers{RM 6.1}
+
+There are two independent dials for buying reasoning accuracy with compute
+(\cref{fig:grpo:dials}). \emph{Inference-time scaling} spends more FLOPs on each answer:
+longer chains of thought, more samples, more refinement rounds. \emph{Training-time
+scaling} spends FLOPs up front to change the weights. The two compose: a model improved by
+RL can still be wrapped in self-consistency voting at inference time, and in practice the
+strongest systems do both.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[>={Stealth[length=2mm]},font=\small]
+\begin{scope}
+\draw[->] (0,0)--(5.2,0) node[below left,font=\footnotesize]{queries served};
+\draw[->] (0,0)--(0,3.2) node[above,font=\footnotesize,align=center]{cumulative\\compute};
+\draw[thick,warnred] (0,0.15)--(5,3.0) node[right,font=\footnotesize,align=left]{inference-time\\scaling};
+\draw[thick,keygreen] (0,1.3)--(5,2.0) node[right,font=\footnotesize,align=left]{training-time\\scaling};
+\draw[thick,sysblue,dashed] (0,0.15)--(5,1.15) node[right,font=\footnotesize]{baseline};
+\draw[decorate,decoration={brace,amplitude=3pt},keygreen] (-0.1,0.15)--(-0.1,1.3)
+  node[midway,left,font=\scriptsize,align=right]{one-off\\RL cost};
+\end{scope}
+\end{tikzpicture}
+\caption{Two ways to buy accuracy. Inference-time scaling raises the marginal cost of
+every query; training-time scaling pays a fixed cost once and keeps the per-query cost
+close to the baseline. Which is cheaper depends on how many queries the model will serve.}
+\label{fig:grpo:dials}
+\end{figure}
+
+RL in the LLM world is almost always a \emph{post-training} stage. A pretrained model has
+absorbed knowledge from next-token prediction; RL changes \emph{how} it uses that
+knowledge, by optimising a property of the whole output (is the final answer right? do
+humans prefer it?) rather than the likelihood of each individual token. Two RL stages are
+common (\cref{fig:grpo:pipeline}): \emph{reasoning training} with verifiable rewards,
+which teaches the model to reach correct answers on math and code, and \emph{preference
+tuning}, which nudges style and helpfulness towards what people like. The order varies
+between labs and the two are sometimes interleaved. DeepSeek-R1-Zero famously skipped
+both instruction tuning and preference tuning and ran reasoning RL directly on the base
+model. The result is less polished than a full pipeline, but it shows clean reasoning
+behaviour and, for us, has a big methodological advantage: any improvement can be
+attributed to RL alone.
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[box/.style={draw,rounded corners=2pt,minimum height=9mm,text width=23mm,
+   align=center,font=\small},>={Stealth[length=2mm]}]
+\node[box,fill=fdata!15] (pt) {Pretraining\\{\scriptsize next-token, $\sim10^{13}$ tok}};
+\node[box,fill=fdata!15,right=7mm of pt] (sft) {Instruction\\fine-tuning (SFT)};
+\node[box,fill=fcompute!15,right=7mm of sft] (rlvr) {Reasoning RL\\{\scriptsize RLVR: correctness}};
+\node[box,fill=fcomm!15,right=7mm of rlvr] (rlhf) {Preference RL\\{\scriptsize RLHF: human taste}};
+\draw[->,thick] (pt)--(sft); \draw[->,thick] (sft)--(rlvr); \draw[->,thick] (rlvr)--(rlhf);
+\draw[->,thick,dashed,warnred] (pt.south) to[bend right=18]
+  node[below,font=\scriptsize,warnred]{R1-Zero shortcut: RLVR directly on the base model} (rlvr.south);
+\node[font=\scriptsize,align=center,above=1mm of sft]{Ch.~\ref{ch:instruct}};
+\node[font=\scriptsize,align=center,above=1mm of rlvr]{this chapter};
+\node[font=\scriptsize,align=center,above=1mm of pt]{Ch.~\ref{ch:pretrain}};
+\end{tikzpicture}}
+\caption{Where RL sits in an LLM training pipeline. The order of the two RL stages is not
+fixed; some pipelines interleave them. The dashed path applies reasoning RL directly to a
+pretrained base model, which is the setting of this chapter.}
+\label{fig:grpo:pipeline}
+\end{figure}
+
+\paragraph{The RL vocabulary, translated.} Classic RL talks about agents, environments,
+states and actions. For a language model the mapping is straightforward
+(\cref{tab:grpo:vocab}). The unusual features of the LLM setting are that the action space
+is huge ($|\mathcal{V}|\approx\num{150000}$ tokens per step), the state is the entire prefix,
+transitions are deterministic (appending a token), and the reward is \emph{sparse}: a
+single number at the end of a trajectory that may be thousands of tokens long.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+RL term & Meaning for an LLM\\
+\midrule
+policy $\pitheta$ & the language model with weights $\theta$\\
+state $s_t$ & prompt $x$ plus the tokens generated so far, $y_{<t}$\\
+action $a_t$ & the next token $y_t\in\mathcal{V}$\\
+trajectory / rollout / completion & one full sampled response $y=(y_1,\dots,y_{|y|})$\\
+reward $R(x,y)$ & a scalar for the whole response (here: 1 if the final answer is right)\\
+episode & one prompt $\to$ one completion; ends at EOS or the token budget\\
+on-policy & the data were sampled from the current weights\\
+\bottomrule
+\end{tabularx}
+\caption{RL terminology mapped onto autoregressive generation. A ``rollout'' is the
+generation process and a ``completion'' is its output; the words are used interchangeably.}
+\label{tab:grpo:vocab}
+\end{table}
+
+\paragraph{The policy-gradient theorem in one line.} We want to maximise the expected
+reward $J(\theta)=\E_{x\sim\mathcal{D}}\,\E_{y\sim\pitheta(\cdot\mid x)}[R(x,y)]$. The
+reward is a non-differentiable function of discrete samples, so we cannot backpropagate
+through it. The \emph{log-derivative trick}
+$\nabla_\theta \pitheta(y\mid x)=\pitheta(y\mid x)\nabla_\theta\log\pitheta(y\mid x)$ moves
+the gradient onto the log-probability, which \emph{is} differentiable:
+\begin{equation}
+\nabla_\theta J(\theta)
+ = \E_{x,\,y\sim\pitheta}\!\big[\,R(x,y)\,\nabla_\theta\log\pitheta(y\mid x)\big]
+ = \E\Big[R(x,y)\sum_{t=1}^{|y|}\nabla_\theta\log\pitheta(y_t\mid x,y_{<t})\Big].
+\label{eq:grpo:pg}
+\end{equation}
+The second equality is the autoregressive factorisation
+$\log\pitheta(y\mid x)=\sum_t\log\pitheta(y_t\mid x,y_{<t})$. A Monte Carlo estimate of
+\cref{eq:grpo:pg} needs only samples and their log-probabilities: sample, score, and push
+up the log-probability of each sample in proportion to its reward. This is the REINFORCE
+estimator (Williams, 1992). It is unbiased but very noisy. The standard fix is to subtract a
+\emph{baseline} $b(x)$ that does not depend on $y$:
+\begin{equation}
+\E_{y\sim\pitheta}\big[b(x)\nabla_\theta\log\pitheta(y\mid x)\big]
+ = b(x)\sum_y\nabla_\theta\pitheta(y\mid x)
+ = b(x)\nabla_\theta\underbrace{\textstyle\sum_y\pitheta(y\mid x)}_{=1}=0,
+\end{equation}
+so replacing $R$ by the \emph{advantage} $A=R-b(x)$ leaves the gradient unbiased and can
+reduce its variance dramatically. Every algorithm in this chapter and the next is a choice
+of (i) how to estimate the baseline, (ii) how to weight and clip each token's contribution,
+and (iii) how far the policy may move per update.
+
+\subsection{The original pipeline: RL from human feedback}\label{sec:grpo:rlhf}\covers{RM 6.1.1}
+
+RL entered mainstream LLM training through InstructGPT (Ouyang et al., 2022),
+the recipe that turned GPT-3 into the first ChatGPT. Its RL from human feedback (RLHF)
+pipeline has two phases (\cref{fig:grpo:rlhf}).
+
+\emph{Phase 1: learn a reward model.} For many prompts, sample several responses (with the
+temperature and nucleus sampling of \cref{ch:scaling}) and ask annotators to rank them.
+Take a question like ``Which laptop specs matter if I mostly program?'' One answer lists
+fifteen components; another says ``prioritise RAM and an SSD, and a GPU only if you train
+models locally''. Annotators tend to prefer the specific answer. A \emph{reward model}
+$r_\phi(x,y)$, usually an LLM with a scalar head, is fitted to these comparisons with the
+Bradley--Terry likelihood (\cref{ch:eval}):
+\begin{equation}
+\mathcal{L}_{\text{RM}}(\phi)=-\E_{(x,y^+,y^-)}\log\sigma\big(r_\phi(x,y^+)-r_\phi(x,y^-)\big).
+\end{equation}
+
+\emph{Phase 2: optimise the policy against the reward model.} Generate responses, score
+them with $r_\phi$, and update the policy with Proximal Policy Optimization (PPO)
+(Schulman et al., 2017). PPO maximises a clipped surrogate (\cref{ch:grpo2})
+using per-token advantages from a learned \emph{value model} $V_\psi(s_t)$ (the critic)
+via generalised advantage estimation, and it subtracts a per-token KL penalty
+$\beta\log\frac{\pitheta}{\piref}$ from the reward so the policy does not drift into text
+that fools the reward model.
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[b/.style={draw,rounded corners=2pt,align=center,font=\small,minimum height=8mm},
+  >={Stealth[length=2mm]}]
+\node[font=\small\bfseries,anchor=west] at (-0.3,1.1) {Phase 1: fit a reward model};
+\node[b,fill=fdata!12] (p1) at (0.6,0) {prompt};
+\node[b,fill=fcompute!12] (l1) at (2.6,0) {policy\\LLM};
+\node[b,fill=white,text width=24mm] (r1) at (5.4,0) {responses\\A, B, C, D};
+\node[b,fill=fcomm!12] (h1) at (8.4,0) {humans rank\\{\scriptsize C $\succ$ A $\succ$ D $\succ$ B}};
+\node[b,fill=napkin!15] (rm) at (12.5,0) {reward model\\$r_\phi(x,y)\in\R$};
+\draw[->] (p1)--(l1); \draw[->] (l1)--(r1); \draw[->] (r1)--(h1);
+\draw[->] (h1)--node[above,font=\scriptsize]{BT loss}(rm);
+\node[font=\small\bfseries,anchor=west] at (-0.3,-1.3) {Phase 2: optimise the policy};
+\node[b,fill=fdata!12] (p2) at (0.6,-2.4) {prompt};
+\node[b,fill=fcompute!12] (l2) at (2.6,-2.4) {policy\\$\pitheta$};
+\node[b,fill=white] (r2) at (5.4,-2.4) {response $y$};
+\node[b,fill=napkin!15] (rm2) at (8.4,-2.4) {$r_\phi(x,y)$};
+\node[b,fill=fcompute!25,text width=27mm] (ppo) at (12.5,-2.4) {PPO update\\{\scriptsize + value model, KL to $\piref$}};
+\draw[->] (p2)--(l2); \draw[->] (l2)--(r2); \draw[->] (r2)--(rm2); \draw[->] (rm2)--(ppo);
+\draw[->,thick,fcompute] (ppo.south) -- ++(0,-0.5) -| node[pos=0.25,below,font=\scriptsize]{gradient step on $\theta$} (l2.south);
+\draw[->,dashed,napkin] (rm.south)--(rm2.north);
+\end{tikzpicture}}
+\caption{RLHF. Phase 1 turns human rankings into a learned scalar reward. Phase 2 samples
+from the policy, scores each sample with the frozen reward model and updates the policy
+with PPO. The same skeleton (generate, score, update) survives in RLVR; only the scorer
+changes.}
+\label{fig:grpo:rlhf}
+\end{figure}
+
+RLHF matters to us as the ancestor of RLVR. The control flow is the one we will implement:
+generate, score, update. What makes RLHF heavy is the cast of models. A PPO-based RLHF step
+touches four networks of comparable size: the policy (trained), the value model (trained),
+the reward model (frozen) and the reference policy (frozen).
+
+\begin{napkinmath}[the four-model tax of PPO-RLHF]
+Take an 8B policy with mixed-precision AdamW at 16 bytes per trained parameter
+(\cref{ch:pretrain}).
+\begin{itemize}
+\item Policy (trained): $8\times10^9\times16\,\text{B}=128$\,GB.
+\item Value model (trained, same size): another 128\,GB.
+\item Reward model and reference model (frozen, bf16): $2\times 8\times10^9\times2\,\text{B}=32$\,GB.
+\end{itemize}
+That is $\approx288$\,GB of state before a single activation or KV-cache byte, so the job
+spans at least four 80\,GB GPUs just to hold it. GRPO drops the value model (no critic),
+and RLVR drops the reward model (a program replaces it). What remains is the policy
+plus, optionally, the reference: $\approx128+16=144$\,GB, roughly half.
+\end{napkinmath}
+
+\subsection{From human feedback to verifiable rewards}\label{sec:grpo:rlvr}\covers{RM 6.1.2}
+
+Training a reward model is expensive, and a learned scorer is also \emph{exploitable}:
+push hard enough and the policy finds outputs the reward model likes but humans do not
+(reward hacking). For tasks where correctness can be \emph{checked}, both problems
+disappear. RL with verifiable rewards (RLVR) replaces $r_\phi$ by a deterministic program
+(\cref{fig:grpo:rlvr}). For math, that program is the answer verifier of \cref{ch:eval}:
+extract the final \verb|\boxed{}| answer, normalise it, test equivalence with the reference,
+and return 1 or 0. For code it is a compiler plus unit tests run in a sandbox.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[b/.style={draw,rounded corners=2pt,align=center,font=\small,minimum height=8mm},
+  >={Stealth[length=2mm]}]
+\node[b,fill=fdata!12,text width=27mm] (q) {``Compute $7\cdot(2+4)-9$. Put the answer in \texttt{\textbackslash boxed\{\}}.''};
+\node[b,fill=fcompute!12,right=6mm of q] (pi) {policy $\pitheta$};
+\node[b,text width=27mm,right=6mm of pi] (y) {``$2+4=6$, $7\cdot 6=42$, $42-9=33$.
+ \texttt{\textbackslash boxed\{33\}}''};
+\node[b,fill=keygreen!15,right=6mm of y] (v) {verifier\\{\scriptsize vs.\ reference ``33''}};
+\node[b,fill=keygreen!35,below=7mm of v] (r) {$R=1$};
+\draw[->] (q)--(pi); \draw[->] (pi)--(y); \draw[->] (y)--(v); \draw[->] (v)--(r);
+\draw[->,thick,fcompute] (r.west) -| node[pos=0.3,below,font=\scriptsize]{policy-gradient update} (pi.south);
+\end{tikzpicture}
+\caption{RLVR collapses RLHF's two phases into one loop. A program (here, an answer
+checker) produces the reward, so there is no reward model to train, store or serve.}
+\label{fig:grpo:rlvr}
+\end{figure}
+
+RLVR became the default recipe for reasoning after DeepSeek-R1 (DeepSeek-AI, 2025)
+, which showed that correctness checks on math plus compile-and-test checks on code,
+with no human preference data and no learned reward model, are enough to grow long,
+self-correcting chains of thought. Its advantages:
+\begin{itemize}
+\item \textbf{No reward model.} One fewer network to train, store and run. The verifier
+is CPU code that costs microseconds to milliseconds per sample.
+\item \textbf{Determinism.} The same output always gets the same reward. There is no
+annotator disagreement and no reward-model noise.
+\item \textbf{Unlimited labels.} Given reference answers, any number of fresh samples can
+be scored without more human effort.
+\end{itemize}
+The price is \emph{scope}: RLVR only applies where a checker exists (math, code, formal
+proofs, structured extraction, games). It is also only as good as the checker. A verifier
+that accepts \verb|\boxed{33.0000001}| or that reads the \emph{first} box when the model
+writes ten will be gamed. Code rewards add an operational burden: model-generated programs
+must run in an isolated sandbox with CPU, memory and time limits and no network access, a
+small distributed system of its own (\cref{ch:rlsys}). The RL algorithm is identical either
+way, so we stay with math.
+
+% ======================================================================
+\section{RLVR with GRPO}\label{sec:grpo:grpo}\covers{RM 6.2}
+
+RLVR fixes \emph{where the learning signal comes from}. We still need a policy optimiser
+that turns rewards into weight updates. PPO is the classic choice. GRPO, introduced in
+DeepSeekMath (Shao et al., 2024) and used for DeepSeek-R1, is a simplification
+that removes PPO's value model. Instead of learning $V_\psi(s)$ to predict how good a state
+is, GRPO samples a \emph{group} of $G$ completions for the same prompt and uses the group's
+own reward statistics as the baseline. That is the ``group relative'' in the name.
+
+\begin{figure}[ht]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[m/.style={draw,rounded corners=2pt,minimum width=20mm,minimum height=8mm,
+  align=center,font=\small},>={Stealth[length=2mm]}]
+\node[font=\bfseries] at (2.4,1.4) {PPO};
+\node[m,fill=fcompute!20] (pp) at (0,0) {policy\\{\scriptsize trained}};
+\node[m,fill=fcompute!20] (pv) at (2.4,0) {value $V_\psi$\\{\scriptsize trained}};
+\node[m,fill=gray!15] (pr) at (4.8,0) {reference\\{\scriptsize frozen}};
+\node[m,fill=gray!15] (prm) at (2.4,-1.3) {reward model\\{\scriptsize frozen}};
+\node[font=\scriptsize,align=center] at (2.4,-2.35) {advantage $A_t$ from GAE over $V_\psi$\\one sample per prompt is enough};
+\begin{scope}[xshift=8cm]
+\node[font=\bfseries] at (2.4,1.4) {GRPO + RLVR};
+\node[m,fill=fcompute!20] (gp) at (0.8,0) {policy\\{\scriptsize trained}};
+\node[m,fill=gray!15] (gr) at (4.0,0) {reference\\{\scriptsize frozen, optional}};
+\node[m,fill=keygreen!15] (gv) at (2.4,-1.3) {verifier\\{\scriptsize a program}};
+\node[font=\scriptsize,align=center] at (2.4,-2.35) {advantage $A_i$ from the group of $G$\\samples of the \emph{same} prompt};
+\end{scope}
+\draw[dashed,gray] (6.9,1.6)--(6.9,-2.7);
+\end{tikzpicture}}
+\caption{The cast of models. PPO-based RLHF trains a critic and runs a reward model. GRPO
+with verifiable rewards replaces the critic by group statistics and the reward model by a
+program. The only extra network left is an optional frozen reference for a KL penalty.}
+\label{fig:grpo:cast}
+\end{figure}
+
+GRPO is not free, though: it moves cost from \emph{memory} (no critic) to \emph{sampling}
+(G completions per prompt instead of one). Since sampling is the expensive phase of RL
+(\cref{sec:grpo:loop}), that trade is worth understanding precisely, and much of
+\cref{ch:rlsys} is about making it cheaper.
+
+\subsection{An intuition: practising a climbing route}\label{sec:grpo:analogy}\covers{RM 6.2.1}
+
+GRPO has many moving parts and a lot of RL jargon, so before the equations here is a
+picture to hang them on. Imagine a climber training on an indoor bouldering wall.
+\begin{enumerate}
+\item The coach points at a \textbf{route} (the \emph{prompt}).
+\item The climber makes several \textbf{attempts} at it, each a little different because
+their movement is not perfectly repeatable (the \emph{rollouts}, sampled at temperature
+$>0$).
+\item The only feedback is binary and comes at the very end: did they \textbf{top out}?
+Nobody grades individual moves (a \emph{sparse, outcome reward}).
+\item After the session the climber compares attempts \textbf{with each other}: an
+attempt that topped out on a route they usually fail is very informative, while an
+attempt that topped out on a route they always send is not (the \emph{group-relative
+advantage}).
+\item For every attempt they recall how \textbf{habitual} its moves were, that is, how
+likely they would be to repeat that exact sequence (the \emph{log-probability}).
+\item They adjust their habits: make the move sequences of better-than-average attempts
+more habitual and the others less so (the \emph{policy-gradient update}).
+\item Optionally they check they are not drifting away from the fundamentals their
+first coach drilled into them (the \emph{KL penalty to a reference policy}) and avoid
+overhauling their style in a single session (\emph{clipping}, \cref{ch:grpo2}).
+\end{enumerate}
+Notice what is \emph{absent}: no one trained a separate judge to predict how good an
+attempt will be halfway up the wall. That judge would be PPO's value model, and GRPO does
+without it by comparing whole attempts on the same route.
+
+\subsection{The GRPO procedure}\label{sec:grpo:procedure}\covers{RM 6.2.2}
+
+Formally, for a prompt $x$ GRPO samples a group $\{y_1,\dots,y_G\}\sim\piold(\cdot\mid x)$,
+scores each with the verifier to get $r_1,\dots,r_G$, and forms the advantages
+\begin{equation}
+A_i=\frac{r_i-\operatorname{mean}(r_{1:G})}{\operatorname{std}(r_{1:G})+\epsilon}.
+\label{eq:grpo:adv}
+\end{equation}
+Every token of completion $i$ shares the same advantage $A_i$. The full objective of
+DeepSeekMath, which we build up to over two chapters, is
+\begin{equation}
+\mathcal{J}(\theta)=\E\Bigg[\frac1G\sum_{i=1}^{G}\frac1{|y_i|}\sum_{t=1}^{|y_i|}
+\Big(\min\big(\rho_{i,t}A_i,\ \clip(\rho_{i,t},1-\varepsilon,1+\varepsilon)A_i\big)
+-\beta\,\mathbb{D}_{i,t}\Big)\Bigg],
+\label{eq:grpo:full}
+\end{equation}
+with the per-token importance ratio
+$\rho_{i,t}=\pitheta(y_{i,t}\mid x,y_{i,<t})/\piold(y_{i,t}\mid x,y_{i,<t})$, and where $\mathbb{D}_{i,t}$ is a per-token estimate of $\KL(\pitheta\,\|\,\piref)$. That is a
+lot at once. This chapter implements the core, the advantage-weighted log-likelihood
+\begin{equation}
+\mathcal{L}_{\text{PG}}(\theta)=-\frac1G\sum_{i=1}^G A_i\,\log\pitheta(y_i\mid x)
+ =-\frac1G\sum_{i=1}^G A_i\sum_{t}\log\pitheta(y_{i,t}\mid x,y_{i,<t}),
+\label{eq:grpo:pg_loss}
+\end{equation}
+which is REINFORCE with a group-mean baseline and group-std scaling. \Cref{ch:grpo2} adds
+the ratio and clipping, the KL term and format rewards, and examines the many variants
+(token- vs.\ sequence-level averaging, no std scaling, \dots) that recent work proposes.
+\Cref{fig:grpo:step} shows the six stages for one prompt with numbers we compute later in
+this chapter. Keep it at hand; every section below fills in one box.
+
+% (figure fig:grpo:step is defined in the worked-example section below)
+
+% ======================================================================
+\section{Loading a pretrained model}\label{sec:grpo:load}\covers{RM 6.3}
+
+GRPO needs a policy that \emph{sometimes} succeeds. If every rollout gets reward 0, every
+advantage in \cref{eq:grpo:adv} is 0 and nothing is learned (\cref{sec:grpo:adv}). That is
+why reasoning RL starts from a capable pretrained model rather than from random weights.
+At full scale we start from the Qwen3-0.6B \emph{base} checkpoint of \cref{ch:modern},
+loaded with the same helper used throughout Part~V:
+
+\begin{lstlisting}[caption={Loading the base policy and its tokenizer (real-hardware path of \texttt{run.py}).},label={lst:grpo:load}]
+from llmsys.qwen3 import load_qwen3_from_dir, Qwen3Tokenizer
+from llmsys.utils import get_device
+
+device = get_device()                       # cuda > mps > cpu
+model = load_qwen3_from_dir("Qwen3-0.6B-Base", "0.6B",
+                            dtype=torch.bfloat16, device=device)
+tok = Qwen3Tokenizer("Qwen3-0.6B-Base/tokenizer.json")
+tok.eos_token_id = tok.pad_token_id         # base model ends text with <|endoftext|>
+\end{lstlisting}
+
+Before training, sample one answer with the temperature and top-$p$ sampler of
+\cref{ch:scaling} to make sure everything is wired correctly. A base model asked
+``Half of $3x-9$ equals $x+37$; find $x$'' will often produce a wrong or unboxed answer,
+which is fine: we only need the plumbing to work.
+
+\paragraph{A CPU-sized stand-in.} A single GRPO step on Qwen3-0.6B generates tens of
+thousands of tokens, and the experiment is only practical on a GPU. To make every result in
+this chapter reproducible on a laptop we also use a \emph{toy verifiable task}
+(\code{llmsys.rl.toy}): single-digit addition. The prompt is \verb|Q:3+5=\nA:| and a
+fully rewarded completion is \verb|\boxed{8}| followed by \verb|<|\verb+|eos|>+. A 2-layer,
+64-wide Qwen3-shaped model (about \num{76000} parameters, with the same RMSNorm, RoPE, GQA
+and SwiGLU code as the real one) is first \emph{SFT-warm-started} on deliberately
+imperfect demonstrations: 40\% of answers are off by one, only 30\% are boxed, and 20\%
+open with a \verb|<think>...</think>| scratchpad. This mimics the situation of a real base
+model: it ``knows'' the arithmetic most of the time but rarely presents the answer in the
+format the verifier insists on. Every curve in \cref{fig:grpo:curves} and every number in
+\cref{fig:grpo:step} comes from this toy, measured on a CPU in this book's build
+environment.
+
+\begin{pitfall}[\code{inference\_mode} versus \code{no\_grad}]
+The generation helpers of earlier chapters were wrapped in
+\code{@torch.inference\_mode()}. Tensors created inside inference mode are flagged and can
+\emph{never} participate in autograd later, so reusing the sampled ids or cached
+activations in the differentiable log-probability pass raises an error. RL code that
+samples and then trains must sample under \code{@torch.no\_grad()}, which disables
+gradient tracking without tagging the outputs.
+\end{pitfall}
+
+% ======================================================================
+\section{Loading a MATH training subset}\label{sec:grpo:data}\covers{RM 6.4}
+
+The MATH dataset (Hendrycks et al., 2021) has about \num{12500} competition problems.
+Five hundred of them form MATH-500, the evaluation set of \cref{ch:eval}. For training we
+use the remaining \num{12000}, a split built to exclude every MATH-500 problem
+(\cref{fig:grpo:split}), so that evaluation numbers measure generalisation rather than
+memorisation. Contamination is a systems problem as much as a statistical one: once
+training data is assembled from many sources by many scripts, someone must
+\emph{prove} that the test set is not in it (\cref{ch:eval} discusses $n$-gram overlap
+checks).
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[font=\small]
+\fill[fdata!35] (0,0) rectangle (9.6,0.7);
+\fill[warnred!45] (9.6,0) rectangle (10,0.7);
+\draw (0,0) rectangle (10,0.7);
+\node at (4.8,0.35) {training split: \num{12000} problems (this chapter, Ch.~\ref{ch:distill})};
+\node[anchor=west,font=\scriptsize] at (10.1,0.35) {MATH-500};
+\draw[decorate,decoration={brace,amplitude=4pt,mirror}] (0,-0.1)--(10,-0.1)
+  node[midway,below=4pt,font=\scriptsize]{MATH: $\approx$\num{12500} problems, 7 subjects, difficulty levels 1--5};
+\end{tikzpicture}
+\caption{Disjoint training and evaluation splits of MATH. RL samples only from the left
+part; all reported accuracies use the right part.}
+\label{fig:grpo:split}
+\end{figure}
+
+A record has the fields \code{problem}, \code{answer}, \code{solution}, \code{type}
+(subject), \code{level} and an id:
+
+\begin{lstlisting}[style=plain,caption={Shape of one training record (contents abbreviated).},label={lst:grpo:record}]
+{"problem":  "A rental costs $12 per day plus $0.15 per mile. ... How many miles?",
+ "answer":   "180",
+ "solution": "Let m be the number of miles ... so m = \\boxed{180}.",
+ "type": "Algebra", "level": "Level 2", "unique_id": 917}
+\end{lstlisting}
+
+RLVR uses only \code{problem} (the prompt) and \code{answer} (what the verifier compares
+against). The worked \code{solution} is deliberately \emph{not} used. Rewarding similarity
+to a reference derivation would push the model towards one particular style of proof,
+whereas an outcome reward lets it explore any path that ends at the right answer. This is
+the essential difference from supervised fine-tuning on solutions (\cref{ch:distill}).
+For the toy task, \code{make\_examples} enumerates the 100 facts $a+b$ with
+$a,b\in\{0,\dots,9\}$. Because the toy's ``knowledge'' comes from SFT on all 100 facts, we
+train and evaluate on the same prompts and read evaluation as \emph{in-distribution}
+accuracy; the code also supports a held-out split for the exercises.
+
+% ======================================================================
+\section{Sampling rollouts}\label{sec:grpo:rollouts}\covers{RM 6.5}
+
+Stage 1 of GRPO samples $G$ completions per prompt from the current policy.
+\Cref{lst:grpo:sample} is the whole sampler: prefill the prompt into a KV cache
+(\cref{ch:inference}), then decode one token at a time with temperature and top-$p$
+(\cref{ch:scaling}) until EOS or the token budget.
+
+\begin{lstlisting}[caption={Unbatched rollout sampler (\texttt{labs/lab17\_grpo/solution.py}).},label={lst:grpo:sample}]
+@torch.no_grad()
+def sample_response(model, tokenizer, prompt, max_new_tokens=32,
+                    temperature=1.0, top_p=1.0, generator=None):
+    device = next(model.parameters()).device
+    prompt_ids = torch.tensor(tokenizer.encode(prompt), device=device)
+    cache = KVCache(model.n_layers)
+    logits = model(prompt_ids[None], cache=cache)[:, -1]   # prefill
+    generated = []
+    for _ in range(max_new_tokens):                        # decode
+        nxt = sample_next_token(logits, temperature, None, top_p,
+                                generator)
+        generated.append(int(nxt))
+        if int(nxt) == tokenizer.eos_token_id:
+            break
+        logits = model(nxt, cache=cache)[:, -1]
+    full = torch.cat([prompt_ids,
+                      torch.tensor(generated, device=device)])
+    return full, prompt_ids.numel(), tokenizer.decode(generated)
+\end{lstlisting}
+
+Three details matter. First, the function returns the \emph{full} id sequence and the
+prompt length, which is exactly what the log-probability stage needs, so nothing has to be
+re-tokenised (re-tokenising decoded text is a classic RL bug because
+$\text{encode}(\text{decode}(y))\neq y$ for many BPE sequences). Second, the EOS token is
+\emph{kept} in the completion. It is a real action the policy took, and if it were never
+trained on, a long RL run could slowly forget how to stop. Third, it uses an explicit
+\code{torch.Generator} so a rollout can be replayed bit for bit in tests.
+
+Calling \code{sample\_response} $G$ times in a loop is the clearest form, and the version the
+chapter's walkthrough uses. It is also the slowest. The library sampler
+\code{llmsys.rl.rollout.sample\_rollouts} stacks all $P\times G$ sequences of a step into one
+left-padded batch (\code{generate\_batch} from \cref{ch:serving}). Since decode is
+memory-bound, a batch of 64 costs barely more per step than a batch of 1.
+
+\begin{systemslens}[a GRPO step is mostly an inference job]
+Consider $P\times G=64$ rollouts of up to 1024 new tokens after a 256-token prompt.
+Using the roofline helper \code{llmsys.flops.decode\_step\_time\_lower\_bound} on an H100:
+\begin{itemize}
+\item \textbf{Qwen3-0.6B.} Every decode step must stream 1.19\,GB of weights plus a KV
+cache that reaches 9.4\,GB at 1280 tokens (64 sequences). Summed over 1024 steps, the
+bandwidth bound alone is $\approx$\,2.1\,s. The training side (old-logprob forward plus
+forward/backward on $64\times1280$ tokens, $\approx6N\!\cdot\!\text{tokens}=2.9\times10^{14}$
+FLOPs) takes $\approx$\,0.3\,s at peak, or 0.74\,s at a realistic 40\% MFU.
+\item \textbf{Qwen3-8B.} Rollouts: $\approx$\,7.2\,s lower bound. Training:
+$4.0\times10^{15}$ FLOPs, $\approx$\,10\,s at 40\% MFU.
+\end{itemize}
+So ``rollouts dominate'' is not a law of nature. It depends on model size, response length
+and how close the sampler gets to the bandwidth roofline. Real samplers rarely exceed 50\%
+of peak bandwidth, reasoning responses are 4--32$\times$ longer than 1024 tokens, and the
+\emph{slowest} rollout in the batch sets the step time (the long-tail problem of
+\cref{ch:rlsys}). In practice, rollouts take most of the wall-clock time in reasoning RL,
+which is why production systems run them on a dedicated inference engine (vLLM, SGLang)
+rather than in the trainer.
+\end{systemslens}
+
+% ======================================================================
+\section{Calculating rewards}\label{sec:grpo:rewards}\covers{RM 6.6}
+
+Stage 2 scores each rollout. Our reward is the verifier of \cref{ch:eval} in its strictest
+mode: the answer must appear inside \verb|\boxed{}|, and the boxed content must match the
+reference after normalisation.
+
+\begin{lstlisting}[caption={The RLVR reward: correct \emph{and} boxed.},label={lst:grpo:reward}]
+def reward_rlvr(text, truth):
+    pred = extract_boxed(text)          # last \boxed{...}, nested braces ok
+    if pred is None:
+        return 0.0                      # implicit format requirement
+    return float(normalize_answer(pred) == normalize_answer(truth))
+\end{lstlisting}
+
+The \code{None} branch is doing quiet but important work. A response that says ``the answer
+is 8'' gets nothing, even though it is right. The reward therefore teaches two things at
+once, correctness and the output contract that the evaluation harness relies on. For the
+four toy completions of the prompt \verb|Q:4+3=| shown in \cref{fig:grpo:step} the rewards
+are $(1,1,0,0)$: the third is correct but unboxed, the fourth is boxed but wrong.
+
+\begin{keyidea}[outcome rewards beat process rewards (so far)]
+It is tempting to reward intermediate steps with a \emph{process reward model} (PRM).
+The DeepSeek-R1 report describes trying this and abandoning it: per-step rewards were hard
+to define, expensive to compute and easy to hack. Rewarding only the final answer and
+letting the model discover its own intermediate steps worked better. Process supervision
+remains useful at \emph{inference} time for reranking (\cref{ch:refine}).
+\end{keyidea}
+
+\begin{pitfall}[verifier loopholes become policy behaviour]
+Whatever the verifier tolerates, RL will find. A checker that reads the \emph{first}
+\verb|\boxed{}| teaches the model to write many boxes; one that does substring matching
+teaches it to box long lists of numbers. Extract the \emph{last} box, require it to be
+unique if you can afford to, cap the length of the boxed content, and unit-test the
+verifier against adversarial strings before any long run.
+\end{pitfall}
+
+% ======================================================================
+\section{From rewards to advantages}\label{sec:grpo:adv}\covers{RM 6.7}
+
+A reward says how good one rollout is in absolute terms. An \emph{advantage} says how much
+better or worse it is than its siblings for the same prompt (\cref{eq:grpo:adv}):
+
+\begin{lstlisting}[caption={Group-relative advantages.},label={lst:grpo:adv}]
+def compute_advantages(rewards, eps=1e-4):
+    rewards = rewards.float()
+    return (rewards - rewards.mean()) / (rewards.std() + eps)   # unbiased std
+\end{lstlisting}
+
+For rewards $(1,1,0,0)$ the mean is $0.5$, the unbiased standard deviation is
+$\sqrt{1/3}=0.577$, and the advantages are $(+0.866,+0.866,-0.866,-0.866)$. The advantage
+multiplies the gradient of each rollout's log-likelihood: positive values make that
+rollout more likely, negative values less likely, and values near zero contribute almost
+nothing.
+
+\paragraph{Binary rewards in closed form.} With $r_i\in\{0,1\}$ and a fraction $p$ of the
+group correct, $\operatorname{mean}=p$ and the unbiased std is
+$s=\sqrt{\tfrac{G}{G-1}p(1-p)}$. A correct rollout therefore gets
+$A^+=(1-p)/s$ and an incorrect one $A^-=-p/s$. \Cref{fig:grpo:advplot} plots both for
+$G=8$. When a prompt is hard (small $p$), the rare success gets a large positive push and
+each failure a small negative one; when it is easy, the reverse. Because the advantages sum
+to zero, the total ``probability mass'' moved is balanced within every group.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.72\linewidth,height=5.2cm,xlabel={fraction of the group that is correct, $p$},
+  ylabel={advantage},xmin=0,xmax=1,ymin=-3,ymax=3,grid=major,grid style={gray!20},
+  legend style={font=\scriptsize,at={(0.98,0.97)},anchor=north east},
+  xtick={0,0.125,0.25,0.5,0.75,0.875,1},xticklabels={0,$\frac18$,$\frac14$,$\frac12$,$\frac34$,$\frac78$,1},
+  tick label style={font=\scriptsize}]
+\addplot[very thick,keygreen,domain=0.125:0.875,samples=60] {(1-x)/sqrt(8/7*x*(1-x))};
+\addlegendentry{$A^+$ (correct rollout)}
+\addplot[very thick,warnred,domain=0.125:0.875,samples=60] {-x/sqrt(8/7*x*(1-x))};
+\addlegendentry{$A^-$ (wrong rollout)}
+\addplot[only marks,mark=*,keygreen,mark size=1.6pt] coordinates {(0.125,2.475)(0.25,1.620)(0.375,1.208)(0.5,0.935)(0.625,0.725)(0.75,0.540)(0.875,0.354)};
+\addplot[only marks,mark=*,warnred,mark size=1.6pt] coordinates {(0.125,-0.354)(0.25,-0.540)(0.375,-0.725)(0.5,-0.935)(0.625,-1.208)(0.75,-1.620)(0.875,-2.475)};
+\addplot[only marks,mark=square*,gray,mark size=2pt] coordinates {(0,0)(1,0)};
+\node[font=\scriptsize,gray,anchor=south west] at (axis cs:0.01,0.15) {all wrong: $A\equiv0$};
+\node[font=\scriptsize,gray,anchor=north east] at (axis cs:0.99,-0.2) {all right: $A\equiv0$};
+\end{axis}
+\end{tikzpicture}
+\caption{Advantages for binary rewards with $G=8$ (dots are the attainable values
+$p=k/8$). Rare successes on hard prompts receive the largest positive weight. At $p=0$ and
+$p=1$ every advantage is zero and the prompt contributes no gradient.}
+\label{fig:grpo:advplot}
+\end{figure}
+
+\paragraph{Zero-variance groups.} If all $G$ rollouts get the same reward, every advantage
+is zero (the $\epsilon$ in the denominator prevents a division by zero) and the policy
+gradient is exactly zero. This is the right behaviour: a group that is uniformly right or
+uniformly wrong says nothing about \emph{which} behaviour to reinforce. Its cost is real,
+though. We paid for $G$ full rollouts and got no gradient. With per-prompt success rate $p$
+the probability of a zero-variance group is $p^G+(1-p)^G$, which for $G=8$ is 27\% at
+$p=0.15$ and 43\% at $p=0.9$. \Cref{ch:grpo2} tracks this fraction and discusses DAPO's
+dynamic sampling, which spends extra rollouts to replace such groups.
+
+\begin{keyidea}[GRPO's baseline is a Monte Carlo value estimate]
+PPO learns $V_\psi(x)$, the expected reward from prompt $x$. GRPO estimates the same
+quantity by averaging $G$ samples, $\hat V(x)=\frac1G\sum_j r_j$. It is unbiased, needs no
+training, and its variance shrinks as $1/G$. It is \emph{not} independent of $y_i$, since
+$r_i$ is part of its own baseline, which introduces a small $O(1/G)$ bias; leave-one-out
+baselines (RLOO) remove it. Dividing by the group std is a separate heuristic that
+\cref{ch:grpo2} revisits (Dr.~GRPO drops it).
+\end{keyidea}
+
+% ======================================================================
+\section{Scoring rollouts with sequence log-probabilities}\label{sec:grpo:logprobs}\covers{RM 6.8}
+
+Stage 4 asks how likely the current policy was to produce each rollout. In
+\cref{ch:refine} we scored answers by their \emph{average} per-token log-probability,
+\begin{equation}
+\bar\ell(y\mid x)=\frac1{|y|}\sum_{t=1}^{|y|}\log\pitheta(y_t\mid x,y_{<t}),
+\end{equation}
+because length normalisation makes answers of different lengths comparable. GRPO, as we
+implement it in this chapter, uses the \emph{sum}, $\log\pitheta(y\mid x)=|y|\cdot\bar\ell$.
+The reward and the advantage belong to the whole sequence, so the quantity they multiply in
+\cref{eq:grpo:pg_loss} should be the log-likelihood of the whole sequence. Averaging would
+silently reweight the update: a 2000-token rollout and a 20-token rollout with the same
+advantage would contribute equal total gradient, so each token of the long one would be
+pushed 100 times less. Whether that is desirable is a real design question.
+\Cref{ch:grpo2} shows that the original GRPO paper actually \emph{does} average per sequence,
+and that DAPO and Dr.~GRPO each criticise a different consequence of that choice. For now,
+the summed version is the clean REINFORCE estimator.
+
+A side effect of summing is that sequence log-probabilities scale with length: each extra
+token adds a negative term. For two equally rewarded answers, the shorter one has the
+larger log-likelihood, and gradient ascent on $A\cdot\log\pi$ is ``cheaper'' along it. In the
+worked example (\cref{fig:grpo:step}) the 11-token answer with a \verb|<think>| scratchpad has
+log-probability $-3.06$, versus $-2.27$ for the bare 4-token boxed answer.
+
+\begin{lstlisting}[caption={Differentiable sequence log-probability. \texttt{gather} picks, for every position, the log-prob of the token that actually came next.},label={lst:grpo:seqlp}]
+def sequence_logprob(model, token_ids, prompt_len):
+    logits = model(token_ids[None])[0].float()   # (T, V), upcast to fp32
+    logprobs = torch.log_softmax(logits, dim=-1)
+    # row t predicts token t+1: pick the log-prob of the realised next token
+    picked = logprobs[:-1].gather(1, token_ids[1:, None]).squeeze(-1)
+    return picked[prompt_len - 1:].sum()         # completion tokens only
+\end{lstlisting}
+
+The indexing deserves a careful look (\cref{fig:grpo:shift}). Row $t$ of the logits
+predicts token $t+1$, so the first completion token (index \code{prompt\_len}) is scored by
+row \code{prompt\_len-1}. Slicing the \code{(T-1,)} vector from \code{prompt\_len-1} therefore
+keeps exactly the $|y|$ completion terms. A first draft might build an explicit
+\code{torch.arange} of positions and index with it. \code{gather} computes the same thing in
+one fused indexing kernel and avoids materialising index tensors.
+
+\begin{figure}[ht]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[c/.style={draw,minimum width=9mm,minimum height=6mm,font=\scriptsize\ttfamily},
+  >={Stealth[length=1.6mm]}]
+\foreach \t/\s/\f in {0/Q/fdata,1/:/fdata,2/4/fdata,3/+/fdata,4/3/fdata,5/=/fdata,6/\textbackslash n/fdata,7/A/fdata,8/:/fdata,9/\textbackslash box/fcompute,10/7/fcompute,11/\}/fcompute,12/eos/fcompute}
+  \node[c,fill=\f!15] (i\t) at (\t*0.95,0) {\s};
+\node[anchor=east,font=\scriptsize] at (-0.6,0) {ids};
+\foreach \t in {0,...,11} \node[c,fill=gray!8] (l\t) at (\t*0.95,-1.1) {$\ell_{\t}$};
+\node[anchor=east,font=\scriptsize] at (-0.6,-1.1) {logits row};
+\foreach \t in {8,...,11} {\pgfmathtruncatemacro{\n}{\t+1}\draw[->,fcompute,thick] (l\t.north) -- (i\n.south);}
+\draw[decorate,decoration={brace,amplitude=3pt,mirror},fcompute] (8*0.95-0.45,-1.5)--(11*0.95+0.45,-1.5)
+ node[midway,below=3pt,font=\scriptsize,fcompute]{rows \texttt{prompt\_len-1 .. T-2} score the completion};
+\draw[decorate,decoration={brace,amplitude=3pt},fdata] (-0.45,0.4)--(8*0.95+0.45,0.4)
+ node[midway,above=3pt,font=\scriptsize,fdata!80!black]{prompt, \texttt{prompt\_len}=9};
+\end{tikzpicture}}
+\caption{The off-by-one in log-probability extraction. Logit row $t$ predicts token $t+1$,
+so the completion (blue) is scored by rows $8,\dots,11$ for a 9-token prompt. The
+prompt's own likelihood is ignored, since the policy did not choose those tokens.}
+\label{fig:grpo:shift}
+\end{figure}
+
+The returned scalar carries a \code{grad\_fn}. PyTorch has recorded the graph from the
+weights through the embedding, every attention and MLP block, the LM head and the
+\code{log\_softmax} to this sum, so a later \code{backward()} will deliver
+$\nabla_\theta\log\pitheta(y\mid x)$, which is exactly the term the policy-gradient theorem asks for.
+
+\begin{systemslens}[the hidden $(T\times V)$ tensor]
+\code{log\_softmax(logits.float())} materialises a float32 tensor of shape
+$(N, T, |\mathcal V|)$ for $N$ rollouts. For Qwen3 ($|\mathcal V|=\num{151936}$), 8 rollouts
+of 2048 tokens need $8\times2048\times\num{151936}\times4\,\text{B}\approx10$\,GB, plus the
+same again for its gradient in the backward pass. That is often \emph{larger than the
+model}. Production trainers therefore (i) compute log-probs in row chunks, (ii) use fused
+``linear + cross-entropy'' kernels that never materialise the full logits (for example
+Liger-Kernel's fused linear cross-entropy), and (iii) recompute rather than store. Note
+also that we \emph{recompute} log-probs with a fresh forward pass instead of keeping the
+logits from sampling. Keeping them would pin $T$ autograd graphs from the decode loop,
+and in a real system the sampler is a different engine whose numerics differ from the
+trainer's anyway (\cref{ch:rlsys}).
+\end{systemslens}
+
+% ======================================================================
+\section{From advantages to a policy update: the GRPO loss}\label{sec:grpo:loss}\covers{RM 6.9}
+
+Stage 5 combines the two branches. Multiply each rollout's sequence log-probability by its
+advantage, average over the group, and negate (\cref{eq:grpo:pg_loss}):
+
+\begin{lstlisting}[caption={The policy-gradient loss.},label={lst:grpo:pgloss}]
+def policy_gradient_loss(advantages, logps):
+    return -(advantages.detach() * logps).mean()
+\end{lstlisting}
+
+The negation is only a convention. We want to \emph{maximise}
+$\sum_iA_i\log\pitheta(y_i\mid x)$, and PyTorch optimisers \emph{minimise}, so we minimise the
+negative. Lowering $-f$ from $-2$ to $-3$ is the same as raising $f$ from 2 to 3.
+\code{.detach()} marks the advantages as constants. They depend on rewards, which are not
+differentiable, and in a more elaborate setup (a learned reward or a baseline network) we
+would not want gradients leaking into them.
+
+Differentiating makes the mechanics explicit:
+\begin{equation}
+\nabla_\theta\mathcal{L}_{\text{PG}}=-\frac1G\sum_{i=1}^G A_i\sum_t\nabla_\theta\log\pitheta(y_{i,t}\mid x,y_{i,<t}).
+\end{equation}
+A gradient-descent step moves $\theta$ along $+A_i\nabla\log\pi(y_i)$. Every token of a
+positive-advantage rollout becomes more probable, and every token of a negative one less
+probable, \emph{including tokens the two rollouts share}. When a correct and an incorrect
+rollout both begin with \verb|\boxed{|, the shared prefix receives opposite pushes that
+partly cancel. What survives is the difference: the \verb|7| versus the \verb|8|.
+Credit assignment in GRPO emerges statistically from such cancellations across many groups,
+not from any per-token judgement.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[font=\small,
+  cell/.style={draw=gray!60,minimum height=7mm,anchor=center},
+  hdr/.style={font=\scriptsize\bfseries,align=center},
+  stage/.style={circle,fill=#1,text=white,font=\scriptsize\bfseries,inner sep=1.4pt},
+  >={Stealth[length=2mm]}]
+\node[draw=fdata,fill=fdata!10,rounded corners=2pt,align=center,font=\small] (pr) at (6.2,2.0)
+  {prompt $x$: \texttt{Q:4+3=}\textbackslash\texttt{n A:} \quad reference answer: 7};
+\node[stage=fdata,anchor=east] at (pr.west) {1};
+\node[draw=fcompute,fill=fcompute!12,rounded corners=2pt] (pol) at (6.2,1.05) {policy $\pitheta$ samples $G=4$ rollouts};
+\draw[->] (pr)--(pol);
+% header
+\node[hdr] at (0.6,0.2) {advantage\\$A_i$};
+\node[hdr] at (2.2,0.2) {reward\\$r_i$};
+\node[hdr] at (6.2,0.2) {rollout $y_i$};
+\node[hdr] at (10.0,0.2) {$\log\pitheta(y_i\mid x)$};
+\node[hdr] at (11.9,0.2) {$|y_i|$};
+\foreach \y/\a/\r/\txt/\lp/\L/\col in {
+  -0.6/+0.866/1/{\textbackslash boxed\{7\}}/-2.269/4/keygreen,
+  -1.35/+0.866/1/{<think>4+3=7</think>\textbackslash boxed\{7\}}/-3.059/11/keygreen,
+  -2.1/-0.866/0/{7 \ (correct, not boxed)}/-1.299/2/warnred,
+  -2.85/-0.866/0/{\textbackslash boxed\{8\}}/-3.400/4/warnred} {
+  \node[cell,fill=\col!15,minimum width=12mm] at (0.6,\y) {$\a$};
+  \node[cell,fill=\col!15,minimum width=10mm] at (2.2,\y) {$\r$};
+  \node[cell,fill=white,minimum width=58mm,font=\scriptsize\ttfamily] at (6.2,\y) {\txt};
+  \node[cell,fill=fcompute!8,minimum width=18mm] at (10.0,\y) {$\lp$};
+  \node[cell,fill=white,minimum width=9mm] at (11.9,\y) {$\L$};
+}
+\node[stage=keygreen] at (2.2,0.75) {2};
+\node[stage=keygreen] at (0.6,0.75) {3};
+\node[stage=fcompute] at (10.0,0.75) {4};
+\node[draw=sysblue,fill=sysblue!10,rounded corners=2pt,align=center] (loss) at (6.2,-4.0)
+  {$\mathcal{L}_{\text{PG}}=-\frac14\sum_iA_i\log\pitheta(y_i\mid x)=+0.136$};
+\node[stage=sysblue,anchor=east] at (loss.west) {5};
+\draw[->] (0.6,-3.2) |- (loss.west);
+\draw[->] (10.0,-3.2) |- (loss.east);
+\node[draw=sysblue,fill=sysblue!25,rounded corners=2pt] (upd) at (6.2,-5.0) {backward $+$ optimiser step on $\theta$};
+\node[stage=sysblue,anchor=east] at (upd.west) {6};
+\draw[->] (loss.south)--(upd.north);
+\end{tikzpicture}}
+\caption{One GRPO step on the toy task, with numbers computed from the SFT-warm-started
+model. (1) One prompt; (2) verifier rewards; (3) group-relative advantages; (4) summed
+log-probabilities from a differentiable forward pass; (5) the loss; (6) the update. The
+most likely rollout under the current policy, the unboxed ``7'', is penalised, because the
+reward requires the box.}
+\label{fig:grpo:step}
+\end{figure}
+
+\Cref{fig:grpo:step} traces the stages on our toy prompt. The loss is
+$-\tfrac14[0.866(-2.269)+0.866(-3.059)-0.866(-1.299)-0.866(-3.400)]=+0.136$. Its value is
+\emph{not} a measure of quality. Unlike a supervised loss it can be positive or negative,
+it does not trend towards zero, and two runs with identical learning can show very
+different loss curves. Only its gradient matters. Note what the update will do here: the
+unboxed ``7'' is currently the policy's favourite completion ($-1.30$ is the highest
+log-probability in the group), and it will become less likely, while both boxed correct
+answers become more likely. That is how RLVR teaches the output contract.
+
+\begin{deepdive}[why the summed loss equals ``ratio $\times$ advantage'' at ratio 1]
+\Cref{ch:grpo2} writes the objective with the importance ratio
+$\rho_i=\pitheta(y_i)/\piold(y_i)$ instead of $\log\pitheta(y_i)$. Since
+$\nabla_\theta\rho_i=\rho_i\nabla_\theta\log\pitheta(y_i)$ and $\rho_i=1$ when
+$\theta=\theta_{\text{old}}$, the two objectives have identical gradients on the first
+update after sampling. They differ only when the same rollouts are reused for several
+updates, which is exactly when clipping becomes necessary.
+\end{deepdive}
+
+% ======================================================================
+\section{Putting the stages into one function}\label{sec:grpo:onefn}\covers{RM 6.10}
+
+\Cref{lst:grpo:compute} packages stages 1--5 for one prompt. It interleaves stages 2 and 4
+inside the sampling loop (score each rollout and compute its log-probability as soon as it
+exists) to avoid a second loop. The logical dataflow is unchanged.
+
+\begin{lstlisting}[caption={\texttt{compute\_grpo\_loss}: stages 1--5 for one training example.},label={lst:grpo:compute}]
+def compute_grpo_loss(model, tokenizer, example, render_prompt,
+                      num_rollouts=4, max_new_tokens=16, temperature=1.0,
+                      top_p=1.0, generator=None):
+    assert num_rollouts >= 2, "GRPO needs a group to compare against"
+    prompt = render_prompt(example)
+    was_training = model.training
+    model.eval()                      # no dropout while sampling/scoring
+    logps, rewards, samples = [], [], []
+    for _ in range(num_rollouts):
+        # stage 1: sample a rollout
+        ids, plen, text = sample_response(model, tokenizer, prompt,
+                                          max_new_tokens, temperature,
+                                          top_p, generator)
+        r = reward_rlvr(text, example["answer"])             # stage 2
+        logps.append(sequence_logprob(model, ids, plen))     # stage 4
+        rewards.append(r)
+        samples.append({"text": text, "reward": r,
+                        "gen_len": ids.numel() - plen})
+    if was_training:
+        model.train()
+    adv = compute_advantages(torch.tensor(rewards))          # stage 3
+    loss = policy_gradient_loss(adv, torch.stack(logps))     # stage 5
+    return {"loss": loss.item(), "loss_tensor": loss, "rewards": rewards,
+            "advantages": adv.tolist(), "samples": samples}
+\end{lstlisting}
+
+The function returns both the Python float (for logging) and the tensor (for
+\code{backward()}), plus per-sample diagnostics. Run it on a prompt the policy cannot solve
+and you will see rewards $[0,0,\dots]$, advantages $[0,0,\dots]$ and a loss of exactly zero:
+a wasted step, which is the zero-variance case of \cref{sec:grpo:adv}.
+
+\begin{systemslens}[memory: why the loop above does not scale]
+Each \code{sequence\_logprob} call keeps its autograd graph alive until \code{backward()}.
+With $G$ rollouts that means $G$ sets of saved activations at once, $G$ times the memory
+of one training sequence. At $G=8$ and 2048 tokens on Qwen3-0.6B this is several GB of
+activations before counting the $(T\times V)$ logits. The batched trainer
+(\code{llmsys.rl.trainer}) fixes this the standard way. It computes the ``old'' log-probs of all
+rollouts under \code{no\_grad}, then runs the differentiable pass in \emph{micro-batches}
+(\code{minibatches} in \code{GRPOConfig}), calling \code{backward()} after each, so peak
+activation memory is that of one micro-batch. Gradient accumulation over micro-batches gives
+the same update as one big batch for the summed loss (and the same up to the averaging
+constant for the other aggregations of \cref{ch:grpo2}).
+\end{systemslens}
+
+% ======================================================================
+\section{The GRPO training loop}\label{sec:grpo:loop}\covers{RM 6.11}
+
+With the loss in hand, the outer loop is an ordinary PyTorch training loop
+(\cref{fig:grpo:loop}). Only one box, the loss, is specific to RL.
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[b/.style={draw,rounded corners=2pt,minimum height=9mm,text width=22mm,align=center,font=\small},
+  n/.style={circle,fill=#1,text=white,font=\scriptsize\bfseries,inner sep=1.3pt},>={Stealth[length=2mm]}]
+\node[b,fill=gray!10] (s1) at (0,0) {init policy\\+ AdamW};
+\node[b,fill=gray!10] (s2) at (3,0) {next example\\(step $k$)};
+\node[b,fill=gray!10] (s3) at (6,0) {\code{zero\_grad()}};
+\node[b,fill=fcompute!25,text width=26mm] (s4) at (9.4,0) {\textbf{GRPO loss}\\stages 1--5};
+\node[b,fill=gray!10] (s5) at (9.4,-1.9) {\code{backward()}\\+ clip $\|g\|\le1$};
+\node[b,fill=gray!10,text width=26mm] (s6) at (6,-1.9) {\code{optimizer.step()}};
+\node[b,fill=fdata!15] (s7) at (3,-1.9) {log reward,\\length, loss};
+\node[b,fill=fdata!15] (s8) at (0,-1.9) {checkpoint\\every $c$ steps};
+\foreach \x/\c/\i in {s1/gray/1,s2/gray/2,s3/gray/3,s4/fcompute/4,s5/gray/5,s6/gray/6,s7/keygreen/7,s8/keygreen/8}
+ \node[n=\c] at (\x.north west) {\i};
+\draw[->] (s1)--(s2); \draw[->] (s2)--(s3); \draw[->] (s3)--(s4); \draw[->] (s4)--(s5);
+\draw[->] (s5)--(s6); \draw[->] (s6)--(s7); \draw[->] (s7)--(s8);
+\draw[->,dashed] (s8.north) to[bend left=20] node[left,font=\scriptsize]{repeat} (s2.south west);
+\end{tikzpicture}}
+\caption{The GRPO training loop. Stages 1--3 and 5--6 are boilerplate; 7--8 are
+optional bookkeeping (metrics and checkpoints). Only stage 4, the loss, is RL-specific.}
+\label{fig:grpo:loop}
+\end{figure}
+
+\begin{lstlisting}[caption={The training loop (abridged from \texttt{train\_rlvr\_grpo}; CSV logging and checkpointing elided).},label={lst:grpo:loop}]
+def train_rlvr_grpo(model, tokenizer, data, render_prompt, steps=50,
+                    num_rollouts=4, max_new_tokens=16, temperature=1.0,
+                    top_p=1.0, lr=3e-4, grad_clip=1.0, seed=0):
+    gen = torch.Generator().manual_seed(seed)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.0)
+    for step in range(steps):
+        opt.zero_grad(set_to_none=True)
+        ex = data[step % len(data)]
+        stats = compute_grpo_loss(model, tokenizer, ex, render_prompt,
+                                  num_rollouts, max_new_tokens,
+                                  temperature, top_p, gen)
+        stats["loss_tensor"].backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        opt.step()
+        n = len(stats["samples"])
+        reward_avg = sum(stats["rewards"]) / n
+        resp_len = sum(x["gen_len"] for x in stats["samples"]) / n
+        print(f"[{step+1}/{steps}] loss={stats['loss']:.4f} "
+              f"reward_avg={reward_avg:.3f} len={resp_len:.1f}")
+\end{lstlisting}
+
+\paragraph{Hyperparameters.} On real models, a temperature of 0.7--1.0 with top-$p$
+around 0.9 gives enough diversity within a group for the advantages to be informative,
+while keeping completions coherent. The learning rate is small, about $10^{-6}$ to
+$10^{-5}$ for a 0.6B model with AdamW, because every step changes a policy that is
+simultaneously generating its own training data, and a large step can trigger a feedback
+loop of degenerate samples. The group size $G$ (4--16) and the response budget (512 to
+tens of thousands of tokens) are mostly a compute decision. Gradient clipping at norm 1 is
+cheap insurance against the occasional huge-advantage group.
+
+\paragraph{Reading the output.} Expect noisy logs. With $G=4$ and binary rewards the
+per-step reward can only take the values $0,\frac14,\frac12,\frac34,1$, and steps with
+reward 0 or 1 print a loss of exactly zero because their advantages vanish. Large loss
+magnitudes simply mean that the group disagreed strongly. They do not signal trouble. The
+quantities to watch are the \emph{moving averages} of reward and response length and,
+periodically, accuracy on held-out data. On Qwen3-0.6B with MATH, the source book's
+reference runs show that a few dozen GRPO steps with 4--8 rollouts of $\le512$ tokens move
+MATH-500 accuracy from the mid-teens to the mid-forties, approaching the official reasoning
+variant of the same model. The model mostly learns to finish its reasoning with a boxed
+answer inside the budget, and secondarily to reason better.
+
+\Cref{fig:grpo:curves} shows the same dynamics on our toy task with the batched trainer
+(\code{run.py toy-batched}): format is learned almost immediately, correctness keeps
+improving, and entropy decays as the policy sharpens. The greedy accuracy \emph{without}
+the box requirement also rose, from 68\% after SFT to 96\%. The SFT demonstrations were
+right only 60\% of the time, so RL has turned an inconsistent arithmetic skill into a
+reliable one. This ``sharpening'' of behaviour the base model can already produce is
+widely regarded as the main effect of RLVR at small scale.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 2,horizontal sep=1.6cm,vertical sep=1.2cm},
+  width=0.48\linewidth,height=4.2cm,xmin=0,xmax=200,grid=major,grid style={gray!15},
+  tick label style={font=\scriptsize},label style={font=\small},ylabel shift=-3pt]
+\nextgroupplot[ylabel={reward (train)},ymin=0,ymax=1.05]
+\addplot[sysblue!35,thin] coordinates {(1,0.141) (2,0.188) (3,0.266) (4,0.266) (5,0.250) (6,0.234) (7,0.422) (8,0.406) (9,0.422) (10,0.625) (11,0.422) (12,0.656) (13,0.344) (14,0.453) (15,0.672) (16,0.484) (17,0.594) (18,0.531) (19,0.281) (20,0.547) (21,0.547) (22,0.500) (23,0.438) (24,0.562) (25,0.344) (26,0.391) (27,0.562) (28,0.578) (29,0.688) (30,0.500) (31,0.547) (32,0.438) (33,0.609) (34,0.531) (35,0.500) (36,0.703) (37,0.781) (38,0.688) (39,0.578) (40,0.438) (41,0.516) (42,0.484) (43,0.672) (44,0.453) (45,0.750) (46,0.516) (47,0.500) (48,0.609) (49,0.672) (50,0.750) (51,0.547) (52,0.594) (53,0.656) (54,0.516) (55,0.625) (56,0.484) (57,0.672) (58,0.641) (59,0.594) (60,0.781) (61,0.547) (62,0.703) (63,0.750) (64,0.453) (65,0.594) (66,0.672) (67,0.812) (68,0.562) (69,0.750) (70,0.688) (71,0.641) (72,0.828) (73,0.578) (74,0.703) (75,0.812) (76,0.469) (77,0.875) (78,0.609) (79,0.609) (80,0.750) (81,0.812) (82,0.734) (83,0.703) (84,0.828) (85,0.672) (86,0.750) (87,0.781) (88,0.875) (89,0.688) (90,0.641) (91,0.766) (92,0.891) (93,0.859) (94,0.781) (95,0.578) (96,0.703) (97,0.750) (98,0.656) (99,0.750) (100,0.875) (101,0.625) (102,0.797) (103,0.844) (104,0.594) (105,0.750) (106,0.828) (107,0.812) (108,0.766) (109,0.922) (110,0.750) (111,0.891) (112,0.781) (113,0.875) (114,0.875) (115,0.828) (116,0.938) (117,0.844) (118,0.906) (119,0.938) (120,0.672) (121,0.797) (122,0.891) (123,0.984) (124,0.844) (125,0.594) (126,0.797) (127,0.875) (128,0.781) (129,0.875) (130,0.766) (131,0.891) (132,0.938) (133,0.672) (134,0.906) (135,0.984) (136,0.688) (137,0.906) (138,0.938) (139,0.781) (140,0.906) (141,0.625) (142,0.812) (143,0.906) (144,0.953) (145,0.812) (146,0.812) (147,0.688) (148,0.750) (149,0.922) (150,0.875) (151,0.734) (152,0.938) (153,0.812) (154,0.875) (155,0.719) (156,0.719) (157,0.844) (158,0.859) (159,0.781) (160,0.984) (161,0.859) (162,0.750) (163,0.938) (164,0.953) (165,0.938) (166,0.953) (167,0.828) (168,0.922) (169,0.625) (170,0.688) (171,0.641) (172,0.828) (173,0.859) (174,0.781) (175,0.875) (176,0.844) (177,0.812) (178,0.953) (179,0.938) (180,0.828) (181,0.859) (182,0.812) (183,0.953) (184,0.922) (185,0.797) (186,0.969) (187,0.734) (188,0.672) (189,0.969) (190,0.953) (191,0.953) (192,0.812) (193,0.797) (194,0.906) (195,0.891) (196,0.703) (197,0.859) (198,0.938) (199,0.938) (200,0.906)};
+\addplot[sysblue,very thick] coordinates {(1,0.141) (3,0.198) (5,0.222) (7,0.252) (9,0.288) (11,0.331) (13,0.357) (15,0.384) (17,0.403) (19,0.403) (21,0.430) (23,0.455) (25,0.474) (27,0.489) (29,0.511) (31,0.511) (33,0.513) (35,0.509) (37,0.529) (39,0.552) (41,0.545) (43,0.555) (45,0.570) (47,0.573) (49,0.574) (51,0.587) (53,0.597) (55,0.602) (57,0.586) (59,0.584) (61,0.603) (63,0.618) (65,0.610) (67,0.634) (69,0.635) (71,0.637) (73,0.645) (75,0.663) (77,0.673) (79,0.672) (81,0.684) (83,0.683) (85,0.705) (87,0.708) (89,0.720) (91,0.724) (93,0.741) (95,0.734) (97,0.739) (99,0.748) (101,0.745) (103,0.755) (105,0.748) (107,0.753) (109,0.759) (111,0.771) (113,0.766) (115,0.784) (117,0.800) (119,0.822) (121,0.820) (123,0.832) (125,0.837) (127,0.838) (129,0.837) (131,0.838) (133,0.835) (135,0.845) (137,0.835) (139,0.829) (141,0.832) (143,0.824) (145,0.841) (147,0.832) (149,0.833) (151,0.830) (153,0.838) (155,0.823) (157,0.821) (159,0.817) (161,0.833) (163,0.831) (165,0.838) (167,0.852) (169,0.845) (171,0.831) (173,0.828) (175,0.831) (177,0.836) (179,0.848) (181,0.841) (183,0.845) (185,0.836) (187,0.832) (189,0.837) (191,0.866) (193,0.862) (195,0.869) (197,0.864) (199,0.863)};
+\nextgroupplot[ylabel={greedy accuracy},ymin=0,ymax=1.05]
+\addplot[keygreen,very thick,mark=*,mark size=1.2pt] coordinates {(0,0.050) (10,0.710) (20,0.610) (30,0.610) (40,0.680) (50,0.780) (60,0.770) (70,0.800) (80,0.840) (90,0.860) (100,0.870) (110,0.880) (120,0.860) (130,0.900) (140,0.880) (150,0.890) (160,0.930) (170,0.890) (180,0.940) (190,0.900) (200,0.960)};
+\nextgroupplot[ylabel={response length},ymin=3.5,ymax=7,xlabel={GRPO step}]
+\addplot[sysblue!35,thin] coordinates {(1,4.797) (2,4.625) (3,5.297) (4,5.031) (5,5.844) (6,6.000) (7,6.078) (8,5.578) (9,6.391) (10,6.016) (11,5.547) (12,6.141) (13,6.094) (14,6.203) (15,5.203) (16,5.969) (17,5.797) (18,6.266) (19,5.219) (20,5.859) (21,5.594) (22,6.078) (23,6.516) (24,5.984) (25,5.500) (26,5.344) (27,5.484) (28,5.297) (29,6.938) (30,5.047) (31,5.469) (32,5.531) (33,6.031) (34,6.234) (35,5.078) (36,5.984) (37,5.297) (38,5.047) (39,5.781) (40,4.703) (41,5.312) (42,5.312) (43,5.219) (44,5.625) (45,5.734) (46,4.828) (47,4.938) (48,4.734) (49,5.094) (50,5.078) (51,5.953) (52,5.266) (53,5.203) (54,4.594) (55,4.297) (56,5.297) (57,4.766) (58,4.547) (59,4.484) (60,5.406) (61,4.859) (62,4.703) (63,4.547) (64,4.812) (65,4.922) (66,4.719) (67,4.672) (68,4.750) (69,5.234) (70,4.625) (71,4.641) (72,5.438) (73,4.781) (74,4.406) (75,4.750) (76,4.516) (77,4.641) (78,6.422) (79,5.031) (80,4.562) (81,4.531) (82,5.125) (83,4.391) (84,4.609) (85,4.641) (86,4.750) (87,4.828) (88,4.125) (89,4.219) (90,4.500) (91,4.484) (92,4.500) (93,4.484) (94,4.516) (95,4.359) (96,4.484) (97,4.719) (98,4.500) (99,4.609) (100,4.578) (101,4.891) (102,4.500) (103,4.594) (104,4.625) (105,4.641) (106,4.688) (107,4.500) (108,4.250) (109,4.484) (110,4.156) (111,4.391) (112,4.453) (113,4.500) (114,4.609) (115,4.266) (116,4.219) (117,4.469) (118,4.516) (119,4.250) (120,4.375) (121,4.750) (122,4.750) (123,4.484) (124,4.344) (125,4.891) (126,4.734) (127,4.609) (128,4.250) (129,4.500) (130,4.500) (131,4.375) (132,4.484) (133,4.625) (134,4.516) (135,4.609) (136,4.625) (137,4.266) (138,4.125) (139,4.500) (140,4.406) (141,4.766) (142,4.500) (143,4.250) (144,4.250) (145,4.250) (146,4.344) (147,4.578) (148,4.438) (149,4.250) (150,4.750) (151,4.344) (152,4.516) (153,4.641) (154,4.625) (155,4.375) (156,4.609) (157,4.391) (158,4.438) (159,4.734) (160,4.500) (161,4.375) (162,4.500) (163,4.641) (164,4.500) (165,4.500) (166,4.250) (167,4.953) (168,4.609) (169,4.625) (170,4.406) (171,4.234) (172,4.500) (173,4.609) (174,4.719) (175,4.375) (176,4.641) (177,4.250) (178,4.625) (179,4.516) (180,4.000) (181,4.672) (182,4.344) (183,4.375) (184,4.625) (185,4.484) (186,4.625) (187,4.500) (188,4.359) (189,4.375) (190,4.125) (191,4.250) (192,4.375) (193,4.266) (194,4.609) (195,4.469) (196,4.375) (197,4.625) (198,4.500) (199,4.500) (200,4.750)};
+\addplot[sysblue,very thick] coordinates {(1,4.797) (3,4.906) (5,5.119) (7,5.382) (9,5.516) (11,5.564) (13,5.649) (15,5.656) (17,5.683) (19,5.689) (21,5.737) (23,5.871) (25,5.902) (27,5.839) (29,5.852) (31,5.800) (33,5.766) (35,5.762) (37,5.737) (39,5.705) (41,5.633) (43,5.530) (45,5.523) (47,5.470) (49,5.350) (51,5.376) (53,5.321) (55,5.200) (57,5.139) (59,5.049) (61,5.062) (63,4.998) (65,4.916) (67,4.898) (69,4.905) (71,4.817) (73,4.805) (75,4.818) (77,4.773) (79,4.894) (81,4.835) (83,4.848) (85,4.824) (87,4.834) (89,4.752) (91,4.737) (93,4.676) (95,4.662) (97,4.664) (99,4.547) (101,4.566) (103,4.545) (105,4.545) (107,4.526) (109,4.545) (111,4.523) (113,4.522) (115,4.522) (117,4.496) (119,4.479) (121,4.462) (123,4.469) (125,4.467) (127,4.475) (129,4.476) (131,4.492) (133,4.500) (135,4.513) (137,4.523) (139,4.516) (141,4.518) (143,4.494) (145,4.457) (147,4.436) (149,4.433) (151,4.444) (153,4.446) (155,4.440) (157,4.445) (159,4.473) (161,4.458) (163,4.477) (165,4.502) (167,4.516) (169,4.544) (171,4.521) (173,4.519) (175,4.523) (177,4.518) (179,4.516) (181,4.506) (183,4.485) (185,4.491) (187,4.487) (189,4.462) (191,4.448) (193,4.425) (195,4.424) (197,4.430) (199,4.423)};
+\nextgroupplot[ylabel={entropy (nats)},ymin=0,ymax=0.7,xlabel={GRPO step}]
+\addplot[sysblue!35,thin] coordinates {(1,0.527) (2,0.499) (3,0.478) (4,0.480) (5,0.436) (6,0.425) (7,0.422) (8,0.421) (9,0.353) (10,0.342) (11,0.412) (12,0.357) (13,0.439) (14,0.303) (15,0.372) (16,0.308) (17,0.347) (18,0.346) (19,0.369) (20,0.320) (21,0.312) (22,0.303) (23,0.334) (24,0.317) (25,0.286) (26,0.296) (27,0.297) (28,0.288) (29,0.275) (30,0.304) (31,0.280) (32,0.197) (33,0.224) (34,0.203) (35,0.293) (36,0.214) (37,0.194) (38,0.263) (39,0.276) (40,0.298) (41,0.224) (42,0.237) (43,0.235) (44,0.280) (45,0.224) (46,0.274) (47,0.298) (48,0.278) (49,0.184) (50,0.196) (51,0.197) (52,0.239) (53,0.172) (54,0.249) (55,0.261) (56,0.237) (57,0.163) (58,0.223) (59,0.250) (60,0.175) (61,0.169) (62,0.186) (63,0.226) (64,0.216) (65,0.229) (66,0.155) (67,0.126) (68,0.226) (69,0.157) (70,0.156) (71,0.198) (72,0.173) (73,0.119) (74,0.214) (75,0.086) (76,0.224) (77,0.146) (78,0.194) (79,0.159) (80,0.150) (81,0.171) (82,0.160) (83,0.149) (84,0.132) (85,0.206) (86,0.151) (87,0.102) (88,0.167) (89,0.161) (90,0.118) (91,0.157) (92,0.089) (93,0.080) (94,0.135) (95,0.145) (96,0.179) (97,0.128) (98,0.161) (99,0.139) (100,0.094) (101,0.144) (102,0.115) (103,0.132) (104,0.157) (105,0.125) (106,0.111) (107,0.110) (108,0.136) (109,0.104) (110,0.159) (111,0.174) (112,0.165) (113,0.129) (114,0.102) (115,0.157) (116,0.086) (117,0.127) (118,0.091) (119,0.100) (120,0.125) (121,0.080) (122,0.073) (123,0.064) (124,0.111) (125,0.169) (126,0.105) (127,0.099) (128,0.093) (129,0.116) (130,0.082) (131,0.087) (132,0.094) (133,0.144) (134,0.105) (135,0.077) (136,0.123) (137,0.079) (138,0.085) (139,0.104) (140,0.104) (141,0.132) (142,0.084) (143,0.070) (144,0.035) (145,0.064) (146,0.065) (147,0.107) (148,0.085) (149,0.078) (150,0.091) (151,0.090) (152,0.052) (153,0.082) (154,0.085) (155,0.084) (156,0.052) (157,0.071) (158,0.063) (159,0.068) (160,0.054) (161,0.078) (162,0.090) (163,0.075) (164,0.067) (165,0.078) (166,0.073) (167,0.098) (168,0.051) (169,0.109) (170,0.103) (171,0.116) (172,0.120) (173,0.087) (174,0.073) (175,0.056) (176,0.063) (177,0.092) (178,0.058) (179,0.067) (180,0.075) (181,0.101) (182,0.103) (183,0.047) (184,0.065) (185,0.076) (186,0.060) (187,0.050) (188,0.093) (189,0.036) (190,0.049) (191,0.065) (192,0.072) (193,0.080) (194,0.056) (195,0.045) (196,0.119) (197,0.054) (198,0.079) (199,0.048) (200,0.051)};
+\addplot[sysblue,very thick] coordinates {(1,0.527) (3,0.501) (5,0.484) (7,0.467) (9,0.449) (11,0.436) (13,0.430) (15,0.418) (17,0.407) (19,0.402) (21,0.387) (23,0.370) (25,0.354) (27,0.342) (29,0.331) (31,0.323) (33,0.304) (35,0.295) (37,0.283) (39,0.274) (41,0.268) (43,0.260) (45,0.255) (47,0.254) (49,0.249) (51,0.239) (53,0.239) (55,0.240) (57,0.239) (59,0.236) (61,0.227) (63,0.224) (65,0.221) (67,0.206) (69,0.203) (71,0.201) (73,0.195) (75,0.184) (77,0.183) (79,0.177) (81,0.175) (83,0.170) (85,0.165) (87,0.164) (89,0.161) (91,0.157) (93,0.151) (95,0.150) (97,0.147) (99,0.144) (101,0.140) (103,0.137) (105,0.134) (107,0.132) (109,0.128) (111,0.131) (113,0.137) (115,0.136) (117,0.131) (119,0.126) (121,0.124) (123,0.119) (125,0.119) (127,0.118) (129,0.116) (131,0.108) (133,0.105) (135,0.101) (137,0.101) (139,0.101) (141,0.102) (143,0.103) (145,0.094) (147,0.093) (149,0.090) (151,0.091) (153,0.086) (155,0.085) (157,0.081) (159,0.078) (161,0.073) (163,0.074) (165,0.076) (167,0.076) (169,0.076) (171,0.078) (173,0.081) (175,0.079) (177,0.081) (179,0.080) (181,0.083) (183,0.082) (185,0.082) (187,0.079) (189,0.077) (191,0.072) (193,0.069) (195,0.068) (197,0.069) (199,0.069)};
+\end{groupplot}
+\end{tikzpicture}
+\caption{A GRPO run on the toy addition task (8 prompts $\times$ 8 rollouts per step,
+learning rate $3\times10^{-4}$, no KL, no clipping), measured on a CPU in this book's
+build environment. Light lines are per-step values, dark lines a 20-step moving average.
+Greedy accuracy (a correct \emph{and} boxed answer, over all 100 prompts) rises from 5\% to
+96\%. The run learns the format within about ten steps and then keeps sharpening
+correctness. Entropy falls steadily as the policy becomes more deterministic.}
+\label{fig:grpo:curves}
+\end{figure}
+
+\begin{systemslens}[where a GRPO step spends its time]
+Over the 200 steps of \cref{fig:grpo:curves} (64 rollouts per step, measured on one CPU core)
+the trainer logged 26.8\,s sampling, 9.0\,s computing old log-probs and entropies under
+\code{no\_grad}, and 28.4\,s in differentiable forward, backward and optimiser updates.
+Sampling was \emph{only} about 40\% of the step here because toy completions are about five tokens
+long. On a GPU with realistic reasoning lengths the balance flips. Using the roofline numbers
+from \cref{sec:grpo:rollouts}, for Qwen3-0.6B with 64 rollouts of 1024 tokens:
+
+\smallskip
+\centering
+\begin{tikzpicture}
+\begin{axis}[xbar stacked,width=0.9\linewidth,bar width=9pt,
+  xlabel={seconds per GRPO step},symbolic y coords={CPU toy measured,H100 lower bound},ytick=data,
+  y tick label style={font=\scriptsize},x tick label style={font=\scriptsize},
+  legend style={font=\scriptsize,at={(0.5,1.05)},anchor=south,legend columns=3,draw=none},xmin=0,height=3.6cm,
+  enlarge y limits=0.5]
+\addplot[fill=fcompute!60,draw=none] coordinates {(0.134,CPU toy measured) (2.09,H100 lower bound)};
+\addplot[fill=fmemory!60,draw=none] coordinates {(0.045,CPU toy measured) (0.25,H100 lower bound)};
+\addplot[fill=fcomm!60,draw=none] coordinates {(0.142,CPU toy measured) (0.74,H100 lower bound)};
+\legend{sampling,old log-probs,fwd+bwd+step}
+\end{axis}
+\end{tikzpicture}
+\raggedright
+
+\smallskip
+The H100 bars are lower bounds: the bandwidth roofline for decoding, and 40\% MFU
+for the training passes. Real samplers sit well above their bound, and reasoning
+rollouts are far longer than 1024 tokens, so in practice sampling usually accounts for most of
+the wall-clock time. The toy run is the exception that proves the rule: shrink the
+completions and the training side dominates again. That is why the balance has to be
+\emph{measured} per workload, which Lab~17 asks you to do with \code{time\_breakdown}.
+\end{systemslens}
+
+\paragraph{Batching and multiple GPUs.} The loop above handles one prompt per step and
+generates its $G$ rollouts sequentially, the clearest form and the slowest. The library trainer
+batches all $P\times G$ rollouts of a step into one decode batch, computes log-probs for all
+of them in one padded forward pass, and is the version used for every experiment in
+\cref{ch:grpo2}. Batched RL rollouts are revisited in \cref{ch:serving} (padding and masks),
+and \cref{ch:rlsys} distributes the sampler and trainer across GPUs.
+
+% ======================================================================
+\section{Loading and evaluating checkpoints}\label{sec:grpo:ckpt}\covers{RM 6.12}
+
+The loop saves \code{model.state\_dict()} every few steps and on keyboard interrupt, so a
+long run can be stopped at any point without losing work. Restoring is the usual one-liner,
+\code{model.load\_state\_dict(torch.load(path))}, and the restored model plugs straight into
+the evaluation harness of \cref{ch:eval}:
+
+\begin{lstlisting}[style=shell,caption={Evaluating an RL checkpoint on MATH-500 with the Chapter 14 harness.},label={lst:grpo:eval}]
+python labs/lab14_eval/run.py --dataset math500 --model-dir Qwen3-0.6B-Base \
+    --checkpoint out17/ckpt/grpo-step00050.pt --max-new-tokens 2048
+\end{lstlisting}
+
+Two evaluation details matter. First, evaluate with a \emph{larger} token budget than the
+training budget. A model trained with 512-token rollouts has learned to box its answer
+within 512 tokens, and that should not cap its test-time reasoning. Second, track
+average response length alongside accuracy. In DeepSeek-R1's training, response length
+grew steadily as the model learned to reason longer and check its work. A tight training
+budget suppresses that growth, which is a direct compute--quality trade-off: longer
+rollouts cost linearly more decode steps and quadratically more attention, and the KV cache
+grows with them.
+
+On the toy task, \code{evaluate\_accuracy} decodes greedily on all 100 prompts. The SFT
+start scores 5\% (correct \emph{and} boxed) and 68\% (correct, any format). After 200 GRPO
+steps both are 96\%. More steps are not automatically better. Plain GRPO without clipping
+or KL can become unstable in long runs, as the reward collapses and gibberish appears in
+\cref{ch:grpo2}. Keep several checkpoints and select by validation accuracy, not by the
+last step.
+
+\begin{napkinmath}[checkpoint budget]
+A Qwen3-0.6B \code{state\_dict} in bf16 is $0.6\times10^9\times2\,\text{B}\approx1.2$\,GB
+(twice that if it was trained in fp32). Saving every 5 steps for
+500 steps produces 100 checkpoints, or 120\,GB. Saving every 50 steps produces 12\,GB. An 8B
+policy with optimiser state (needed to \emph{resume}, not just evaluate) is
+$8\times10^9\times16\,\text{B}=128$\,GB per checkpoint, and writing it to network storage at
+2\,GB/s stalls a synchronous trainer for over a minute. Hence the asynchronous, sharded
+checkpointing of \cref{ch:pretrain}.
+\end{napkinmath}
+
+% ======================================================================
+\section{Where the memory goes: a GRPO step at scale}\label{sec:grpo:systems}
+
+We close the chapter by assembling the systems costs scattered through it into one budget,
+which is the starting point for \cref{ch:rlsys}. Consider one GRPO step on an 8B policy with
+$P=32$ prompts, $G=8$ rollouts each and up to 4096 new tokens. \Cref{tab:grpo:budget} lists
+what must exist in GPU memory and when.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXr@{}}
+\toprule
+Phase & What lives in memory & Size (8B, bf16)\\
+\midrule
+sampling & policy weights + KV cache for 256 sequences & 16\,GB + $\approx$\,150\,GB$^\dagger$\\
+old log-probs & weights + one micro-batch of activations (no grad) & 16\,GB + small\\
+reference log-probs (if KL) & a second, frozen copy of the weights & +16\,GB\\
+training & weights, grads, AdamW states, fp32 master & 128\,GB\\
+ & activations of one micro-batch (checkpointed) & 5--20\,GB\\
+ & $(T\times V)$ logits for the log-softmax & $\approx$\,5\,GB per 8k tokens\\
+\bottomrule
+\end{tabularx}
+\caption{Memory of one GRPO step for an 8B dense policy. $^\dagger$KV cache:
+$2\cdot L\cdot H_{kv}\cdot d_h\cdot\text{bytes}=2\cdot36\cdot8\cdot128\cdot2=147$\,KB per
+token, times $256\times4096$ tokens $\approx154$\,GB. No single GPU holds this, so sampling
+must be sharded or run in waves.}
+\label{tab:grpo:budget}
+\end{table}
+
+Three observations drive the design of every RL framework:
+\begin{enumerate}
+\item \textbf{The two phases want different parallelism.} Sampling wants many replicas
+with lots of free memory for KV cache (tensor parallel at most within a node). Training wants the
+optimiser state sharded (FSDP/ZeRO-3, \cref{ch:distributed}). Running both on the same GPUs
+(colocation) means resharding the weights between layouts every step. Running them on
+separate GPUs (disaggregation) means shipping 16\,GB of new weights to the samplers every
+step.
+\item \textbf{The sampler and trainer should not wait for each other.} Synchronous GRPO
+leaves trainer GPUs idle during sampling and sampler GPUs idle during training. Overlapping
+them makes the data slightly off-policy (generated by an older $\theta$), which is
+exactly what the importance ratios and clipping of \cref{ch:grpo2} correct for.
+\item \textbf{Variance in response length is a scheduling problem.} The step ends when the
+\emph{longest} rollout ends. With reasoning lengths spanning 100 to \num{30000} tokens, most
+of the batch sits finished while a few stragglers decode at batch size 1, the least
+efficient point on the roofline.
+\end{enumerate}
+
+% ======================================================================
+\section{Summary}\label{sec:grpo:summary}
+\begin{itemize}
+\item RL post-training optimises a property of whole outputs. RLHF learns a reward model
+from human rankings and optimises it with PPO. RLVR replaces the reward model by a
+deterministic verifier (answer checking, unit tests).
+\item The policy-gradient theorem turns a non-differentiable reward into a weighting of
+$\nabla\log\pitheta(y\mid x)$. Subtracting a baseline keeps the estimator unbiased and cuts its
+variance.
+\item GRPO's baseline is the mean reward of $G$ rollouts of the same prompt, and its advantages
+are those rewards standardised within the group. There is no value model, so memory is lower,
+at the price of $G\times$ more sampling.
+\item Groups whose rollouts all receive the same reward contribute zero gradient. With binary
+rewards that happens with probability $p^G+(1-p)^G$.
+\item The loss implemented here is $-\frac1G\sum_iA_i\log\pitheta(y_i\mid x)$ with
+\emph{summed} token log-probs. Its value is not a quality measure; its gradient is what
+matters.
+\item Rollout code must use \code{no\_grad} (not \code{inference\_mode}), keep the EOS token,
+and return ids rather than text. Log-probs are recomputed in a separate differentiable
+pass, and that $(T\times V)$ log-softmax is a major memory consumer.
+\item The training loop is otherwise standard. Track moving-average reward, response
+length and held-out accuracy, and checkpoint often.
+\item At scale a GRPO step is an inference job glued to a training job with different memory
+and parallelism needs, the central problem of \cref{ch:rlsys}.
+\end{itemize}
+
+% ======================================================================
+\section{Exercises}\label{sec:grpo:exercises}
+
+\begin{exercise}[format-aware reward shaping]
+Implement \code{reward\_partial}, which returns 1.0 for a boxed correct answer, 0.5 for a
+correct but unboxed final number, and 0 otherwise. For the four rollouts of
+\cref{fig:grpo:step}, recompute the advantages and the loss. Which rollout's push changes
+sign? Argue whether partial credit speeds up or slows down learning of the format.
+\end{exercise}
+
+\begin{exercise}[zero-advantage groups]
+Force all rewards in a group to 0 (then to 1). Verify that the loss \emph{and every
+parameter gradient} are exactly zero. Explain why this is the desired behaviour, and
+compute the expected fraction of wasted rollouts per step for a dataset whose per-prompt
+success rates are uniform on $[0,1]$, for $G=4$ and $G=16$.
+\end{exercise}
+
+\begin{exercise}[binary-reward advantages]
+Derive $A^+=(1-p)/s$ and $A^-=-p/s$ with $s=\sqrt{\frac{G}{G-1}p(1-p)}$, and show that
+$\sum_iA_i=0$ and $\frac1{G-1}\sum_iA_i^2\approx1$ for every $0<p<1$. What happens to
+$\max|A_i|$ as $p\to 1/G$ for large $G$?
+\end{exercise}
+
+\begin{exercise}[the baseline's bias]
+GRPO's baseline includes $r_i$ itself. Show that the leave-one-out baseline
+$b_i=\frac1{G-1}\sum_{j\ne i}r_j$ (RLOO) yields an unbiased gradient, and that
+$r_i-b_i=\frac{G}{G-1}(r_i-\bar r)$. Conclude that, before std scaling, GRPO's mean-centred
+advantage is RLOO up to a constant factor.
+\end{exercise}
+
+\begin{exercise}[sum versus mean]
+Write the per-token gradient weight of a rollout of length $|y|$ under (a) the summed loss
+of this chapter and (b) a per-sequence mean. For two correct answers of lengths 20 and 2000,
+compute the ratio of per-token pushes under each scheme. Which scheme pushes the policy
+towards shorter correct answers, and why?
+\end{exercise}
+
+\begin{exercise}[the \code{inference\_mode} trap]
+Decorate \code{sample\_response} with \code{@torch.}\allowbreak\code{inference\_mode()} instead of
+\code{@torch.no\_grad()} and run \code{compute\_grpo\_loss}. Record the exact error,
+explain which tensor triggers it, and find the smallest change that fixes it without
+giving up inference mode for sampling.
+\end{exercise}
+
+\begin{exercise}[logits memory]
+Compute the size of the float32 $(N,T,|\mathcal V|)$ log-softmax for $N=16$,
+$T=4096$ and Qwen3's vocabulary, with and without its gradient. Implement a chunked
+variant of \code{sequence\_logprob} (process $C$ positions at a time). Measure peak memory
+with \code{torch.cuda.max\_memory\_allocated} (or \code{tracemalloc} on CPU) for several $C$.
+\end{exercise}
+
+\begin{exercise}[measure the step]
+Use \code{time\_breakdown} on the toy task for $G\in\{2,4,8,16\}$ and
+\code{max\_new\_tokens}$\in\{4,16,64\}$ (force long outputs by masking EOS). Fit
+$t_{\text{sample}}\approx a\cdot G\cdot T$ and $t_{\text{train}}\approx b\cdot G\cdot T$. Then
+replace the sequential sampler by \code{sample\_rollouts} (one batch) and explain the change
+in $a$ using the roofline from \cref{ch:inference}.
+\end{exercise}
+
+\begin{exercise}[napkin: a 4B run]
+For Qwen3-4B with $P=16$, $G=16$, 256-token prompts and 4096 new tokens, compute (i) the KV
+cache at the end of sampling, (ii) the bandwidth-bound sampling time on one H100, and (iii) the
+training FLOPs and their time at 40\% MFU. Does the KV cache fit next to the weights on one
+80\,GB GPU? If not, how many sampling waves are needed?
+\end{exercise}
+
+\begin{exercise}[break the verifier]
+Write five completions that a naive verifier (first \verb|\boxed{}|, substring
+match, no normalisation) scores incorrectly, in both directions. Harden
+\code{reward\_rlvr} against them and add them as unit tests. Which loopholes would an RL
+policy be most likely to discover, and why?
+\end{exercise}
+
+\begin{exercise}[held-out generalisation]
+Rebuild the toy with \code{make\_examples(holdout=20)}: SFT and GRPO on 80 facts and
+evaluate on the 20 held-out ones. Does GRPO improve held-out \emph{format}? Held-out
+\emph{correctness}? Relate your findings to the separation between MATH and MATH-500.
+\end{exercise}
+
+% ======================================================================
+\section{Lab 17: GRPO from scratch}\label{sec:grpo:lab}
+
+\begin{labbox}{17}{GRPO from scratch}
+\labdir{lab17_grpo}
+\labsection{Goals}
+Implement every stage of RLVR with GRPO, see a policy learn a verifiable task on a CPU, and
+measure where a GRPO step spends its time.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+LAB_IMPL=starter  python -m pytest -q labs/lab17_grpo    # your implementation
+LAB_IMPL=solution python -m pytest -q labs/lab17_grpo    # reference
+\end{lstlisting}
+The toy task, tokenizer and SFT warm start are provided in \code{llmsys.rl.toy}; the tiny
+Qwen3-shaped model comes from \code{llmsys.qwen3}.
+
+\labsection{Tasks} (each is a function in \code{starter.py})
+\begin{enumerate}
+\item \code{sample\_response}: KV-cached sampler with temperature and top-$p$ that keeps EOS and returns
+ids, prompt length and text (\cref{lst:grpo:sample}).
+\item \code{reward\_rlvr} and \code{reward\_partial}: strict and partial-credit rewards.
+\item \code{compute\_advantages}: group standardisation with unbiased std and $\epsilon$.
+\item \code{sequence\_logprob}: differentiable summed log-probability with the correct
+off-by-one (\cref{fig:grpo:shift}).
+\item \code{policy\_gradient\_loss}: $-\operatorname{mean}(A\cdot\log\pi)$ with detached advantages.
+\item \code{compute\_grpo\_loss}: stages 1--5 for one example.
+\item \code{train\_rlvr\_grpo}: the loop, with clipping, CSV logging and checkpoints.
+\item \code{time\_breakdown}: seconds spent sampling, in the log-prob pass, and in backward.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{enumerate}
+\item \code{python labs/lab17\_grpo/run.py toy --impl starter --steps 150}: your
+sequential implementation should lift the moving-average reward from about 0.1--0.2 to above 0.7.
+\item \code{run.py toy-batched --steps 200}: reproduce \cref{fig:grpo:curves}. Plot
+reward, greedy accuracy, length and entropy with \code{llmsys.rl.metrics.plot\_metrics}.
+\item Compare wall-clock per step of the sequential and batched versions and report the
+speed-up of sampling alone. Expect it to grow with $G$.
+\item Fill in a table of \code{time\_breakdown} for $G\in\{2,4,8\}$ and explain the
+trends (Exercise~17.8).
+\end{enumerate}
+
+\labsection{Deliverables}
+Passing tests; a plot of your training curves; a one-paragraph explanation of the
+time breakdown; the greedy accuracy before and after GRPO.
+
+\labsection{Stretch goals}
+\begin{itemize}
+\item On a GPU, run \code{run.py qwen3} on Qwen3-0.6B-Base with MATH for 50 steps, then
+evaluate the checkpoint on MATH-500 with Lab~14's harness.
+\item Replace the group-mean baseline by the leave-one-out baseline (Exercise~17.4) and
+compare learning curves over three seeds.
+\item Make sampling and training overlap: generate step $k{+}1$'s rollouts in a background
+thread while step $k$ trains, and measure the speed-up and the (small) policy lag. This
+previews \cref{ch:rlsys}.
+\end{itemize}
+\end{labbox}

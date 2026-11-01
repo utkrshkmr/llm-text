@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+book/_build_check/
+book/_full/
+*.aux
+*.log
+*.toc
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+ckpt/

@@ -1,0 +1,22 @@
+{"problem": "If $2x + 7 = 31$, what is $x$?", "answer": "12", "subject": "Algebra", "level": 1, "unique_id": "sample/000"}
+{"problem": "What is the sum of all positive divisors of $28$?", "answer": "56", "subject": "Number Theory", "level": 2, "unique_id": "sample/001"}
+{"problem": "Simplify $\\frac{3}{4} + \\frac{5}{6}$. Express your answer as a common fraction.", "answer": "\\frac{19}{12}", "subject": "Prealgebra", "level": 1, "unique_id": "sample/002"}
+{"problem": "A fair six-sided die is rolled twice. What is the probability that the sum is $9$? Express your answer as a common fraction.", "answer": "\\frac{1}{9}", "subject": "Counting & Probability", "level": 2, "unique_id": "sample/003"}
+{"problem": "The two legs of a right triangle have lengths $9$ and $12$. What is the length of the hypotenuse?", "answer": "15", "subject": "Geometry", "level": 1, "unique_id": "sample/004"}
+{"problem": "Solve for the ordered pair $(x, y)$: $x + y = 10$ and $x - y = 4$.", "answer": "(7, 3)", "subject": "Algebra", "level": 2, "unique_id": "sample/005"}
+{"problem": "What is the remainder when $3^{20}$ is divided by $7$?", "answer": "2", "subject": "Number Theory", "level": 3, "unique_id": "sample/006"}
+{"problem": "How many ways can a committee of $3$ people be chosen from a group of $8$ people?", "answer": "56", "subject": "Counting & Probability", "level": 2, "unique_id": "sample/007"}
+{"problem": "What is the area of a circle whose circumference is $10\\pi$? Express your answer in terms of $\\pi$.", "answer": "25\\pi", "subject": "Geometry", "level": 2, "unique_id": "sample/008"}
+{"problem": "Find the larger root of $x^2 - 5x - 14 = 0$.", "answer": "7", "subject": "Algebra", "level": 2, "unique_id": "sample/009"}
+{"problem": "Compute $\\sqrt{48} - \\sqrt{12}$. Express your answer in simplest radical form.", "answer": "2\\sqrt{3}", "subject": "Prealgebra", "level": 3, "unique_id": "sample/010"}
+{"problem": "If $f(x) = 3x^2 - 2x + 1$, what is $f(-2)$?", "answer": "17", "subject": "Algebra", "level": 1, "unique_id": "sample/011"}
+{"problem": "What is the least common multiple of $18$ and $24$?", "answer": "72", "subject": "Number Theory", "level": 1, "unique_id": "sample/012"}
+{"problem": "A store discounts a $\\$80$ jacket by $25\\%$ and then charges $10\\%$ sales tax on the discounted price. What is the final price in dollars?", "answer": "66", "subject": "Prealgebra", "level": 2, "unique_id": "sample/013"}
+{"problem": "Find all real $x$ satisfying $|2x - 3| < 5$. Express your answer in interval notation.", "answer": "(-1, 4)", "subject": "Intermediate Algebra", "level": 3, "unique_id": "sample/014"}
+{"problem": "What is $\\sin^2(15^\\circ) + \\cos^2(15^\\circ) + \\tan(45^\\circ)$?", "answer": "2", "subject": "Precalculus", "level": 1, "unique_id": "sample/015"}
+{"problem": "The sum of an infinite geometric series with first term $6$ is $9$. What is the common ratio? Express your answer as a common fraction.", "answer": "\\frac{1}{3}", "subject": "Algebra", "level": 3, "unique_id": "sample/016"}
+{"problem": "How many positive integers less than $100$ are multiples of $3$ but not multiples of $5$?", "answer": "27", "subject": "Number Theory", "level": 3, "unique_id": "sample/017"}
+{"problem": "Evaluate $\\log_2 64 - \\log_3 27$.", "answer": "3", "subject": "Intermediate Algebra", "level": 2, "unique_id": "sample/018"}
+{"problem": "A rectangle has perimeter $34$ and diagonal $13$. What is its area?", "answer": "60", "subject": "Geometry", "level": 4, "unique_id": "sample/019"}
+{"problem": "What is the coefficient of $x^3$ in the expansion of $(x + 2)^5$?", "answer": "40", "subject": "Counting & Probability", "level": 3, "unique_id": "sample/020"}
+{"problem": "Find the value of $k$ such that the vectors $(2, k)$ and $(3, -6)$ are orthogonal.", "answer": "1", "subject": "Precalculus", "level": 2, "unique_id": "sample/021"}
