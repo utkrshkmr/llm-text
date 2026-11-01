@@ -1,0 +1,531 @@
+% ======================================================================
+\chapter{Project 3: A Budgeted Scaling Study}\label{ch:proj3}
+
+You lead the pretraining team for a new model. The final run will get 48 device-hours on one
+accelerator; nobody will give you a second chance. Before it starts, you have a separate budget of
+12 device-hours to run experiments, which you buy from a shared training service that reports
+validation losses and charges wall-clock time. Your job is to choose the architecture, batch size,
+learning rate and token count of the final run so that it reaches the lowest possible loss, and to
+predict that loss.
+
+This project puts \cref{ch:scalinglaws} into practice end to end, with nothing simulated on your
+side: you write the client, the bookkeeping, the study plan, the fits and the write-up, against
+a service that behaves like a real shared cluster (queues, reservations, timeouts, divergences,
+noise). Unlike Lab~12, the service runs as a separate process with a \emph{randomised} hidden loss
+surface, so you cannot read the answer from the source, and it scores your final choice only
+after you commit to it.
+
+\begin{keyidea}[What this guide is, and is not]
+This chapter specifies the project, explains how to set it up on this repository, maps each part
+to the material that teaches it, and gives milestones, sanity checks and debugging advice. It
+deliberately stops short of solutions. The decisions that make a study good (which runs to buy,
+how to fit, what to trust) are the project. Lab~12 builds the individual tools on a toy
+service; here you design the study yourself.
+\end{keyidea}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, minimum height=0.95cm, align=center, font=\footnotesize, fill=#1},
+  box/.default=fcompute!15,
+  arr/.style={-{Stealth[length=2mm]}, thick, sysblue!70}]
+\node[box=keygreen!15, minimum width=2.6cm] (w) at (0,0) {Part A\\warm-up fits};
+\node[box, minimum width=2.6cm] (s) at (3.3,0) {B1 setup:\\client + ledger};
+\node[box, minimum width=2.6cm] (c) at (6.6,0) {B2 calibrate:\\runtime, LR};
+\node[box, minimum width=2.6cm] (g) at (9.9,0) {B3 IsoFLOP\\grid};
+\node[box=napkin!20, minimum width=2.6cm] (f) at (9.9,-1.7) {B4 fit +\\uncertainty};
+\node[box=napkin!20, minimum width=2.6cm] (v) at (6.6,-1.7) {B5 verification\\run};
+\node[box=napkin!20, minimum width=2.6cm] (x) at (3.3,-1.7) {B6 final choice\\+ prediction};
+\node[box=labpurple!15, minimum width=2.6cm] (r) at (0,-1.7) {write-up\\+ score};
+\draw[arr] (w) -- (s); \draw[arr] (s) -- (c); \draw[arr] (c) -- (g); \draw[arr] (g) -- (f);
+\draw[arr] (f) -- (v); \draw[arr] (v) -- (x); \draw[arr] (x) -- (r);
+\draw[arr, dashed] (f.east) to[out=20,in=-20] node[right, font=\scriptsize] {refine grid} (g.east);
+\end{tikzpicture}
+\caption{The project at a glance. Part A trains your fitting code on a fixed dataset; Part B is the
+budgeted study. The dashed arrow is the most important one: a study that cannot revise its grid
+after the first fits wastes its budget.}
+\label{fig:proj3:overview}
+\end{figure}
+
+% ======================================================================
+\section{Learning goals}\label{sec:proj3:goals}
+By the end of the project you should be able to:
+\begin{itemize}
+\item fit and compare the IsoFLOP and parametric scaling-law methods, and quantify their
+      uncertainty (\cref{sec:scalinglaws:methods,sec:scalinglaws:uncertainty});
+\item model scale-dependent hyperparameters instead of fixing them (\cref{sec:scalinglaws:hparams});
+\item design and execute a staged experiment under a wall-clock budget with reservations and
+      failures (\cref{sec:scalinglaws:design});
+\item build the infrastructure such a study needs: an idempotent client, a crash-safe ledger, and
+      analysis that is regenerated from that ledger (\cref{sec:scalinglaws:running});
+\item turn a fit into a concrete, finishable configuration and an honest prediction.
+\end{itemize}
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\textbf{Need} & \textbf{Key relation} & \textbf{Where}\\
+\midrule
+Parameters & $N_{\text{ne}} = L(4d^2+3d\dff)$ & \cref{eq:scalinglaws:12ld2}\\
+Compute & $C/D \approx 6(N_{\text{ne}}+Vd)+6LTd$ & \cref{eq:scalinglaws:fpt}\\
+Wall-clock & $t = t_0 + C/(P\cdot\mathrm{MFU})$ & \cref{sec:scalinglaws:accounting}\\
+IsoFLOP optimum & bracketed min or parabola vertex in $\log N$ & \cref{sec:scalinglaws:method2}\\
+Surface & $E + A N^{-\alpha} + B D^{-\beta}$, Huber on $\log L$ & \cref{eq:scalinglaws:chin}\\
+Allocation & $N_{\text{opt}} = G (C/6)^{\beta/(\alpha+\beta)}$ & \cref{eq:scalinglaws:closed}\\
+LR transfer & basin vertex per size; $\text{lr}^*(N) = kN^{a}$ & \cref{sec:scalinglaws:lr}\\
+Batch & $(S/S_{\min}-1)(E/E_{\min}-1)=1$ & \cref{eq:scalinglaws:critbatch}\\
+Uncertainty & bootstrap within budgets; error $\times10^{k\,\delta a}$ & \cref{sec:scalinglaws:uncertainty}\\
+\bottomrule
+\end{tabularx}
+\caption{The relations this project relies on, with pointers to where they are derived.}
+\label{tab:proj3:cheat}
+\end{table}
+
+% ======================================================================
+\section{Setup}\label{sec:proj3:setup}
+
+Everything lives in \code{code/projects/p3\_scaling/} and uses the \code{llmsys} package.
+\begin{lstlisting}[style=shell]
+cd code && pip install -r requirements.txt
+cd projects/p3_scaling
+python -m pytest -q .                    # infrastructure self-test (no network)
+python make_warmup_data.py --seed 41     # Part A data -> data/isoflop_runs_seed41.json
+python training_service.py --port 8765 --budget-hours 12 \
+       --time-scale 60 --truth-seed 41 --api-key 12345678 &   # Part B service
+export TRAIN_API_URL=http://127.0.0.1:8765 TRAIN_API_KEY=12345678
+python -c "from ledger import HTTPClient; print(HTTPClient().budget())"
+\end{lstlisting}
+Choose your own seed and do not look at the hidden constants; \code{--reveal} on the data
+generator and \code{GET /score} on the service exist for \emph{after} you commit.
+\code{--time-scale 60} makes one simulated minute pass per real second, so a 12-hour budget takes
+about 12 real minutes if you keep the workers busy; use a larger value while you debug.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  comp/.style={draw, rounded corners=2pt, minimum height=0.9cm, align=center, font=\footnotesize, fill=#1},
+  comp/.default=fcompute!15,
+  arr/.style={-{Stealth[length=2mm]}, thick},
+  lab/.style={font=\scriptsize}]
+\node[comp=keygreen!15, minimum width=2.8cm] (nb) at (0,0) {your study\\scripts / notebook};
+\node[comp=keygreen!15, minimum width=2.8cm] (lg) at (0,-2.2) {\code{Ledger}\\ledger.jsonl};
+\node[comp, minimum width=2.4cm] (cl) at (4.4,0) {\code{HTTPClient}};
+\node[comp=napkin!20, minimum width=3.0cm] (api) at (8.8,0) {training service\\(HTTP, budget)};
+\node[comp=napkin!20, minimum width=2.0cm] (q) at (8.8,-2.2) {FIFO queue};
+\node[comp=labpurple!15, minimum width=1.5cm] (w1) at (11.9,-1.6) {worker};
+\node[comp=labpurple!15, minimum width=1.5cm] (w2) at (11.9,-2.8) {worker};
+\node[comp=black!8, minimum width=3.2cm] (gt) at (8.8,-4.2) {hidden loss surface\\+ runtime model};
+\draw[arr] (nb) -- node[lab, above] {submit / poll} (cl);
+\draw[arr] (cl) -- node[lab, above] {X-API-Key} (api);
+\draw[arr, <->] (nb) -- node[lab, right] {append / replay} (lg);
+\draw[arr] (api) -- (q); \draw[arr] (q) -- (w1); \draw[arr] (q) -- (w2);
+\draw[arr, dashed] (w1.east) -- ++(0.4,0) |- (gt.east);
+\draw[arr, dashed] (w2.east) -- ++(0.4,0);
+\end{tikzpicture}}
+\caption{The moving parts. Only the left column is yours to write; the ledger and client in the
+repository are a starting point you are free to replace.}
+\label{fig:proj3:arch}
+\end{figure}
+
+\subsection{The service contract}\label{sec:proj3:contract}
+
+Every request carries an \code{X-API-Key} header. A run is described by a JSON body:
+\begin{lstlisting}[style=plain]
+{"architecture_config": {"hidden_size": 512, "num_attention_heads": 8, "head_dim": 64,
+                         "num_key_value_heads": 8, "num_hidden_layers": 8,
+                         "intermediate_size": 1408, "vocab_size": 32000,
+                         "tie_word_embeddings": false},
+ "optimizer_config":    {"lr_scheduler": {"peak_value": 3e-3}},
+ "train_batch_size": 128,          # sequences of 512 tokens
+ "total_train_tokens": 1048576000, # must be a multiple of 512 * batch
+ "n_evals": 8,                     # validation losses reported along the run
+ "max_runtime_seconds": 1800,      # the reservation
+ "model_seed": 0}
+\end{lstlisting}
+The rules are those of \cref{sec:scalinglaws:service}: a submission reserves its
+\code{max\_runtime\_seconds} until it finishes; completed and failed runs are charged their
+actual runtime clipped to $[1,\text{reservation}]$; a run that exceeds its reservation times out,
+is charged in full and returns only the losses evaluated before the cut-off; an exact duplicate
+returns HTTP 409; a reservation larger than the remaining budget returns 400; malformed configs
+return 422. The model is a dense pre-norm transformer with SwiGLU MLPs and a warmup--cosine
+schedule; losses are mean next-token cross-entropy on held-out data. You are told nothing else
+about the service's internals, in particular not its runtime model, which you must estimate.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  st/.style={draw, rounded corners=3pt, minimum width=2.1cm, minimum height=0.8cm, align=center,
+    font=\footnotesize, fill=#1},
+  st/.default=fcompute!15,
+  arr/.style={-{Stealth[length=2mm]}, thick},
+  note/.style={font=\scriptsize, align=center}]
+\node[st=black!6] (sub) at (0,0) {submit};
+\node[st] (q) at (2.9,0) {queued};
+\node[st] (r) at (5.8,0) {running};
+\node[st=keygreen!20] (c) at (9.2,0.9) {completed};
+\node[st=warnred!15] (t) at (9.2,-0.3) {failed:\\timeout};
+\node[st=warnred!15] (d) at (9.2,-1.5) {failed:\\diverged};
+\node[st=warnred!10] (e) at (2.9,-1.6) {rejected\\400 / 409 / 422};
+\draw[arr] (sub) -- (q); \draw[arr] (q) -- (r);
+\draw[arr] (r) -- (c); \draw[arr] (r) -- (t); \draw[arr] (r) -- (d);
+\draw[arr] (sub) |- (e);
+\node[note] at (4.35,0.65) {holds full\\reservation};
+\node[note, anchor=west] at (10.35,0.9) {charged actual time;\\all losses};
+\node[note, anchor=west] at (10.35,-0.3) {charged reservation;\\partial losses};
+\node[note, anchor=west] at (10.35,-1.5) {charged until detected;\\losses end in NaN};
+\node[note, anchor=west] at (4.2,-1.6) {nothing charged};
+\end{tikzpicture}
+\caption{The life of a run and what each outcome costs. Your client and ledger must handle every
+arrow, including the rejections, which should never be retried blindly.}
+\label{fig:proj3:states}
+\end{figure}
+
+\subsection{A rehearsal harness}\label{sec:proj3:rehearsal}
+
+Because the service is yours, you can rehearse. Start it in-process on a free port with a
+different truth seed, run your whole pipeline against it, read the score, shut it down, and
+repeat. The repository's own tests do exactly this, and the same pattern works for your study code:
+\begin{lstlisting}[caption={Starting a throw-away service for a rehearsal (pattern from \code{test\_p3\_infra.py}).},label={lst:proj3:rehearse}]
+import threading
+from training_service import serve
+from ledger import HTTPClient
+
+def rehearse(pipeline, truth_seed, budget_hours=12.0):
+    srv, svc = serve(0, budget_hours=budget_hours, time_scale=1e6,
+                     api_key="00000000", truth_seed=truth_seed)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        pipeline(HTTPClient(url, "00000000"))          # your study, unchanged
+        return HTTPClient(url, "00000000")._call("GET", "/score?hours=48")
+    finally:
+        srv.shutdown()
+\end{lstlisting}
+Rehearse on five or ten seeds that are not your real one, and look at the distribution of regret
+and prediction error. A pipeline that is excellent on one seed and poor on another is telling
+you which stage is fragile.
+
+% ======================================================================
+\section{Part A: warm-up fits on a fixed dataset}\label{sec:proj3:partA}
+
+\code{make\_warmup\_data.py} writes 45 finished runs (five IsoFLOP budgets from $10^{17}$ to
+$10^{19}$ FLOPs, nine sizes each) drawn from a hidden surface. Each record has
+\code{n\_params}, \code{tokens}, \code{flops} and \code{loss}.
+
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[xmode=log, width=0.7\linewidth, height=5.2cm, xlabel={\code{n\_params}},
+  ylabel={\code{loss}}, label style={font=\small}, tick label style={font=\scriptsize},
+  legend style={font=\scriptsize, draw=none, at={(1.02,0.5)}, anchor=west}]
+\addplot[thick, mark=*, mark size=1.2pt, sysblue] coordinates {(1.029e+07,3.2100) (1.574e+07,3.1597) (2.408e+07,3.1099) (3.684e+07,3.0570) (5.636e+07,3.0307) (8.622e+07,3.0597) (1.319e+08,3.0890) (2.018e+08,3.1283) (3.087e+08,3.2298)};
+\addlegendentry{$10^{17}$}
+\addplot[thick, mark=*, mark size=1.2pt, keygreen] coordinates {(2.326e+07,2.9407) (3.559e+07,2.9190) (5.445e+07,2.8630) (8.33e+07,2.8634) (1.274e+08,2.8643) (1.949e+08,2.8888) (2.982e+08,2.9369) (4.562e+08,2.9874) (6.98e+08,3.0625)};
+\addlegendentry{$3\times10^{17}$}
+\addplot[thick, mark=*, mark size=1.2pt, napkin] coordinates {(4.798e+07,2.7547) (7.34e+07,2.7302) (1.123e+08,2.6921) (1.718e+08,2.7085) (2.628e+08,2.7257) (4.02e+08,2.7450) (6.15e+08,2.7764) (9.408e+08,2.8481) (1.439e+09,2.9206)};
+\addlegendentry{$10^{18}$}
+\addplot[thick, mark=*, mark size=1.2pt, labpurple] coordinates {(2.821e+07,2.7665) (4.316e+07,2.7004) (6.602e+07,2.6424) (1.01e+08,2.6107) (1.545e+08,2.5985) (2.364e+08,2.5882) (3.616e+08,2.5766) (5.532e+08,2.6027) (8.463e+08,2.6461)};
+\addlegendentry{$3\times10^{18}$}
+\addplot[thick, mark=*, mark size=1.2pt, warnred] coordinates {(7.88e+07,2.5464) (1.205e+08,2.5029) (1.844e+08,2.4894) (2.821e+08,2.4796) (4.316e+08,2.4809) (6.603e+08,2.4915) (1.01e+09,2.5043) (1.545e+09,2.5118) (2.364e+09,2.5531)};
+\addlegendentry{$10^{19}$}
+\end{axis}
+\end{tikzpicture}
+\caption{The raw warm-up data for the example seed 0 shipped in \code{data/} (one line per FLOP
+budget, in FLOPs). This is all you get: no fits, no truth. Generate your own seed for the
+project; seed 0 is only for checking that your loading and plotting code works.}
+\label{fig:proj3:raw}
+\end{figure}
+
+\begin{enumerate}
+\item[A1.] \textbf{IsoFLOP allocation.} Find each budget's optimum and fit power laws
+      $N_{\text{opt}}(C)$ and $D_{\text{opt}}(C)$. Plot the minima and the fits extrapolated to
+      $10^{24}$, and report the predicted $N_{\text{opt}}$ and $D_{\text{opt}}$ at $10^{23}$ and
+      $10^{24}$ FLOPs. Teaching material: \cref{sec:scalinglaws:method2},
+      \cref{lst:scalinglaws:isoflop}.
+\item[A2.] \textbf{Parametric fit.} Fit \cref{eq:scalinglaws:chin} to all 45 runs, derive the
+      allocation in closed form (\cref{eq:scalinglaws:closed}), and compare with A1.
+      Material: \cref{sec:scalinglaws:method3}.
+\item[A3.] \textbf{Uncertainty.} Bootstrap both estimates at $10^{24}$ FLOPs and report
+      intervals. Which method is more stable, and why? Material: \cref{sec:scalinglaws:uncertainty}.
+\item[A4.] \textbf{Reveal.} Only after writing down A1--A3, run \code{--reveal} and discuss what
+      you got right and wrong.
+\end{enumerate}
+
+\begin{pitfall}[Part A sanity checks]
+Your two allocation exponents from A1 should add to almost exactly one, because the dataset
+was built with $C=6ND$; if they do not, you are mixing up $N$ and $D$ or grouping runs wrongly.
+Parabola vertices must fall inside each budget's range of sizes. If the parametric fit's $E$
+is above the smallest observed loss, the optimiser has found a nonsensical solution; try more
+starts (\cref{lst:scalinglaws:chin}).
+\end{pitfall}
+
+% ======================================================================
+\section{Part B: the budgeted study}\label{sec:proj3:partB}
+
+\subsection*{B1. Client, ledger and a dry run}
+Build (or adopt) a client with retries for transient errors only, and a ledger that makes
+re-submission free and recovers state after a crash (\code{ledger.py} is a working
+starting point). Regenerate every table and plot from the ledger. Then buy one small run and
+check: the losses fall; the first reported loss is plausible for a $V=32{,}000$ vocabulary
+(below $\ln V\approx10.4$); the charged runtime is close to your reservation logic.
+Material: \cref{sec:scalinglaws:running}.
+
+\subsection*{B2. Calibrate: runtime and learning rate}
+\begin{itemize}
+\item \textbf{Runtime model.} From the first few completed runs, estimate the service's
+      achieved FLOP rate as a function of model shape and batch: compute each run's training
+      FLOPs with \cref{eq:scalinglaws:fpt} and divide by its \code{used\_runtime\_seconds}
+      (after subtracting a fixed overhead you also estimate). You need this model to size
+      reservations and, later, to pick a final run that finishes in 48 hours
+      (\cref{sec:scalinglaws:accounting}).
+\item \textbf{Learning rate.} Sweep the peak LR at a few small sizes, fit each basin and a
+      transfer law across sizes (\cref{sec:scalinglaws:lr}). Diverged runs are information:
+      they mark the right edge of the basin.
+\item Optionally, test whether batch size matters at your scale (\cref{sec:scalinglaws:batch}).
+\end{itemize}
+
+\paragraph{Estimating a runtime model.} Treat the service as a black box that turns FLOPs into
+seconds. For each completed run you know its training FLOPs $C_i$ (from your accounting), its
+shape and batch, and its charged time $t_i$. A useful first model is $t_i = t_0 + C_i/R_i$, where
+$t_0$ is a fixed per-run overhead and $R_i$ is the achieved FLOP rate. Estimate $t_0$ from
+runs of very different sizes, then study how $R_i$ depends on width and on tokens per batch, for
+example by regressing $\log R_i$ on $\log d$ and $\log(\text{batch tokens})$. Expect saturation:
+rates rise quickly for narrow models and then flatten. Validate the model on the next few runs
+before trusting it with a 48-hour decision, and keep its residuals: they set your reservation
+margin.
+
+\subsection*{B3. The IsoFLOP grid}
+Choose budgets, sizes and reservations, and write the plan into a versioned file before you
+submit it. Use the napkin math of \cref{sec:scalinglaws:stages}: the largest budget dominates the
+cost, so decide it first, and keep part of the 12 hours in reserve for B5.
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lccXc@{}}
+\toprule
+\textbf{Stage} & \textbf{Runs} & \textbf{Planned s} & \textbf{Purpose / gate} & \textbf{Spent s}\\
+\midrule
+B1 dry run & & & pipeline works, losses sane & \\
+B2 runtime calibration & & & runtime model within margin & \\
+B2 LR sweeps & & & basins bracketed, transfer law & \\
+B3 grid: smaller budgets & & & minima interior & \\
+B3 grid: top budget & & & minimum interior & \\
+B4 refinement & & & intervals acceptable & \\
+B5 verification & & & residual inside interval & \\
+reserve & & & failures, re-runs & \\
+\midrule
+total & & 43{,}200 & & \\
+\bottomrule
+\end{tabularx}
+\caption{A planning worksheet. Fill in the planned columns before submitting anything and the
+spent column as you go; the gap between them is the most honest summary of a study.}
+\label{tab:proj3:worksheet}
+\end{table}
+
+\subsection*{B4. Fit and diagnose}
+Fit both methods, look at residuals, bootstrap, and check bracketing. If the largest budget's
+minimum is at the edge of its grid, buy more runs there before going on.
+
+\subsection*{B5. Verification}
+Spend part of the remaining budget on one run at the largest compute you can afford, at the
+predicted optimum, and compare its loss with your prediction (\cref{sec:scalinglaws:log}).
+
+\subsection*{B6. Final choice and prediction}
+Search for the configuration that minimises predicted loss \emph{and finishes} within 48
+device-hours under your runtime model (\cref{sec:scalinglaws:wallchoice}). Submit it with
+\code{POST /final\_submission} together with your predicted final loss, then read your score from
+\code{GET /score?hours=48}.
+
+\begin{napkinmath}[Before you buy anything]
+How many FLOPs is 48 device-hours? You do not know the service's MFU yet, but you can bound it.
+If the device peaks at $P$ FLOP/s and a well-shaped model reaches 30--45\% MFU, 48 hours buys
+$48\cdot3600\cdot P\cdot(0.30\ \text{to}\ 0.45)$ FLOPs. With $P=10^{15}$ that is
+$5$--$8\times10^{19}$. Your fitting runs should therefore reach at least $10^{17}$--$10^{18}$
+FLOPs, or the final extrapolation spans more than two decades. Replace the guess with your
+measured rate after B2, and redo this estimate.
+\end{napkinmath}
+
+% ======================================================================
+\section{Milestones, invariants and debugging}\label{sec:proj3:debug}
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Milestone} & \textbf{Check before moving on}\\
+\midrule
+Client + ledger & Killing your script mid-study and rerunning it resubmits nothing; the
+ledger replays to the same table. \\
+Dry run & Losses decrease; the charged runtime matches \code{used\_runtime\_seconds}; your
+predicted runtime is within $\sim$20\%. \\
+Runtime model & Predictions for the next five runs land within your safety margin; no timeouts. \\
+LR transfer & Each basin is bracketed (losses rise on both sides of the vertex). \\
+IsoFLOP grid & Every budget's minimum is interior; measured compute within 5\% of nominal. \\
+Fits & Methods agree within their bootstrap intervals, or you can explain why not. \\
+Verification & $|$observed $-$ predicted$|$ is inside your interval. \\
+\bottomrule
+\end{tabularx}
+\caption{Gates between stages. Each gate is cheap compared with the budget it protects.}
+\label{tab:proj3:gates}
+\end{table}
+
+\begin{pitfall}[Common failures]
+\begin{itemize}
+\item \textbf{Budget leaks.} Retrying a 400 (``out of budget'') in a loop, or reserving the
+      maximum for every run, serialises the study; retrying after a timeout without raising the
+      reservation pays twice for nothing.
+\item \textbf{Silent mis-accounting.} Using nominal rather than actual compute, or counting
+      embeddings in $N$ for some runs and not others.
+\item \textbf{Mid-run losses as data.} The intermediate \code{val\_losses} of a cosine run are
+      not the losses of shorter runs (\cref{sec:scalinglaws:wsd}).
+\item \textbf{Fixed hyperparameters.} One LR for all sizes bends the allocation law.
+\item \textbf{Unfinishable final run.} A final config that would take 50 hours scores as if
+      it never finished.
+\end{itemize}
+\end{pitfall}
+
+% ======================================================================
+\section{The write-up}\label{sec:proj3:writeup}
+
+Write the report so that someone else could reproduce your study from it and the ledger alone. It
+should contain:
+\begin{enumerate}
+\item Part A: plots of the minima and both fits, the predictions at $10^{23}$ and $10^{24}$ with
+      intervals, and a discussion after the reveal.
+\item The plan as executed: a table of every run bought (stage, config, compute, reservation,
+      charged time, outcome) and a budget timeline in the style of \cref{fig:scalinglaws:gantt}.
+\item The runtime and learning-rate models, with fits and residuals.
+\item IsoFLOP profiles, the allocation fits, the parametric fit, and bootstrap intervals.
+\item The verification run and how it changed your prediction.
+\item The final configuration, its predicted loss with an interval, and why you believe it
+      finishes in time.
+\item A paragraph on what you would do differently with twice the budget, and with half.
+\end{enumerate}
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXr@{}}
+\toprule
+\textbf{Component} & \textbf{What earns full marks} & \textbf{Weight}\\
+\midrule
+Part A & Correct fits, intervals, and an honest discussion of the reveal & 15\%\\
+Infrastructure & Idempotent, crash-safe, analysis regenerated from the ledger & 15\%\\
+Study design & Staged plan, gates respected, budget used deliberately & 25\%\\
+Result & Low regret against the oracle (\code{/score}) & 25\%\\
+Prediction & Small prediction error, and the truth inside your interval & 10\%\\
+Write-up & Reproducible, with decisions justified & 10\%\\
+\bottomrule
+\end{tabularx}
+\caption{A self-assessment rubric. Regret depends on the hidden surface, so judge it against the
+spread you get from re-running your pipeline on a few other truth seeds.}
+\label{tab:proj3:rubric}
+\end{table}
+
+% ======================================================================
+\section{Questions that come up}\label{sec:proj3:faq}
+
+\paragraph{The service restarted and my budget is back to 12 hours. Can I keep going?} The
+service keeps its state in memory, so a restart resets it. That is a property of the stand-in,
+not of the task: treat the budget recorded in \emph{your} ledger as the binding one, and report
+any restart in the write-up. (A production service persists its job table; making
+\code{training\_service.py} do so with SQLite is a good extension.)
+
+\paragraph{What time scale should I use?} The time scale changes only how long you wait, never
+what anything costs. Debug at \code{--time-scale 1e6}; run the real attempt at a pace that lets
+you watch the queue (\code{60}--\code{600}).
+
+\paragraph{Can I use grouped-query attention or tied embeddings?} The service accepts both
+fields. It prices attention as full multi-head attention, so GQA neither helps nor hurts here; tied
+embeddings change the parameter count your accounting must use.
+
+\paragraph{Should the final run reuse a configuration I already trained?} Only if it is the
+best predicted choice. The service scores the final configuration from its hidden surface, not by
+looking up an earlier run, and duplicates of fitting runs are rejected anyway.
+
+\paragraph{How noisy are the losses?} Measure it: repeat one small configuration with different
+\code{model\_seed} values. The noise level sets how much a single run can be trusted and how
+many sizes per budget you need.
+
+% ======================================================================
+\section{Strategy discussion}\label{sec:proj3:strategy}
+
+There is no single right plan, but several principles separate strong studies from weak ones.
+\begin{itemize}
+\item \textbf{Buy information where it matters.} The final choice depends most on the
+      allocation law near the top of your fitted range and on $E$, so the largest IsoFLOP budget
+      and the verification run deserve most of the money. Tiny runs are cheap in FLOPs but not in
+      device time (\cref{sec:scalinglaws:accounting}).
+\item \textbf{Stage, then revise.} Run a coarse grid, fit, and spend the rest where the fit is
+      least certain. A plan fixed in advance cannot do this.
+\item \textbf{Exploit flat valleys.} Near the optimum the loss changes slowly with $N$. Being
+      20\% off in size costs little, whereas an unfinishable or diverging final run costs
+      everything. When in doubt, choose robustness: a slightly smaller model, a conservative LR,
+      a safety margin on runtime.
+\item \textbf{Keep calendar time in mind.} Reservations bound how many runs are in flight. A
+      study that keeps every worker busy finishes sooner and leaves time to react.
+\item \textbf{Validate the pipeline on other seeds.} Because the service is self-hosted, you can
+      run your entire pipeline against several other truth seeds before your real attempt and
+      measure its regret distribution. That is the closest thing to a rehearsal a real team has.
+\end{itemize}
+
+% ======================================================================
+\section{A suggested schedule}\label{sec:proj3:schedule}
+
+\begin{description}[leftmargin=2.6cm, style=nextline]
+\item[Day 1] Read \cref{ch:scalinglaws}; complete Lab~12 so the fitting tools are tested. Set up
+      the project directory, the service and the infrastructure tests.
+\item[Day 2] Part A end to end, including the reveal discussion.
+\item[Day 3] Client, ledger and rehearsal harness; rehearse a deliberately naive pipeline on two
+      seeds to learn how the service behaves.
+\item[Day 4] Real attempt, stages B1--B3, with the worksheet filled in before each stage.
+\item[Day 5] B4--B6 and the score; rehearse the final pipeline on other seeds for the
+      robustness section.
+\item[Day 6] Write-up.
+\end{description}
+
+% ======================================================================
+\section{Extensions}\label{sec:proj3:extensions}
+\begin{itemize}
+\item \textbf{WSD branching.} Add an endpoint to the service that continues a finished run's
+      stable phase and charges only a short decay (\cref{sec:scalinglaws:wsd}), then redesign the
+      study around method~1 and compare its regret per hour of budget.
+\item \textbf{Batch-size law.} Add batch sweeps to B2 and fit $B_{\text{opt}}$ against compute;
+      does it change your final choice?
+\item \textbf{Noise model.} Spend a little budget on repeated runs with different
+      \code{model\_seed}; use the measured noise to set the Huber $\delta$ and to weight the fit.
+\item \textbf{A different objective.} Re-plan for an inference-heavy deployment
+      (\cref{sec:scalinglaws:beyond}): minimise training plus serving cost for a fixed number of
+      served tokens, and report how far your choice moves from the training-optimal one.
+\end{itemize}
+
+% ======================================================================
+\section{Taking it to real hardware}\label{sec:proj3:real}
+
+The service is a stand-in for real training. Two ways to replace it:
+\begin{enumerate}
+\item \textbf{Real runs, same study.} Lab~12's \code{run.py cpu-sweep} trains small Qwen3-shaped
+      models and fits what it measures. On a GPU, raise the budgets
+      ($10^{15}$--$10^{17}$ FLOPs with \code{--device cuda}) and use the pretraining loop of
+      \cref{ch:pretrain} with a corpus from \cref{ch:data}.
+\item \textbf{Self-host a real training service.} Keep the HTTP contract of
+      \cref{sec:proj3:contract} and put a real backend behind it: a small web server that
+      validates requests and writes them to a job table (SQLite is enough), one worker process per
+      GPU that claims jobs, runs a training script with a hard timeout, streams validation losses
+      back to the table, and records the measured runtime. The interesting systems questions are
+      the ones you have just been on the other side of: how to price reservations, how to
+      handle preemption and partial results, and how to keep runs deterministic given a seed.
+      Because \code{training\_service.py} already implements the accounting rules, you can swap
+      only the part that produces losses.
+\end{enumerate}
+
+\begin{systemslens}[What the service teaches about real clusters]
+Every rule of the service exists on real infrastructure under a different name: reservations
+are Slurm time limits, timeouts are jobs killed at the limit with partial checkpoints, 409s are
+deduplicated submissions, and the hidden runtime model is the MFU you only learn by profiling.
+Teams that run scaling studies at scale build exactly the client, ledger and gates of this
+project, plus WSD branching (\cref{sec:scalinglaws:wsd}) to make each run yield several
+data points.
+\end{systemslens}

@@ -1,80 +1,100 @@
-\subsection*{Chapter 12: Batching and Serving Engines}
+\subsection*{Chapter 12: Scaling Laws in Practice}
 
-\paragraph{Exercise 12.1 (Per-row positions).}
-Compute $p_b$ = number of left pads of row $b$ and pass \code{position\_ids = clamp(arange(T) - p\_b, min=0)} for
-the prefill; during decoding, each row's next position is its previous position plus one. Replace
-\code{self.pos\_emb(arange(start, start+T))} by \code{self.pos\_emb(position\_ids)}. With the fix, greedy
-outputs match single-sequence generation exactly (up to floating-point reordering). Without it, rows with
-padding see shifted learned position vectors; the logits change noticeably and greedy continuations often
-diverge after a few tokens.
+\paragraph{Exercise 12.1} Minimise $E+AN^{-\alpha}+BD^{-\beta}$ subject to $6ND=C$. With
+$D=C/(6N)$ the objective is $f(N)=E+AN^{-\alpha}+B(6N/C)^{\beta}$, and $f'(N)=0$ gives
+$\alpha AN^{-\alpha}=\beta B(6N/C)^{\beta}=\beta BD^{-\beta}$. That is the stated $1:1$ ratio:
+at the optimum the \emph{marginal} gains from a relative increase in $N$ and in $D$ are equal, so
+no reallocation helps. Solving $\alpha AN^{-\alpha}=\beta B(6N/C)^{\beta}$ gives
+$N^{\alpha+\beta}=\frac{\alpha A}{\beta B}(C/6)^{\beta}$, so
+$N_{\text{opt}}=G(C/6)^{\beta/(\alpha+\beta)}$ with $G=(\alpha A/\beta B)^{1/(\alpha+\beta)}$, and
+$D_{\text{opt}}=(C/6)/N_{\text{opt}}=G^{-1}(C/6)^{\alpha/(\alpha+\beta)}$.
 
-\paragraph{Exercise 12.2 (Dropping finished rows).}
-After each step compute \code{keep = \textasciitilde done}; index the next-token tensor, the validity mask and, for
-every layer, the cache tensors \code{k[layer] = k[layer][keep]} (same for \code{v}). Keep a map from active row to
-original request. With geometric output lengths (mean 200, cap 2,000) a static batch runs to near the cap
-while the mean row needs 200 steps, so dropping rows saves most decode work; the saving in wall time is
-smaller on a GPU at small batch sizes (where step time barely depends on $B$) and larger on CPUs or at large $B$.
+\paragraph{Exercise 12.2} The minimum of each IsoFLOP profile is exactly the constrained optimum
+of 12.1, so the minima lie on $N_{\text{opt}}\propto C^{\beta/(\alpha+\beta)}$ with no
+approximation. With $C=6(N+Vd)D$, the tokens a budget buys are $D=C/(6(N+Vd))$. At small $N$,
+where $Vd$ is comparable with $N$, a model gets fewer tokens than the $6ND$ rule assumes. This
+shifts the small-budget optima towards smaller $N$, where the per-token cost is relatively lower.
+As $C$ grows the embedding term fades, the optima move back onto the ideal line, and the fitted
+exponent over a small-scale range comes out \emph{larger} than $\beta/(\alpha+\beta)$. This is one of
+the mechanisms behind Kaplan's larger exponent.
 
-\paragraph{Exercise 12.3 (Padding efficiency).}
-For i.i.d.\ $U(a,b)$ lengths, $\E[\max]=a+(b-a)\,B/(B+1)$, so
-$\eta=\frac{(a+b)/2}{a+(b-a)B/(B+1)}$. With $a=50,b=1500$: $\eta=1$ for $B=1$, $0.58$ for $B=8$, $0.52$ for $B=64$.
-Continuous batching has no idle decode slots ($\eta\approx1$); its only waste is the scheduler's inability to
-fill the batch when few requests are present.
+\paragraph{Exercise 12.3} Qwen3-0.6B: $L=28$, $d=1024$, 16 query heads of dimension 128 (query
+width 2048), 8 KV heads (K and V width 1024), $\dff=3072$, $V=151{,}936$, tied embeddings. Per
+layer: $Q$ $1024\cdot2048$, $K$ and $V$ $1024\cdot1024$ each, $O$ $2048\cdot1024$, which is
+$6.29$M for attention; MLP $3\cdot1024\cdot3072=9.44$M; per layer $15.73$M, so
+$N_{\text{ne}}=440.4$M. The tied embedding holds $155.6$M ($26\%$ of all weights). Training FLOPs per
+token: $6(440.4+155.6)\text{M}=3.58\times10^9$ for the matmuls (the tied table is still a full
+$V\times d$ matmul at the output), plus attention $6\cdot L\cdot T\cdot(Hd_h)=6\cdot28\cdot4096\cdot2048
+=1.41\times10^9$, which is 39\% on top of $6N$. At long context the attention term is not
+negligible. The assumptions behind $12Ld^2$ that break here: query width $\neq d$
+($Hd_h=2d$), GQA shrinks K and V, $\dff/d=3$ rather than $8/3$, and tied embeddings.
 
-\paragraph{Exercise 12.4 (Block size).}
-Throughput is nearly flat for block sizes 4--64 in the simulator (which charges no indirection cost),
-while internal fragmentation grows roughly as $\text{bs}/2$ tokens per sequence; at 256 the waste becomes
-visible for short requests and reduces the effective batch under memory pressure. On a GPU, block size 1
-turns every key read into a separate gather through the block table: poor memory coalescing, a table as
-large as the sequence, and many more address computations; blocks of 16--32 tokens let a warp stream
-contiguous chunks of K/V and keep tables small.
+\paragraph{Exercise 12.4} Write $x=\log N$ and assume locally $L(x)=L^*+\tfrac\kappa2(x-x^*)^2$.
+On a grid with spacing $\ln r$, the nearest grid point is at most $\tfrac12\ln r$ from $x^*$, so
+the min reading has $|\Delta x|\le\tfrac12\ln r$ and $0\le\Delta L\le\kappa(\ln r)^2/8$. With
+noise of standard deviation $\sigma$ per run, the min reading can also pick the wrong neighbour
+whenever the loss gap between neighbours ($\approx\kappa(\ln r)^2/2$ one step from the optimum) is
+comparable to $\sigma$. A parabola through $k$ points averages the noise and interpolates, so it
+helps when $\sigma\lesssim\kappa(\ln r)^2/2$ and the valley is well approximated by a parabola over
+the grid; for very wide grids the quartic terms bias the vertex, which favours several sizes close
+to the minimum over a very wide sweep.
 
-\paragraph{Exercise 12.5 (Copy-on-write fork).}
-After the parent's prefill, each child copies the parent's block table and increments every block's
-reference count. Before a child appends to its last block, check its reference count; if $>1$, allocate a
-fresh block, copy the existing slots (K and V of all layers), decrement the shared block and replace the
-table entry. Give each child its own \code{torch.Generator}. For $n=16$ children of a $P$-token prompt,
-memory drops from $16(P+L)$ to $P+16L$ tokens (plus at most 16 partially copied blocks), and prefill compute
-drops by $16\times$.
+\paragraph{Exercise 12.5} With $E=BS$ and $E_{\min}=B_{\text{crit}}S_{\min}$, write
+$s=S/S_{\min}$: then $E/E_{\min}=(B/B_{\text{crit}})s$ and
+$(s-1)\bigl((B/B_{\text{crit}})s-1\bigr)=1$ reduces to
+$s\bigl((B/B_{\text{crit}})s-B/B_{\text{crit}}-1\bigr)=0$, so $s=1+B_{\text{crit}}/B$. Hence
+$S=S_{\min}(1+B_{\text{crit}}/B)$ and $E=BS=E_{\min}(1+B/B_{\text{crit}})$. The time to target is
+$T(B)=S_{\min}(1+B_{\text{crit}}/B)(t_0+B/R)$, and $T'(B)=0$ gives $1/R=B_{\text{crit}}t_0/B^2$, so
+$B^*=\sqrt{B_{\text{crit}}\,t_0R}$. This exceeds $B_{\text{crit}}$ exactly when $t_0R>B_{\text{crit}}$:
+when the fixed per-step overhead (launches, communication latency, optimizer step) is worth more
+than $B_{\text{crit}}$ examples of throughput, it pays to take fewer, larger steps even though they
+waste data.
 
-\paragraph{Exercise 12.6 (Swap vs.\ recompute).}
-Swap: $2\kappa/\beta=2\times\SI{147456}{B}/\SI{50}{GB/s}\approx\SI{5.9}{\micro s}$ per token. Recompute:
-$2N/\Pi\approx\SI{16.6}{\micro s}$ per token at peak plus attention, which grows with sequence length.
-For Qwen3-8B, swapping is cheaper at every length (ignoring fixed per-transfer latency), and the gap widens
-with length. With MHA (32 KV heads, $\kappa=\SI{576}{KiB}$) swapping costs \SI{23.6}{\micro s}/token; recompute
-is cheaper until its attention term, $4LHd\cdot S/2$ FLOPs per token on average, adds the missing
-\SI{7}{\micro s}, at $S\approx23{,}600$ tokens. An fp8 KV cache halves swap cost (\SI{2.9}{\micro s}/token) and
-makes swapping even more attractive. Real decisions also weigh PCIe contention, host memory capacity and
-prefix-cache hits that make recomputation partly free.
+\paragraph{Exercise 12.6} In the synthetic service, intermediate losses of a cosine run sit above
+finished runs of the same length by an amount proportional to the not-yet-decayed LR. The early
+points are inflated most, so loss appears to fall faster with $D$ than it really does. One
+reference run (a 50M-parameter model, 16 evaluations, separate runs for comparison) gave
+$\hat\beta\approx0.35$ from the intermediate losses versus $0.29$ from separate runs, which matches
+the hidden truth. An overestimated $\beta$ makes data look more valuable and biases the allocation
+toward smaller models. With WSD, a short decay from a stable-phase checkpoint produces a
+genuinely finished run of that length, which removes the bias at the cost of the decays.
 
-\paragraph{Exercise 12.7 (Budget trade-off).}
-Small budgets keep every step short (low TPOT) but admit prefill slowly: TTFT explodes and throughput drops
-because steps are dominated by fixed overheads. Large budgets finish prefills quickly but make steps
-long, so TPOT rises; very large budgets can also hurt TTFT because a few long prefills monopolize steps.
-The curve is a Pareto front with a knee near the budget at which a step becomes compute-bound
-(a few hundred to a few thousand tokens on an H100 for an 8B model). With our default trace
-(\code{bench.py --exp budget}), budgets of 256--1024 give the best TTFT/TPOT compromise.
+\paragraph{Exercise 12.7} Durations $D_{\max}2^{-j}$, $j=0..k-1$. Cosine: $m\sum_j D_{\max}2^{-j}\to
+2mD_{\max}$. WSD: $m\bigl(D_{\max}+f\sum_jD_{\max}2^{-j}\bigr)\to mD_{\max}(1+2f)$. The saving tends
+to $1-(1+2f)/2=\tfrac12-f$, which is $40\%$ for $f=0.1$. For $k=4$ the totals are $15/8$ versus
+$1+0.1\cdot15/8$ (in units of $mD_{\max}$), a $37\%$ saving, as in the napkin box.
 
-\paragraph{Exercise 12.8 (Multi-turn chat).}
-At turn $k$ the prompt is the whole conversation, whose length grows linearly in $k$, while only the newest
-user message (and the previous reply, if it was not cached during generation) is new. Without caching the
-cumulative prefill over $K$ turns is quadratic in $K$; with caching it is linear, and the hit rate
-approaches $1-(\text{new tokens})/(\text{conversation length})\to1$. Caching generated blocks too (our
-engine publishes every full block, including output blocks) makes even the previous reply a hit.
+\paragraph{Exercise 12.8} Adam's update has entries $\pm\eta$ (the sign of the normalised
+gradient). For a linear layer the gradient is an outer product $g x^\top$, so the update is aligned
+with $x$: $\Delta W\approx\eta\,\mathrm{sign}(g)\,\mathrm{sign}(x)^\top$. Then
+$(\Delta W x)_i\approx\eta\sum_j|x_j|=\Theta(\eta n)$, because the $n$ terms add coherently. Keeping
+the change $\Theta(1)$ requires $\eta\propto1/n$. With SGD the update is $\eta g x^\top$, and
+$(\Delta Wx)_i=\eta g_i\|x\|^2=\Theta(\eta n g_i)$. Since the backpropagated $g_i$ to a hidden layer
+scales as $1/n$ in $\mu$P, SGD's hidden-layer LR ends up width-independent: the rule depends on
+the optimizer because Adam normalises the gradient's scale away.
 
-\paragraph{Exercise 12.9 (Disaggregation sizing).}
-Prefill of 3,000 tokens: $3000\times\SI{15.1}{GFLOP}/(0.6\times\SI{989}{TFLOP/s})\approx\SI{76}{ms}$, so one prefill GPU
-serves $\approx13$ requests/s. Decode: the KV pool of $\approx\SI{52}{GB}$ holds $\approx111$ sequences of
-$\approx3{,}150$ tokens; a step then reads $16.4+111\times3150\times\SI{147}{KB}\approx\SI{68}{GB}$:
-$\approx\SI{20}{ms}$, under the \SI{30}{ms} target. Each decode GPU completes $111/(300\times0.020)\approx18$
-requests/s, so roughly 1.4 prefill GPUs per decode GPU. For the reasoning workload (prompt 300, output
-8,000), prefill takes $\approx\SI{8}{ms}$ (130 requests/s per GPU) while a decode GPU holds only $\approx42$
-sequences and completes $\approx0.4$ requests/s: about 300 decode GPUs per prefill GPU. Disaggregation buys
-little there; the system is entirely decode-bound and KV memory is the lever.
+\paragraph{Exercise 12.9} The constraint $6ND+2ND_{\text{inf}}=C$ gives
+$D=(C-2ND_{\text{inf}})/(6N)$, so each extra parameter now also costs inference compute, which
+moves the stationary point to smaller $N$ than in 12.1 (the extra term only increases the marginal
+cost of $N$). Numerically, for \code{GroundTruth()} at $C=10^{21}$ and $D_{\text{inf}}=10^{11}$:
+the Chinchilla optimum is $N\approx1.77\times10^9$ at about 53 tokens per parameter, while the
+inference-aware optimum is $N\approx1.08\times10^9$, trained on $1.2\times10^{11}$ tokens, about
+112 tokens per parameter.
 
-\paragraph{Exercise 12.10 (Fairness).}
-Keep \code{served[tenant]} (input tokens weighted plus output tokens) and, when admitting, pick the waiting
-request whose tenant has the smallest counter (lifting a newly active tenant's counter to the minimum of the
-active ones, so idle time is not banked). In the simulator, a heavy tenant at $10\times$ the light tenant's rate
-then fills only the capacity the light tenant leaves unused; the light tenant's TTFT stays close to its
-value in isolation instead of growing with the heavy tenant's queue.
+\paragraph{Exercise 12.10} Let the true runtime be $t=\hat t\,e^{\varepsilon}$ with
+$\varepsilon\sim\mathcal N(0,0.15^2)$, and let $p(s)=\Phi(\ln s/0.15)$ be the completion probability.
+The expected charge per \emph{useful} run is
+$\bigl(\E[t;\,t<s\hat t]+s\hat t(1-p)\bigr)/p$. It decreases monotonically in $s$, from
+$1.33\hat t$ at $s=1.1$ to $1.08\hat t$ at $1.25$, $1.015\hat t$ at $1.5$ and $1.011\hat t$
+(the mean runtime) beyond $2$, because refunds make large reservations free. Calendar throughput is
+different: with at most $R/(s\hat t)$ runs in flight, each occupying a slot for $\E[\min(t,s\hat t)]$,
+useful runs per hour are proportional to $p(s)/(s\,\E[\min(t,s\hat t)])$, which peaks at
+$s\approx1.23$. A margin of 1.2--1.5$\times$ trades a few percent of budget for much better
+concurrency. Calibrate $\sigma$ on your own runs.
+
+\paragraph{Exercise 12.11} Answers vary with the seeds. On the reference pipeline the regret is
+typically a few thousandths of a nat on the default truth and a few hundredths on randomised
+truths (\code{GroundTruth.sample}). Most of the spread comes from the LR transfer law and from the
+fixed aspect ratio, so the cheapest improvements are a wider LR sweep at the largest affordable
+size and a small aspect-ratio sweep. The prediction error is dominated by $E$ and is cut most by
+the verification run.

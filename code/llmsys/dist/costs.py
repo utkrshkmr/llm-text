@@ -1,4 +1,4 @@
-"""Analytical cost models for Chapter 8.
+"""Analytical cost models for Chapter 14.
 
 alpha-beta model: sending a message of n bytes costs  alpha + n * beta  seconds,
 alpha = latency per message, beta = 1 / link bandwidth (s/byte).

@@ -5,7 +5,7 @@
 \title{\Huge\bfseries LLM Systems from Scratch\\[0.6em]
   \Large Building, Training, Serving, and Teaching Language Models to Reason\\[0.3em]
   \large A systems-first textbook with labs}
-\author{Prepared for Utkarsh Kumar}
+\author{utkrshkmr}
 \date{Edition 1.0 \quad November 2026}
 
 \begin{document}
@@ -27,31 +27,52 @@
 \include{chapters/ch04_attention}
 \include{chapters/ch05_gpt}
 \include{chapters/ch06_modern_arch}
+\include{chapters/ch07_arch_design}
+\include{chapters/ch08_attention_alternatives}
 % =====================================================================
-\part{Training}
-\include{chapters/ch07_pretraining}
-\include{chapters/ch08_distributed}
-\include{chapters/ch09_classification}
-\include{chapters/ch10_instruction_lora}
+\part{Pretraining at Scale}
+\include{chapters/ch09_optimizers}
+\include{chapters/ch10_pretraining}
+\include{chapters/ch11_pretraining_data}
+\include{chapters/ch12_scaling_laws}
+\include{chapters/ch13_perf_engineering}
+\include{chapters/ch14_distributed}
+\include{chapters/ch15_sharding}
+% =====================================================================
+\part{Fine-Tuning}
+\include{chapters/ch16_classification}
+\include{chapters/ch17_instruction_lora}
 % =====================================================================
 \part{Inference and Serving}
-\include{chapters/ch11_inference}
-\include{chapters/ch12_serving_engine}
-\include{chapters/ch13_efficient_inference}
+\include{chapters/ch18_inference}
+\include{chapters/ch19_serving_engine}
+\include{chapters/ch20_efficient_inference}
 % =====================================================================
-\part{Reasoning Models}
-\include{chapters/ch14_evaluation}
-\include{chapters/ch15_inference_scaling}
-\include{chapters/ch16_self_refinement}
-\include{chapters/ch17_grpo}
-\include{chapters/ch18_improving_grpo}
-\include{chapters/ch19_rl_systems}
-\include{chapters/ch20_distillation}
+\part{Reasoning and Post-Training}
+\include{chapters/ch21_evaluation}
+\include{chapters/ch22_inference_scaling}
+\include{chapters/ch23_self_refinement}
+\include{chapters/ch24_policy_gradients}
+\include{chapters/ch25_rlhf_ppo}
+\include{chapters/ch26_dpo}
+\include{chapters/ch27_grpo}
+\include{chapters/ch28_improving_grpo}
+\include{chapters/ch29_rl_systems}
+\include{chapters/ch30_distillation}
+\include{chapters/ch31_alignment_multimodal}
+% =====================================================================
+\part{Capstone Projects}
+\include{chapters/ch32_proj_basics}
+\include{chapters/ch33_proj_systems}
+\include{chapters/ch34_proj_scaling}
+\include{chapters/ch35_proj_data}
+\include{chapters/ch36_proj_alignment}
 % =====================================================================
 \appendix
 \include{appendices/appA_triton}
-\include{appendices/appB_setup}
-\include{appendices/appC_references}
-\include{appendices/appD_solutions}
+\include{appendices/appB_accelerators}
+\include{appendices/appC_setup}
+\include{appendices/appD_references}
+\include{appendices/appE_solutions}
 
 \end{document}

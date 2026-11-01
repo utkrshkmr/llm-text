@@ -1,4 +1,4 @@
-"""Distributed-training building blocks written from scratch (Chapter 8).
+"""Distributed-training building blocks written from scratch (Chapter 14).
 
 Modules
 -------

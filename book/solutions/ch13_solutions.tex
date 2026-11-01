@@ -1,104 +1,87 @@
-\subsection*{Chapter 13: Making Inference Cheaper and Deploying It}
+\subsection*{Chapter 13: Performance Engineering on One GPU}
 
-\paragraph{Exercise 13.1.} Qwen3-0.6B stores $2\cdot28\cdot8\cdot128\cdot2=114{,}688$ bytes
-of KV per token, i.e.\ 235\,MB per 2048-token sequence. Its weights take 1.19\,GB, so the
-two are equal at $B\approx1.19\cdot10^9/2.35\cdot10^8\approx5$. Beyond a handful of
-concurrent sequences the KV cache dominates the bytes per step. Weight-only quantization
-of a small model therefore barely helps a busy server; KV quantization, paging and
-prefix sharing matter far more.
+\paragraph{Exercise 13.1} One-time costs: CUDA context creation and kernel-module loading; cuBLAS
+handle creation and heuristic or autotuning selection per new GEMM shape; Triton JIT compilation and
+\code{triton.autotune} sweeps; \code{torch.compile} tracing (Dynamo), joint-graph partitioning
+(AOTAutograd) and code generation (Inductor); caching-allocator growth (one \code{cudaMalloc} per new
+segment); CUDA-graph capture if enabled; GPU clock ramp-up. Experiment: wrap ``import + model
+construction'', ``first forward'', ``first backward'', ``first optimizer step'', ``second step'' and
+``steps 3--20'' in separate NVTX ranges and profile without a capture range. Compile and autotune
+appear as long host-side ranges with no kernels; allocator growth appears as \code{cudaMalloc} calls in
+the CUDA API row; clock ramp-up shows as identical kernels getting faster over the first iterations
+(also visible with \code{nvidia-smi dmon}).
 
-\paragraph{Exercise 13.2.} With $e$ uniform on $[-s/2,s/2]$,
-$\E[e^2]=\frac1s\int_{-s/2}^{s/2}e^2\,de=s^2/12$. A full-range signal uniform on $[-A,A]$
-has power $A^2/3$, and $b$ bits give $s=2A/2^b$, so the noise power is
-$A^2/(3\cdot4^b)$. Hence $\mathrm{SQNR}=4^b$, or $10\log_{10}4^b\approx6.02\,b$\,dB.
+\paragraph{Exercise 13.2} Any launch-bound workload: for example, 1000 small elementwise kernels on
+$10^4$-element tensors. Each kernel runs for about $2\,\mu$s on the device, but the host needs
+about $5$--$10\,\mu$s per launch, so CUDA events (device time, roughly the sum of kernel durations
+when the queue never empties) report much less than wall-clock time, which includes the launch
+bottleneck. Report device time (events or \code{do\_bench}) for a kernel paper, because the claim is
+about the kernel; report synchronised wall-clock time for training throughput, because host overhead
+is part of the real cost.
 
-\paragraph{Exercise 13.3.} Per row: $s=40/7\approx5.71$, and a value rounds to zero when
-$|x|<s/2\approx2.86$, which holds for $\approx99.6\%$ of standard normal draws. The row is
-destroyed. With $g=32$, only the outlier's group (31 normal values) suffers this. In the
-other groups the scale is set by the group's own maximum ($\approx2.3$), so only
-$|x|\lesssim0.17$ rounds to zero. A simulation gives $\approx34\%$ zeros overall, almost
-all of them in the outlier's group.
+\paragraph{Exercise 13.3} For \code{fc3(silu(fc1(x)) * fc2(x))} in eager mode: \code{fc1} and
+\code{fc2} save $x$ (the same storage, counted once): $BTd\cdot4$ bytes. \code{silu} saves its input
+$g=\code{fc1}(x)$: $BTh\cdot4$. The product saves both operands, \code{silu}$(g)$ and
+$u=\code{fc2}(x)$: $2BTh\cdot4$. \code{fc3} saves its input (the product): $BTh\cdot4$. Total
+$4BT(d+4h)$ bytes, i.e.\ $1+4h/d$ units of the residual stream (about 13 for $h=3d$). Under
+\code{torch.compile} the partitioner typically keeps $x$, $g$ and $u$ and recomputes
+\code{silu}$(g)$ and the product in the backward kernel, dropping two $h$-wide tensors (about
+$1+2h/d$ units). Verify by printing \code{tr.table()} in both modes.
 
-\paragraph{Exercise 13.4.} (a) $4+(16+16)/64=4.5$ bits. (b) $4+8/32=4.25$ bits.
-(c) $4+8/16=4.5$ bits, plus a negligible per-tensor fp32 scale.
+\paragraph{Exercise 13.4} With outer groups of $k_1$ blocks, each recomputed with inner checkpoints
+every $k_2$ blocks, the peak (in units of $a$, with $A=30a$) is
+$M=\tfrac{L}{k_1}+\tfrac{k_1}{k_2}+30k_2$: outer checkpoints, the inner checkpoints of the outer
+group being recomputed, and one live inner group. Each block runs forward three times (original,
+outer recomputation, inner recomputation) versus twice for one level. Because $A\gg a$, $k_2=1$ is
+optimal, giving $M=64/k_1+k_1+30$, minimised at $k_1=8$: $M=46a$. The best one-level schedule
+($k=1$ or $2$) gives $94a$ or $92a$. One extra forward per block roughly halves peak activation
+memory here.
 
-\paragraph{Exercise 13.5.} For one row, the loss is
-$\ell(\vect w')=(\vect w'-\vect w)^\top H(\vect w'-\vect w)$. Minimise $\ell$ subject to
-$\vect e_i^\top(\vect w'-\vect w)=q_i-w_i$. The Lagrangian gives
-$2H\boldsymbol\delta=\lambda\vect e_i$, so $\boldsymbol\delta=\frac{\lambda}{2}H^{-1}\vect e_i$,
-and the constraint fixes $\lambda/2=(q_i-w_i)/[H^{-1}]_{ii}$. Therefore
-$\boldsymbol\delta=-\frac{w_i-q_i}{[H^{-1}]_{ii}}H^{-1}_{:,i}$, whose $i$-th entry is
-exactly $q_i-w_i$ and whose other entries are the stated update. Substituting back,
-$\ell=\boldsymbol\delta^\top H\boldsymbol\delta=(w_i-q_i)^2/[H^{-1}]_{ii}$. GPTQ then
-removes row and column $i$ from $H^{-1}$ (a Schur-complement update), which is what the
-Cholesky formulation does implicitly.
+\paragraph{Exercise 13.5} Per parameter, AdamW does about 12--15 FLOPs (two moment updates, bias
+corrections, a square root, a division, weight decay, the update) and moves about 28 bytes
+(\cref{sec:perf:anatomy}): roughly 0.5 FLOP/byte, far below any GPU's ridge point. Qwen3-1.7B has
+$1.72\times10^9$ parameters, so 48.2\,GB of traffic, or 14.4\,ms at 3.35\,TB/s. The model has about
+310 parameter tensors (11 per layer over 28 layers, plus the embedding and final norm); at about
+ten kernels per tensor and $5\,\mu$s per launch, launching alone takes 15.5\,ms of host time, and
+kernels on small tensors (norm weights) are too short to reach bandwidth. Expect 25--40\,ms unfused.
+A fused (or multi-tensor) implementation launches a handful of kernels and approaches
+$14.4/0.8\approx18$\,ms at 80\% of peak bandwidth.
 
-\paragraph{Exercise 13.6.}
-$(X\,\mathrm{diag}(\vect s)^{-1})(W\,\mathrm{diag}(\vect s))^\top
-=X\,\mathrm{diag}(\vect s)^{-1}\mathrm{diag}(\vect s)W^\top=XW^\top$.
-With $\alpha=\tfrac12$, $s_j=\sqrt{a_j/w_j}$ where $a_j=\max|X_{:,j}|$ and
-$w_j=\max|W_{:,j}|$. Then $\max|X'_{:,j}|=a_j/s_j=\sqrt{a_jw_j}=w_js_j=\max|W'_{:,j}|$.
-To fold the division, note that $X$ is the output of RMSNorm with per-channel gain
-$\gamma_j$; replace $\gamma_j$ by $\gamma_j/s_j$ offline. (When several linears consume
-the same normalised input, e.g.\ Q, K and V, they must share $\vect s$.)
+\paragraph{Exercise 13.6} $16\times4096=65{,}536$ tokens. Logits in bf16: $65{,}536\times151{,}936\times2$\,B
+$=19.9$\,GB; the fp32 upcast doubles that to 39.8\,GB; the gradient of the logits is another
+19.9--39.8\,GB. That is 80--100\,GB at the peak, more than an 80\,GB GPU. To keep the fp32 slab under
+1\,GB: chunk $\le 10^9/(151{,}936\times4)\approx1645$ tokens, so use 1024 (0.62\,GB fp32 plus 0.31\,GB
+bf16). Recomputation repeats the LM-head forward ($2\dmodel V=622$\,MFLOP per token), i.e.\
+$4.1\times10^{13}$ extra FLOPs per step (about 41\,ms at the H100's bf16 peak): one third more than the
+LM head's normal training cost.
 
-\paragraph{Exercise 13.7.} Let $x_1$ be emitted at position 1 with probability $p(x_1)$,
-by the proposition. Conditioned on the first draft having been accepted with value $x_1$,
-the second draft is sampled from $q(\cdot\mid x_1)$ and verified against
-$p(\cdot\mid x_1)$, because the target's second output row is computed with $x_1$ in its
-context. Applying the proposition to this conditional pair gives
-$\Pr[x_2\mid x_1]=p(x_2\mid x_1)$. If the first draft is rejected, the round ends and
-position 2 is produced in the next round, again conditioned on the emitted $x_1$.
-Either way the joint law is $p(x_1)p(x_2\mid x_1)$. Induction extends this to whole
-sequences.
+\paragraph{Exercise 13.7} With tile size $b$ and $n=T/b$ tiles per side, a causal forward visits
+$n(n+1)/2$ tiles and does two GEMMs of $2b^2\dhead$ FLOPs on each, giving
+$2\,BH\dhead\,T(T+b)$ FLOPs ($\approx2BH\dhead T^2$, half of non-causal). The two-kernel backward
+does seven GEMMs per visited tile: $7\,BH\dhead\,T(T+b)$, $3.5\times$ the forward. A backward reading a
+stored $\mat{P}$ does four GEMMs ($\mat{dV},\mat{dP},\mat{dQ},\mat{dK}$), $2\times$ the forward, but
+must store and read $BHT^2$ elements. The diagonal tiles are computed in full and masked, so their
+wasted FLOPs are the $T\cdot b$ term.
 
-\paragraph{Exercise 13.8.} Maximising
-$S(\gamma)=(1-\alpha^{\gamma+1})/((1-\alpha)(0.05\gamma+1))$ over integers gives
-$\gamma^{*}=4$ ($S\approx1.92$) for $\alpha=0.6$, $\gamma^{*}=8$ ($S\approx3.09$) for
-$\alpha=0.8$, and $\gamma^{*}=13$ ($S\approx4.67$) for $\alpha=0.9$. Going from $\gamma$
-to $\gamma+1$ helps iff
-$S(\gamma+1)>S(\gamma)$, i.e.\
-$\alpha^{\gamma+1}(1-\alpha)(c\gamma+1)>c\,(1-\alpha^{\gamma+1})$: the expected marginal
-token $\alpha^{\gamma+1}$ must outweigh the marginal drafting cost relative to the
-current expected yield.
+\paragraph{Exercise 13.8} Visited tiles $n(n+1)/2$, masked tiles $n$: a fraction of $2/(n+1)$, e.g.\
+about 3\% for $n=64$. With \code{BLOCK\_M}$=2\,$\code{BLOCK\_N} and $n_q=T/\code{BLOCK\_M}$ query
+tiles, query tile $i$ visits $2i+2$ key tiles, the last two of which straddle the diagonal and need
+masks. Visited $=n_q(n_q+1)$, masked $=2n_q$, so again $2/(n_q+1)$, now in terms of the (fewer)
+query tiles.
 
-\paragraph{Exercise 13.9.} The step reads $16.4$\,GB of weights plus
-$128\cdot2048\cdot147.5$\,KB$\approx38.7$\,GB of KV: $t_{\text{mem}}\approx16.4$\,ms. With
-$\gamma+1=5$, the step processes 640 tokens: $\approx2\cdot8.19\cdot10^9\cdot640\approx
-1.05\cdot10^{13}$ matmul FLOPs, plus $\approx0.8\cdot10^{12}$ for attention, so
-$t_{\text{comp}}\approx11.4$\,ms at peak. That is still memory-bound on paper, but at a
-realistic 50--60\% of peak the compute time reaches $\approx20$\,ms, which exceeds the
-memory time. Every rejected draft then costs real time. Choose $\gamma\le2$ (or adapt
-$\gamma$ to load), and turn speculation off entirely at higher batch sizes.
+\paragraph{Exercise 13.9} Tiles $=16\lceil M/128\rceil$ and waves $=\lceil\text{tiles}/132\rceil$;
+achieved fraction $=\text{tiles}/(132\cdot\text{waves})$. At $M=4096$: 512 tiles, 4 waves, 97\%.
+Throughput drops just above $M=4224$ (528 tiles fill exactly 4 waves; 544 need 5, falling to 82\%),
+$M=5248$ (656 to 672 tiles: 99\% to 85\%), $M=6272$ (784 to 800 tiles) and $M=7296$ (912 to 928 tiles),
+with smaller steps at every multiple of 128 from tile quantisation. A sweep of measured throughput
+shows the same sawtooth.
 
-\paragraph{Exercise 13.10.} The message size is $m=5120\cdot2=10$\,KB per sequence, which
-is negligible on NVLink ($m/\beta\approx0.02\,\mu$s). If the per-collective latency is
-constant ($a=8\,\mu$s, one-shot all-reduce),
-$t(P)=19.6/P+2\cdot64\cdot0.008$\,ms$=19.6/P+1.02$\,ms. This decreases monotonically:
-10.8\,ms at $P=2$, 5.9\,ms at $P=4$, 3.5\,ms at $P=8$. So use the whole NVLink domain. If
-the latency instead grows like a ring all-reduce, $a(P)=2(P-1)\alpha$ with
-$\alpha=2\,\mu$s, then $t=10.3$, $6.4$ and $6.0$\,ms for $P=2,4,8$: diminishing returns,
-and a two-node $P=16$ would be slower. Collective latency, not bandwidth, sets the limit
-on TP for decode.
-
-\paragraph{Exercise 13.11.} In a closed loop a new request is issued only when an old one
-completes, so the number in the system is capped at 64 and the offered load automatically
-drops when the server slows down. No queue can build up, and latency stays bounded by
-construction. Real traffic is open-loop: Poisson bursts arrive regardless of server
-state. During a burst the queue and the KV cache fill up, and preemption and queueing
-delay grow superlinearly near capacity (Little's law plus queueing theory). Closed-loop
-tools also suffer from ``coordinated omission'': the slow periods generate fewer samples,
-so they are under-represented in the percentiles.
-
-\paragraph{Exercise 13.12.} Assume every message is 150 tokens. The prompt at turn $k$ is
-about $300(k-1)+150$ tokens, so without reuse the total prefill is
-$\sum_{k=1}^{20}(300k-150)=60{,}000$ tokens. With perfect reuse each turn prefills only
-the new user message plus a few template tokens (and the one generated token that was
-never fed back): about $20\cdot150=3{,}000$ tokens, a $20\times$ reduction. With the
-official Qwen3 template, pitfall (1) strikes first: the earlier assistant turns'
-\texttt{<think>} blocks are stripped when the history is re-serialised, so the common
-prefix ends at the start of the most recent assistant reply. Fixes: store in the history
-exactly what the template will emit (the reply without its think block) and accept
-re-prefilling that shorter reply once, or keep a cache keyed on the template's output.
-Engine-level prefix caching (radix trees) handles this automatically, at block
-granularity.
+\paragraph{Exercise 13.10} With \code{fullgraph=True}, Dynamo raises at \code{loss.item()}
+(``data-dependent'' or ``Tensor.item'' graph break) because converting a tensor to a Python number
+needs a device synchronisation and leaves the graph. \code{TORCH\_LOGS=graph\_breaks} on the original
+code lists remaining breaks, typically from NVTX/profiler calls inside the compiled region,
+\code{print}s, Python-side conditionals on tensor values and calls into unsupported libraries. The
+remedies: move logging outside the compiled function (return the loss tensor and call
+\code{.item()} every $k$ steps), replace data-dependent branches with \code{torch.where}, mark
+helper functions with \code{torch.compiler.disable} if they must stay in Python, and compile per block
+so that remaining breaks fall between compiled regions.

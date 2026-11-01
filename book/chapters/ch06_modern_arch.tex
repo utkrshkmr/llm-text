@@ -46,7 +46,7 @@ the real Qwen3-0.6B (6--8), then scale up to larger dense models and to sparse m
 \end{figure}
 
 % =====================================================================
-\section{From GPT-2 to Qwen3}\label{sec:modern:diff}\covers{RM C}
+\section{From GPT-2 to Qwen3}\label{sec:modern:diff}
 
 \Cref{fig:modern:sidebyside} places the two architectures next to each other. The skeleton is
 unchanged: token embedding, $L$ pre-norm residual blocks, final norm, linear head. The differences
@@ -137,7 +137,7 @@ parallelism (a bias on a row-parallel layer must be added exactly once after the
 \cref{ch:distributed}) and has no measurable cost in quality.
 
 % =====================================================================
-\section{RMSNorm}\label{sec:modern:rmsnorm}\covers{RM C.1}
+\section{RMSNorm}\label{sec:modern:rmsnorm}
 
 Root-mean-square normalization (Zhang and Sennrich, 2019) keeps only the rescaling half of layer
 norm. It divides each token vector by its root mean square and applies a learned per-feature gain,
@@ -201,7 +201,7 @@ vLLM and TensorRT-LLM) and even into the following GEMM's prologue.
 \end{systemslens}
 
 % =====================================================================
-\section{Gated feed-forward networks: SwiGLU}\label{sec:modern:swiglu}\covers{RM C.2}
+\section{Gated feed-forward networks: SwiGLU}\label{sec:modern:swiglu}
 
 Qwen3's MLP is a \emph{gated linear unit} (Dauphin et al., 2017; Shazeer, 2020). Instead of one
 up-projection followed by a nonlinearity, it computes two up-projections of the same input; one
@@ -278,7 +278,7 @@ gate, which lets the network represent products of features directly.
 \end{deepdive}
 
 % =====================================================================
-\section{Rotary position embeddings}\label{sec:modern:rope}\covers{RM C.3}
+\section{Rotary position embeddings}\label{sec:modern:rope}
 
 GPT-2 adds a learned vector $\vect p_t$ to each token embedding. That has three drawbacks: the table
 has a fixed size (GPT-2 cannot see position 1024 at all), the position signal must survive through
@@ -407,7 +407,7 @@ expected. Lab~6 implements PI and the NTK base formula.
 \end{deepdive}
 
 % =====================================================================
-\section{Grouped-query attention}\label{sec:modern:gqa}\covers{RM C.4}
+\section{Grouped-query attention}\label{sec:modern:gqa}
 
 In multi-head attention every query head has its own key and value head. During autoregressive
 decoding, keys and values of all past tokens are cached (\cref{sec:modern:kvcache}), and reading that
@@ -488,7 +488,7 @@ offset; and \code{repeat\_interleave} copies each K/V head to the $H/G$ query he
 projection maps $\dmodel=1024$ to $H\dhead=16\times128=2048$: the attention width is decoupled from
 the residual width.
 
-\subsection{QK-norm}\covers{RM C.4}
+\subsection{QK-norm}
 Qwen3 additionally applies an RMSNorm (with its own learned gain, shared across heads) to every query
 and key head vector before RoPE. Attention logits are dot products $\vect q\cdot\vect k$; if the norms
 of $\vect q$ and $\vect k$ drift upwards during training, the softmax saturates into near one-hot
@@ -525,7 +525,7 @@ only if the kernel knows about it.
 \end{systemslens}
 
 % =====================================================================
-\section{The Qwen3 transformer block}\label{sec:modern:block}\covers{RM C.5}
+\section{The Qwen3 transformer block}\label{sec:modern:block}
 
 The block is the GPT-2 block with the new parts slotted in (\cref{fig:modern:block}): RMSNorm before
 attention, GQA with QK-norm and RoPE, residual add, RMSNorm before the SwiGLU MLP, residual add. There
@@ -579,7 +579,7 @@ class Qwen3Block(nn.Module):
 \end{lstlisting}
 
 % =====================================================================
-\section{The main model}\label{sec:modern:model}\covers{RM C.6}
+\section{The main model}\label{sec:modern:model}
 
 \begin{lstlisting}[caption={Qwen3 configuration and model (cf.\ \ident{llmsys/qwen3.py}).},label={lst:modern:model}]
 QWEN3_CONFIG_06B = dict(
@@ -640,7 +640,7 @@ any kernel launch overhead, which in practice dominates a model this small (\cre
 \end{napkinmath}
 
 % =====================================================================
-\section{KV cache}\label{sec:modern:kvcache}\covers{RM C.7}
+\section{KV cache}\label{sec:modern:kvcache}
 
 Autoregressive generation re-reads the whole prefix at every step (\cref{sec:gpt:generate}). Since a
 past token's keys and values in every layer depend only on the tokens before it, they never change and
@@ -709,7 +709,7 @@ sequence even if most sequences are short, which is exactly the waste PagedAtten
 \end{systemslens}
 
 % =====================================================================
-\section{The tokenizer}\label{sec:modern:tokenizer}\covers{RM C.8}
+\section{The tokenizer}\label{sec:modern:tokenizer}
 
 Qwen3 uses a byte-level BPE tokenizer of the kind we built in \cref{ch:text}, with roughly
 \num{151.6}k learned tokens covering many languages and code, plus a few dozen \emph{special tokens}
@@ -767,7 +767,7 @@ sensitive to the exact template; \cref{ch:eval} returns to this.
 \end{pitfall}
 
 % =====================================================================
-\section{Using the model}\label{sec:modern:use}\covers{RM C.9}
+\section{Using the model}\label{sec:modern:use}
 
 Loading the official weights is a matter of mapping names. The Hugging Face checkpoint is a set of
 safetensors files whose tensor names follow the \code{transformers} implementation;
@@ -824,7 +824,7 @@ The 0.6B model is ideal for learning: it runs on a laptop and every experiment i
 in this chapter is size-agnostic, and running a larger model is mostly a matter of a different
 configuration and a different checkpoint.
 
-\subsection{Larger dense configurations}\covers{RM D.1}
+\subsection{Larger dense configurations}
 \Cref{tab:modern:family} lists the dense Qwen3 family. All members share the vocabulary, head
 dimension 128, eight KV heads, QK-norm and the RoPE base; they differ in width, depth, number of query
 heads and MLP width. The smaller three tie their embeddings; from 8B on, the output head is a separate
@@ -849,7 +849,7 @@ the Lab~6 code. Note how the KV cache per token grows much more slowly than the 
 \label{tab:modern:family}
 \end{table}
 
-\subsection{Downloading larger checkpoints}\covers{RM D.2}
+\subsection{Downloading larger checkpoints}
 Checkpoints above a few gigabytes are split into \emph{shards}
 (\code{model-00001-of-00005.safetensors}, \ldots) plus a JSON index, \code{model.safetensors.index.json},
 that maps every tensor name to the shard containing it. The simplest robust approach is to download the
@@ -858,7 +858,7 @@ loader read every \code{*.safetensors} file in the directory, as \ident{load_qwe
 each model in its own directory; mixing shards of different models in one folder is a classic way to
 load garbage silently, which is why our loader checks every tensor's shape.
 
-\subsection{Loading a larger base model}\covers{RM D.3}
+\subsection{Loading a larger base model}
 Naive loading of an 8B model needs memory for \emph{two} copies of the weights: the randomly
 initialized model and the state dict read from disk. Three standard tricks avoid that (Lab~6's
 \code{run.py} uses the first and third):
@@ -882,7 +882,7 @@ seconds of CPU time), \code{to\_empty} materializes uninitialized storage direct
 \code{safe\_open} memory-maps each shard so only one tensor at a time is resident in host memory.
 Peak memory is then the model plus one tensor, rather than twice the model.
 
-\subsection{Loading a larger reasoning variant}\covers{RM D.4}
+\subsection{Loading a larger reasoning variant}
 Each Qwen3 size is published as a \code{-Base} checkpoint (pretrained only) and as a post-trained
 hybrid-thinking checkpoint without suffix. Switching between them changes only the weights directory
 and the tokenizer settings: the reasoning variant needs the chat template and stops on
@@ -891,7 +891,7 @@ and the tokenizer settings: the reasoning variant needs the chat template and st
 In \cref{ch:eval,ch:scaling} we will use the base 0.6B model as the student we try to improve, and the
 reasoning variants as reference points and as distillation teachers (\cref{ch:distill}).
 
-\subsection{Practical recommendations and memory planning}\covers{RM D.5}
+\subsection{Practical recommendations and memory planning}
 Which size should you use? The honest systems answer is: the largest one whose weights \emph{plus the
 KV cache you need} fit in memory with headroom. \Cref{tab:modern:plan} applies the formulas of this
 chapter to two common devices, assuming bf16 weights and cache and 10\% of memory reserved for

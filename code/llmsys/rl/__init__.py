@@ -1,4 +1,4 @@
-"""Reinforcement learning with verifiable rewards (Chapters 17-18).
+"""Reinforcement learning with verifiable rewards (Chapters 27-28).
 
     rewards     -- boxed-answer extraction, correctness/format rewards, GDPO combine
     advantages  -- group-relative advantages, zero-variance detection

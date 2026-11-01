@@ -1,0 +1,1080 @@
+\chapter{Beyond Softmax Attention: Linear Attention, State-Space Models, Hybrids, and Sparse Experts}\label{ch:attnalt}
+
+Softmax attention has two costs that grow with context. Training does $O(T^2)$ work per layer; FlashAttention
+(\cref{sec:attention:flash}) removes the $O(T^2)$ \emph{memory}, but not the FLOPs. Decoding reads a KV cache
+that grows linearly with every token generated, so long-context inference is bounded by memory capacity and
+bandwidth (\cref{ch:inference}). For a decade of chat-length contexts these costs were tolerable.
+Reasoning traces of tens of thousands of tokens, agents with long tool histories, and million-token
+documents have changed that, and several recent production models now replace most of their
+attention layers with something cheaper.
+
+This chapter covers that ``something cheaper''. We start from the incremental toolkit: windows,
+sparsity and compressed caches. We then derive linear attention and show that it has three equivalent
+computational forms, add decay and gating to reach the modern gated linear-attention and Mamba-2
+family, add the delta rule, and connect all of it to state-space models and their parallel scans. We
+then see how hybrids combine the pieces. A final section revisits mixture-of-experts layers with the
+design details that \cref{sec:modern:moe} left out. Every operator comes with code in
+\code{llmsys/linear\_attn.py} and \code{llmsys/ssm.py} that is verified to be equivalent across its forms,
+because for these models the \emph{form} of the computation is the systems story.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  st/.style={draw=sysblue, fill=sysbluebg, rounded corners=2pt, minimum width=2.25cm,
+    minimum height=1.05cm, align=center, font=\small, text width=2.15cm},
+  num/.style={circle, fill=sysblue, text=white, font=\scriptsize\bfseries, inner sep=1.2pt},
+  arr/.style={-{Stealth[length=2mm]}, thick, draw=black!60}]
+\node[st] (a) at (0,0) {Why go\\beyond softmax};
+\node[st] (b) at (2.8,0) {Windows \&\\sparse attention};
+\node[st] (c) at (5.6,0) {Linear attention:\\three forms};
+\node[st] (d) at (8.4,0) {Decay \&\\gating};
+\node[st] (e) at (11.2,0) {Delta rule};
+\node[st, fill=keygreenbg, draw=keygreen] (f) at (11.2,-1.8) {State-space\\models \& scans};
+\node[st, fill=keygreenbg, draw=keygreen] (g) at (8.4,-1.8) {Hybrids};
+\node[st, fill=keygreenbg, draw=keygreen] (h) at (5.6,-1.8) {MLA \& compressed caches};
+\node[st, fill=fmemory!20, draw=napkin] (i) at (2.8,-1.8) {Sparse experts revisited};
+\node[st, fill=labpurplebg, draw=labpurple] (j) at (0,-1.8) {Lab 8};
+\foreach \n/\k in {a/1,b/2,c/3,d/4,e/5,f/6,g/7,h/8,i/9,j/10}
+  \node[num] at (\n.north west) {\k};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d); \draw[arr] (d)--(e);
+\draw[arr] (e)--(f); \draw[arr] (f)--(g); \draw[arr] (g)--(h); \draw[arr] (h)--(i); \draw[arr] (i)--(j);
+\end{tikzpicture}}
+\caption{Roadmap of this chapter: from cheap restrictions of softmax attention (top left), through
+recurrent sequence mixers, to the hybrid and sparse architectures built from them.}
+\label{fig:attnalt:roadmap}
+\end{figure}
+
+% =====================================================================
+\section{Why look beyond softmax attention?}\label{sec:attnalt:why}
+
+\begin{napkinmath}[The KV cache at long context]
+Qwen3-8B has $L=36$ layers and 8 KV heads of dimension 128. Its bf16 KV cache costs
+$2\cdot36\cdot8\cdot128\cdot2\,\text{B}=147{,}456$\,B per token. At a 128k-token context
+($131{,}072$ tokens) a \emph{single} sequence needs $147{,}456\times131{,}072\approx19.3$\,GB, more than the
+16\,GB of weights. Every decoded token must read all of it, which takes about 5.8\,ms at 3.35\,TB/s, so
+attention alone caps one sequence at under 175 tokens/s before the weights are even counted. Batching does
+not help, since each sequence brings its own cache. This is the pressure behind every technique in this
+chapter.
+\end{napkinmath}
+
+There are three broad responses:
+\begin{enumerate}
+\item \textbf{Shrink what is cached} without changing what attention computes: GQA/MQA
+  (\cref{sec:modern:gqa}), multi-head latent attention (\cref{sec:attnalt:mla}), and KV quantisation
+  (\cref{ch:efficient}).
+\item \textbf{Attend to fewer keys}: sliding windows, sinks, block-sparse patterns and learned top-$k$
+  selection (\cref{sec:attnalt:sparse}). The cache can then be bounded or pruned.
+\item \textbf{Replace the operator} with one whose state does not grow with $T$: linear attention, its
+  gated and delta-rule descendants, and state-space models (\cref{sec:attnalt:linear,%
+  sec:attnalt:gating,sec:attnalt:delta,sec:attnalt:ssm}). These usually appear in \emph{hybrids} that keep
+  a few softmax layers (\cref{sec:attnalt:hybrid}).
+\end{enumerate}
+
+% =====================================================================
+\section{Windows, sinks, and sparse attention}\label{sec:attnalt:sparse}
+
+\paragraph{Sliding windows.} A sliding-window layer lets query $i$ see only keys $j\in(i-w,i]$, which makes
+compute $O(Tw)$ and lets the cache be a ring buffer of $w$ entries. Information still travels further than
+$w$ because each layer extends the receptive field by $w$, but precise long-range retrieval suffers. Hence
+the now-standard \emph{interleaving}: most layers are local and every $k$-th layer is global. Gemma 2
+alternates local (window 4096) and global layers; Gemma 3 uses five local layers per global one; Cohere
+reported a 3:1 local:global pattern in which the global layers use no positional encoding at all, so that
+RoPE handles short-range order and NoPE layers handle long-range retrieval.
+
+\paragraph{Attention sinks.} When a window slides past the first tokens of a sequence, quality can collapse.
+Xiao et al.~(2023) traced this to the model using the first few tokens as a place to park attention mass:
+softmax weights must sum to one, so heads with nothing useful to attend to dump their weight on early
+tokens. Keeping those few \emph{sink} tokens permanently in the cache, alongside the window, restores
+stable streaming generation.
+The cache then has a fixed layout of $s$ sink slots followed by a ring buffer of $w$ recent slots, and the
+index arithmetic is all a serving engine needs:
+
+\begin{lstlisting}[caption={Slot assignment for a sink-plus-window cache of fixed size $s+w$.},label={lst:attnalt:sink}]
+def cache_slot(pos, n_sink=4, window=4092):
+    # where token `pos` lives in a cache with n_sink fixed slots + a ring of `window`
+    if pos < n_sink:
+        return pos                                    # sinks are never evicted
+    return n_sink + (pos - n_sink) % window           # ring buffer overwrites the oldest
+
+def live_positions(cur, n_sink=4, window=4092):
+    # token positions visible to the query at position `cur`
+    start = max(n_sink, cur - window + 1)
+    return list(range(min(n_sink, cur + 1))) + list(range(start, cur + 1))
+\end{lstlisting}
+StreamingLLM assigns RoPE positions by slot order within the cache rather than by original text position,
+so relative distances stay inside the trained range. That is a detail an engine must get right when it
+applies rotations at cache-write time.
+
+
+\paragraph{Learned sparsity.} Block-sparse and strided patterns (Child et al., 2019; Longformer's global
+tokens) fix the pattern in advance. A newer line \emph{selects} keys per query: a cheap scorer (an
+``indexer'') ranks all past tokens, and full attention runs only over the top-$k$. DeepSeek reported such a
+scheme (DeepSeek Sparse Attention, in V3.2), applied by continued training of a dense model, which turns the
+attention cost into $O(Tk)$ plus a much cheaper $O(T^2)$ indexing pass. The full cache is still stored, but
+only $k$ entries are read per token.
+\begin{napkinmath}[What does a top-$k$ indexer buy?]
+Suppose an indexer with 4 heads of dimension 64, computed in FP8, scores every past token, and full attention
+then runs over $k=2048$ selected tokens of a 128-head MLA-style layer. At $T=131{,}072$, the indexer does
+about $T\cdot4\cdot64=3.4\times10^7$ multiply-adds per query token and reads $T\cdot64$ bytes of indexer keys
+(8\,MB). The main attention does $k\cdot128\cdot(576+512)\approx2.9\times10^8$ multiply-adds against
+$2048\cdot576\cdot2\approx2.4$\,MB of latent cache. Dense attention at the same length would need
+$1.8\times10^{10}$ multiply-adds and 151\,MB of reads. The indexer is still $O(T)$ per token, but with a
+constant small enough that the sparse layer is dominated by the $O(k)$ term up to very long contexts. (All
+dimensions here are illustrative, chosen to be close to published MLA shapes.)
+\end{napkinmath}
+
+
+\begin{systemslens}[Sparsity has to align with tiles]
+Kernels skip work at tile granularity, so a pattern is fast only if whole $B_r\times B_c$ tiles can be
+skipped (\cref{fig:attention:patterns}). Sliding windows and block-sparse masks satisfy this; arbitrary
+per-query top-$k$ selections do not, and need gather-based kernels whose memory access is less regular.
+For decoding, the relevant question is bytes read per step: a window bounds them by $w$, and top-$k$
+selection bounds the attention read at $k$ entries but still pays the indexer's full scan, at lower
+precision and width.
+\end{systemslens}
+
+% =====================================================================
+\section{Linear attention and its three forms}\label{sec:attnalt:linear}
+
+Write causal attention for one head as $\vect{y}_i=\sum_{j\le i} a_{ij}\vect{v}_j$ with
+$a_{ij}=\kappa(\vect{q}_i,\vect{k}_j)/\sum_{j'\le i}\kappa(\vect{q}_i,\vect{k}_{j'})$. Softmax attention
+uses $\kappa(\vect{q},\vect{k})=\exp(\vect{q}^\top\vect{k}/\sqrt d)$. Linear attention (Katharopoulos et
+al., 2020) uses a kernel that factorises through a feature map, $\kappa(\vect{q},\vect{k})=
+\phi(\vect{q})^\top\phi(\vect{k})$; with $\phi(x)=\mathrm{elu}(x)+1$ the features stay positive. Then
+\begin{equation}
+\vect{y}_i^\top \;=\; \frac{\phi(\vect{q}_i)^\top\sum_{j\le i}\phi(\vect{k}_j)\vect{v}_j^\top}
+{\phi(\vect{q}_i)^\top\sum_{j\le i}\phi(\vect{k}_j)}
+\;=\;\frac{\phi(\vect{q}_i)^\top\mat{S}_i}{\phi(\vect{q}_i)^\top\vect{z}_i},
+\qquad \mat{S}_i=\sum_{j\le i}\phi(\vect{k}_j)\vect{v}_j^\top .
+\label{eq:attnalt:linear}
+\end{equation}
+The trick is associativity: $(\mat{Q}\mat{K}^\top)\mat{V}=\mat{Q}(\mat{K}^\top\mat{V})$ when nothing
+nonlinear sits between the products. Below we write $\vect{q},\vect{k}$ for the feature-mapped vectors and
+drop the normaliser, which is just the same computation with $\vect{v}$ replaced by 1 (many modern
+variants drop it in favour of a normalisation layer on the output).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  m/.style={draw, fill=#1, minimum width=0.3cm, minimum height=0.3cm, inner sep=0pt},
+  lbl/.style={font=\scriptsize}]
+% left: (QK^T) V
+\node[font=\small\bfseries] at (2.0,2.2) {$(\mat{Q}\mat{K}^\top)\,\mat{V}$: $O(T^2d)$};
+\node[draw, fill=fcompute!25, minimum width=0.5cm, minimum height=1.6cm] (Q) at (0,0.6) {};
+\node[lbl] at (0,-0.4) {$T\times d$};
+\node[draw, fill=fcompute!25, minimum width=1.6cm, minimum height=0.5cm] (K) at (1.35,1.15) {};
+\node[lbl] at (1.35,1.6) {$d\times T$};
+\node[draw, fill=warnred!25, minimum width=1.6cm, minimum height=1.6cm] (A) at (1.35,0.05) {$T\times T$};
+\node[draw, fill=fdata!25, minimum width=0.5cm, minimum height=1.6cm] (V) at (2.85,0.05) {};
+\node[lbl] at (2.85,-0.95) {$T\times d$};
+\node[lbl, text=warnred] at (1.35,-1.05) {grows as $T^2$};
+% right: Q (K^T V)
+\begin{scope}[xshift=6.6cm]
+\node[font=\small\bfseries] at (1.6,2.2) {$\mat{Q}\,(\mat{K}^\top\mat{V})$: $O(Td^2)$};
+\node[draw, fill=fcompute!25, minimum width=1.6cm, minimum height=0.5cm] (K2) at (0.9,1.2) {};
+\node[lbl] at (0.9,1.65) {$d\times T$};
+\node[draw, fill=fdata!25, minimum width=0.5cm, minimum height=1.6cm] (V2) at (2.15,1.2) {};
+\node[lbl] at (2.85,1.2) {$T\times d$};
+\node[draw, fill=keygreen!30, minimum width=0.5cm, minimum height=0.5cm] (S) at (0.9,-0.1) {$\mat{S}$};
+\node[lbl, text=keygreen] at (0.9,-0.6) {$d\times d$ state};
+\node[draw, fill=fcompute!25, minimum width=0.5cm, minimum height=1.6cm] (Q2) at (-0.4,-0.1) {};
+\node[lbl] at (-0.4,-1.1) {$T\times d$};
+\draw[-{Stealth}, thick, keygreen] (1.35,0.95) -- (1.0,0.15);
+\end{scope}
+\end{tikzpicture}
+\caption{Without the softmax, the two products can be associated either way. Contracting over time
+first produces a $d\times d$ state that does not grow with $T$; causality then turns this into a running
+sum over time, \cref{eq:attnalt:recurrent}.}
+\label{fig:attnalt:assoc}
+\end{figure}
+
+\paragraph{Form 1: parallel (quadratic).} Compute $\mat{Y}=(\mat{Q}\mat{K}^\top\odot\mat{M})\mat{V}$ with
+the causal mask $\mat{M}$. This is ordinary masked attention without the softmax, so it uses matmuls and
+tensor cores and costs $O(T^2d)$.
+
+\paragraph{Form 2: recurrent.} Causality makes the state a running sum:
+\begin{equation}
+\mat{S}_t=\mat{S}_{t-1}+\vect{k}_t\vect{v}_t^\top,\qquad \vect{y}_t^\top=\vect{q}_t^\top\mat{S}_t .
+\label{eq:attnalt:recurrent}
+\end{equation}
+This is an RNN whose hidden state is a $d_k\times d_v$ matrix. Each step costs $O(d_kd_v)$ regardless of
+$t$, which makes decoding constant-time and constant-memory. Training this way is a sequential loop of
+rank-1 updates, which is hopeless on a GPU.
+
+\paragraph{Form 3: chunkwise.} Split the sequence into chunks of $C$ tokens. Within a chunk use the parallel
+form; across chunks carry the state. For chunk $c$ with rows $\mat{Q}_c,\mat{K}_c,\mat{V}_c$ and incoming
+state $\mat{S}$,
+\begin{equation}
+\mat{Y}_c=\underbrace{(\mat{Q}_c\mat{K}_c^\top\odot\mat{M})\mat{V}_c}_{\text{intra-chunk}}
++\underbrace{\mat{Q}_c\mat{S}}_{\text{inter-chunk}},
+\qquad
+\mat{S}\leftarrow\mat{S}+\mat{K}_c^\top\mat{V}_c .
+\label{eq:attnalt:chunk}
+\end{equation}
+All three terms are matmuls of size $C\times d$ or $d\times d$, so tensor cores do the work, and the
+sequential dependency is only across $T/C$ chunks. With $C=1$ this is the recurrent form and with $C=T$
+the parallel form; in between, the cost is $O(TCd+Td^2)$. \Cref{fig:attnalt:chunk} sketches the dataflow,
+and \cref{lst:attnalt:chunked} is the reference implementation, including the decay factors introduced
+in the next section.
+
+\begin{figure}[t]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[
+  ch/.style={draw=sysblue, fill=sysbluebg, minimum width=2.2cm, minimum height=0.9cm, font=\scriptsize, align=center},
+  st/.style={draw=keygreen, fill=keygreen!20, circle, minimum size=0.8cm, font=\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]}, thick}]
+\foreach \c/\x in {1/0,2/3.2,3/6.4,4/9.6} {
+  \node[ch] (c\c) at (\x,0) {chunk \c\\$(\mat{Q}_c\mat{K}_c^\top\odot\mat{M})\mat{V}_c$};
+  \node[st] (s\c) at (\x+1.6,-1.6) {$\mat{S}_{\c}$};
+  \node[font=\scriptsize] (y\c) at (\x,1.2) {$\mat{Y}_\c$};
+  \draw[arr] (c\c) -- (y\c);
+}
+\node[st] (s0) at (-1.6,-1.6) {$\mat{S}_0$};
+\foreach \a/\b in {0/1,1/2,2/3,3/4} {
+  \draw[arr, keygreen] (s\a) -- node[below, font=\tiny, text=black] {$+\mat{K}_\b^\top\mat{V}_\b$} (s\b);
+  \draw[arr, keygreen, dashed] (s\a) to[out=60,in=-120] node[left, font=\tiny, text=black, pos=0.55] {$\mat{Q}_\b\mat{S}_\a$} (c\b.south);
+}
+\node[font=\scriptsize, align=left, text=black!70] at (13.6,0) {parallel within\\a chunk (tensor\\cores)};
+\node[font=\scriptsize, align=left, text=black!70] at (13.6,-1.6) {sequential over\\$T/C$ chunks};
+\end{tikzpicture}}
+\caption{Chunkwise-parallel linear attention. Each chunk computes its intra-chunk term with a small
+masked matmul, reads the incoming state for the inter-chunk term, and passes an updated state on.
+Kernels such as those in the flash-linear-attention library keep $\mat{S}$ in on-chip memory between chunks.}
+\label{fig:attnalt:chunk}
+\end{figure}
+
+\begin{lstlisting}[caption={Chunkwise linear attention with optional decay (\texttt{llmsys/linear\_attn.py}).},label={lst:attnalt:chunked}]
+def linear_attention_chunked(q, k, v, gamma=None, normalize=False, chunk=16):
+    B, H, T, dk = q.shape
+    va = _augment(v, normalize)                   # append ones -> normaliser for free
+    log_g = _log_gamma(gamma, B, H, T, q.device, q.dtype)
+    S = q.new_zeros(B, H, dk, va.shape[-1])
+    outs = []
+    for s in range(0, T, chunk):
+        e = min(s + chunk, T)
+        qc, kc, vc, lg = q[..., s:e, :], k[..., s:e, :], va[..., s:e, :], log_g[..., s:e]
+        cum = torch.cumsum(lg, dim=-1)            # log decay from chunk start to i
+        intra = (torch.einsum("bhik,bhjk->bhij", qc, kc) * decay_mask(lg)) @ vc
+        inter = torch.einsum("bhik,bhkv->bhiv", qc * cum.exp()[..., None], S)
+        outs.append(intra + inter)
+        total = cum[..., -1]                      # decay across the whole chunk
+        w = (total[..., None] - cum).exp()        # decay from token j to chunk end
+        S = total.exp()[..., None, None] * S \
+            + torch.einsum("bhjk,bhjv->bhkv", kc * w[..., None], vc)
+    return _maybe_normalize(torch.cat(outs, dim=2), normalize)
+\end{lstlisting}
+
+\begin{napkinmath}[When is linear attention cheaper?]
+Per token and per layer, causal softmax attention does about $2Td$ multiply-adds for scores and outputs
+($d=H\dhead$). Chunkwise linear attention does about $Cd$ for the intra-chunk part and $2d\dhead$ for
+reading and updating the per-head states. With $\dhead=128$ and $C=64$ the linear form is cheaper once
+$T\gtrsim (C+2\dhead)/2\approx160$. During decoding the comparison is in bytes: softmax reads $2T\dhead$
+values per KV head, while linear attention reads a $\dhead\times\dhead$ state per head, equivalent to the KV
+cache of only $\dhead/2=64$ tokens per head (or $\dhead$ tokens when the heads are not grouped).
+\end{napkinmath}
+
+\paragraph{Choosing $\phi$ and the normaliser.} The feature map decides how well $\phi(\vect{q})^\top\phi(\vect{k})$
+imitates $\exp(\vect{q}^\top\vect{k})$. Performer (Choromanski et al., 2021) uses positive random features
+whose expectation equals the softmax kernel exactly, at the cost of variance and an extra projection.
+Simpler deterministic maps include $\mathrm{elu}+1$, ReLU, and low-order Taylor expansions of $\exp$
+(as in the Based architecture), which approximate softmax well near zero and expand $d_k$ to $O(d_k^2)$
+features. The division by $\phi(\vect{q})^\top\vect{z}_i$ in \cref{eq:attnalt:linear} is numerically awkward:
+it can approach zero and it couples every output to a running sum. Most recent designs (RetNet, GLA,
+Mamba-2, DeltaNet) drop it entirely and put a normalisation layer (RMSNorm or GroupNorm per head) on the
+output instead, which is why our layer makes \code{normalize} optional.
+
+\paragraph{Why plain linear attention underperforms.} Two weaknesses kept linear attention a curiosity
+for years. First, it never forgets: $\mat{S}$ is a sum of everything ever seen, so old content blurs new
+retrievals. Second, a $d_k\times d_v$ matrix can store only about $d_k$ key--value associations without
+interference, while softmax attention can retrieve any of $T$ tokens sharply. The next two sections fix the
+first problem with decay and gating and attack the second with the delta rule. The capacity limit
+remains, which is the reason hybrids keep some softmax layers.
+
+% =====================================================================
+\section{Decay and gating: RetNet, GLA, and Mamba-2}\label{sec:attnalt:gating}
+
+Add a forgetting factor to \cref{eq:attnalt:recurrent}:
+\begin{equation}
+\mat{S}_t=\gamma_t\,\mat{S}_{t-1}+\vect{k}_t\vect{v}_t^\top,\qquad\vect{y}_t^\top=\vect{q}_t^\top\mat{S}_t,
+\qquad 0<\gamma_t\le1 .
+\label{eq:attnalt:gated}
+\end{equation}
+Unrolling gives $\vect{y}_i^\top=\sum_{j\le i}\big(\prod_{l=j+1}^{i}\gamma_l\big)(\vect{q}_i^\top\vect{k}_j)\vect{v}_j^\top$:
+the parallel form is masked attention with a \emph{decay mask} $D_{ij}=\prod_{l=j+1}^i\gamma_l$ in place of the
+0/1 causal mask. The chunked form needs only cumulative products of $\gamma$ within each chunk, computed
+stably as cumulative sums of $\log\gamma$ (\cref{lst:attnalt:chunked}). The variants differ in where
+$\gamma$ comes from:
+\begin{itemize}
+\item \textbf{RetNet} (Sun et al., 2023): a fixed per-head constant, $\gamma_h=1-2^{-5-h}$, so different
+  heads have different memory horizons.
+\item \textbf{Gated linear attention} (GLA; Yang et al., 2024) and \textbf{Mamba-2} (Dao and Gu, 2024):
+  $\gamma_t$ is computed from the input, so the model decides when to forget, for example at a document
+  boundary. Mamba-2 uses a scalar per head and per step. Its ``state space duality'' (SSD) shows that the
+  selective SSM of \cref{sec:attnalt:ssm} with scalar decay is exactly this structured masked attention,
+  and derives the chunked algorithm from that equivalence.
+\end{itemize}
+
+\begin{lstlisting}[caption={A gated linear-attention layer with a constant-memory decoding step.},label={lst:attnalt:layer}]
+class LinearAttention(nn.Module):
+    def __init__(self, d_model, n_heads, mode="gated", chunk=16):
+        super().__init__()
+        self.H, self.dh, self.chunk = n_heads, d_model // n_heads, chunk
+        self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.out = nn.Linear(d_model, d_model, bias=False)
+        self.gate = nn.Linear(d_model, n_heads)          # one forget gate per head/step
+        nn.init.constant_(self.gate.bias, 3.0)           # sigmoid(3) = 0.95: slow decay
+
+    def forward(self, x):                                # training: chunkwise parallel
+        q, k, v, g = self._proj(x)                       # g = sigmoid(gate(x)), (B,H,T)
+        y = linear_attention_chunked(q, k, v, g, normalize=True, chunk=self.chunk)
+        return self.out(merge_heads(y))
+
+    @torch.no_grad()
+    def step(self, x_t, state=None):                     # decoding: O(1) per token
+        q, k, v, g = self._proj(x_t)
+        y, state = linear_attention_recurrent(q, k, v, g, True, state)
+        return self.out(merge_heads(y)), state
+\end{lstlisting}
+
+The test suite of Lab~8 checks that the parallel, recurrent and chunked forms agree to $10^{-10}$ in
+float64 for every chunk size and every kind of decay, and that \code{step} reproduces \code{forward}
+token by token. This kind of equivalence test is how you should develop any new sequence mixer:
+write the slow, obviously correct form first, then the fast one, and compare them.
+
+\begin{systemslens}[Choosing the chunk size]
+The chunk size $C$ trades the $O(TCd)$ intra-chunk work, which is matmul-friendly, against $T/C$ sequential
+state updates, each reading and writing a $d_k\times d_v$ state per head. On GPUs $C=64$ or 128 matches
+tensor-core tiles, and production kernels keep the state in shared memory or registers across chunks so
+that only $\mat{Q},\mat{K},\mat{V},\mat{Y}$ touch HBM. The decay mask within a chunk involves
+$\exp$ of differences of cumulative log-gates, so kernels compute it in fp32. Products of many $\gamma$s
+underflow quickly, and a careless implementation divides by them, which produces NaNs. The reference
+code only ever exponentiates \emph{non-positive} differences.
+\end{systemslens}
+
+% =====================================================================
+\section{The delta rule and gated DeltaNet}\label{sec:attnalt:delta}
+
+Viewed as memory, $\mat{S}$ is an associative store: writing $\vect{k}\vect{v}^\top$ files value
+$\vect{v}$ under key $\vect{k}$, and reading with $\vect{q}=\vect{k}$ returns $\mat{S}^\top\vect{k}$. With
+additive writes, re-filing a key \emph{adds} the new value to the old one. The delta rule (Widrow--Hoff,
+adopted for fast-weight transformers by Schlag et al., 2021) instead writes only the \emph{error}:
+\begin{equation}
+\mat{S}_t=\mat{S}_{t-1}+\beta_t\,\vect{k}_t\big(\vect{v}_t-\mat{S}_{t-1}^\top\vect{k}_t\big)^\top
+=\big(\mat{I}-\beta_t\vect{k}_t\vect{k}_t^\top\big)\mat{S}_{t-1}+\beta_t\vect{k}_t\vect{v}_t^\top .
+\label{eq:attnalt:delta}
+\end{equation}
+With a unit-norm key and $\beta_t=1$, the update replaces whatever was stored under $\vect{k}_t$ by
+$\vect{v}_t$ exactly: it is one step of gradient descent with learning rate $\beta_t$ on the regression loss
+$\frac12\|\mat{S}^\top\vect{k}_t-\vect{v}_t\|^2$. This view connects linear recurrent models to
+\emph{test-time training}, where a model's state is a set of weights updated by an inner optimiser as it
+reads. Gated DeltaNet (Yang et al., 2025) multiplies the whole update by a forget gate $\gamma_t$, combining
+the two mechanisms:
+\[
+\mat{S}_t=\gamma_t\big(\mat{I}-\beta_t\vect{k}_t\vect{k}_t^\top\big)\mat{S}_{t-1}+\gamma_t\beta_t\vect{k}_t\vect{v}_t^\top .
+\]
+Qwen's recent ``Next'' models are reported to interleave gated-DeltaNet layers with full attention at
+roughly 3:1.
+
+The transition matrix $\mat{I}-\beta\vect{k}\vect{k}^\top$ is no longer a scalar, so the simple decay-mask
+trick does not apply. The chunked algorithm instead represents a product of such Householder-like matrices
+compactly with the WY representation from numerical linear algebra, which again reduces the work to
+matmuls (Yang et al., 2024). The lab implements the recurrent step, and the test demonstrates the
+overwrite property directly.
+
+\begin{lstlisting}[caption={One delta-rule step (Lab 8, Task 4).},label={lst:attnalt:delta}]
+def delta_rule_step(S, q_t, k_t, v_t, beta_t, g_t=None):
+    pred = torch.einsum("bhk,bhkv->bhv", k_t, S)          # what memory returns for k_t
+    S = S + beta_t[..., None, None] * k_t[..., :, None] * (v_t - pred)[..., None, :]
+    if g_t is not None:
+        S = g_t[..., None, None] * S                      # gated DeltaNet: forget
+    return torch.einsum("bhk,bhkv->bhv", q_t, S), S
+\end{lstlisting}
+
+% =====================================================================
+\section{State-space models and parallel scans}\label{sec:attnalt:ssm}
+
+State-space models arrive at the same place from signal processing. A continuous linear system maps an
+input signal $x(t)$ to an output $y(t)$ through a hidden state $h(t)\in\R^N$:
+\[
+h'(t)=\mat{A}h(t)+\mat{B}x(t),\qquad y(t)=\mat{C}h(t)+Dx(t).
+\]
+Discretising with step size $\Delta$ (zero-order hold for $\mat{A}$, a first-order approximation for
+$\mat{B}$) gives the recurrence
+\begin{equation}
+h_t=\bar{\mat{A}}_t\,h_{t-1}+\bar{\mat{B}}_t\,x_t,\qquad \bar{\mat{A}}_t=\exp(\Delta_t\mat{A}),\quad
+\bar{\mat{B}}_t=\Delta_t\mat{B}_t,\qquad y_t=\mat{C}_th_t+Dx_t .
+\label{eq:attnalt:ssm}
+\end{equation}
+
+\paragraph{S4 to Mamba.} In S4 (Gu et al., 2022) the parameters are time-invariant, so the whole map is a
+long convolution that FFTs compute in parallel, with careful structure on $\mat{A}$ for long memory. Such
+LTI models cannot \emph{select}: they treat every token identically, so they cannot ignore filler or
+latch onto a key. Mamba (Gu and Dao, 2023) makes $\Delta_t$, $\mat{B}_t$ and $\mat{C}_t$ functions of the
+input. A large $\Delta_t$ resets the state toward the current input and a small one preserves the past, so
+the model can choose what to remember, much like the gates above. With diagonal $\mat{A}$, each of the $E$
+channels runs $N$ independent scalar recurrences.
+
+\paragraph{The scan.} Selectivity destroys the convolution view, but \cref{eq:attnalt:ssm} is still a
+\emph{first-order linear recurrence} $h_t=a_th_{t-1}+b_t$, and such recurrences compose associatively.
+Represent step $t$ by the pair $(a_t,b_t)$ meaning ``$h\mapsto a_th+b_t$''. Applying step $s$ then step $t$
+gives $h\mapsto a_t(a_sh+b_s)+b_t$, so
+\begin{equation}
+(a_s,b_s)\bullet(a_t,b_t)=(a_sa_t,\;a_tb_s+b_t),
+\label{eq:attnalt:scanop}
+\end{equation}
+and $\bullet$ is associative. Any associative operator admits a \emph{parallel prefix scan}: all $T$ prefix
+results in $O(\log T)$ parallel rounds (Hillis--Steele, $O(T\log T)$ work) or with $O(T)$ work in two sweeps
+(Blelloch). \Cref{fig:attnalt:scan} shows the Hillis--Steele pattern.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1.25cm, y=0.95cm,
+  n/.style={circle, draw, minimum size=0.55cm, inner sep=0pt, font=\tiny},
+  e/.style={-{Stealth[length=1.4mm]}, sysblue, thick}]
+\foreach \t in {0,...,7} {
+  \node[n, fill=fdata!20] (r0\t) at (\t,0) {$\t$};
+  \node[n, fill=white] (r1\t) at (\t,-1) {};
+  \node[n, fill=white] (r2\t) at (\t,-2) {};
+  \node[n, fill=keygreen!25] (r3\t) at (\t,-3) {$0{:}\t$};
+}
+\foreach \t in {0,...,7} { \draw[black!30] (r0\t)--(r1\t); \draw[black!30] (r1\t)--(r2\t); \draw[black!30] (r2\t)--(r3\t); }
+\foreach \t in {1,...,7} { \pgfmathtruncatemacro{\s}{\t-1} \draw[e] (r0\s) -- (r1\t); }
+\foreach \t in {2,...,7} { \pgfmathtruncatemacro{\s}{\t-2} \draw[e] (r1\s) -- (r2\t); }
+\foreach \t in {4,...,7} { \pgfmathtruncatemacro{\s}{\t-4} \draw[e] (r2\s) -- (r3\t); }
+\node[font=\scriptsize, anchor=west] at (7.5,-0.5) {offset 1};
+\node[font=\scriptsize, anchor=west] at (7.5,-1.5) {offset 2};
+\node[font=\scriptsize, anchor=west] at (7.5,-2.5) {offset 4};
+\end{tikzpicture}
+\caption{Hillis--Steele inclusive scan over 8 steps. In round $r$, element $t$ combines with element
+$t-2^r$ using \cref{eq:attnalt:scanop}; after $\lceil\log_2 T\rceil$ rounds element $t$ holds the
+composition of steps $0..t$, i.e.\ $h_t$.}
+\label{fig:attnalt:scan}
+\end{figure}
+
+\begin{lstlisting}[caption={Parallel scan for $h_t=a_th_{t-1}+b_t$ (\texttt{llmsys/ssm.py}).},label={lst:attnalt:scan}]
+def scan_parallel(a, b):
+    a, b = a.clone(), b.clone()
+    T, step = a.shape[1], 1
+    while step < T:                               # ceil(log2 T) rounds
+        a_prev = torch.ones_like(a);  a_prev[:, step:] = a[:, :-step]
+        b_prev = torch.zeros_like(b); b_prev[:, step:] = b[:, :-step]
+        b = a * b_prev + b                        # (a_prev, b_prev) . (a, b)
+        a = a * a_prev
+        step *= 2
+    return b                                      # b[:, t] == h_t
+\end{lstlisting}
+
+\paragraph{The Mamba block.} \code{MambaBlock} in \code{llmsys/ssm.py} follows the published design: an input
+projection to two streams, a short causal depthwise convolution (width 4) on one, SiLU, the selective SSM,
+multiplicative gating by SiLU of the other stream, and an output projection. Its \code{step} method
+carries two pieces of state, the last three conv inputs and $h\in\R^{E\times N}$, and reproduces the
+parallel forward pass token by token.
+
+
+\paragraph{Discretisation in detail.} For a single diagonal entry $a<0$ of $\mat{A}$ and an input held
+constant over an interval of length $\Delta$ (zero-order hold), the exact solution of $h'=ah+bx$ is
+\[
+h(t+\Delta)=e^{\Delta a}h(t)+\frac{e^{\Delta a}-1}{a}\,b\,x(t).
+\]
+The first factor gives $\bar{a}=\exp(\Delta a)\in(0,1)$, a decay just like $\gamma$ in
+\cref{eq:attnalt:gated}. For small $\Delta a$, $(e^{\Delta a}-1)/a\approx\Delta$, which is the simpler
+$\bar{b}=\Delta b$ that Mamba's implementation uses. Because $a<0$ and $\Delta>0$ (a softplus output), the
+decay always lies in $(0,1)$ and the recurrence is stable by construction, which is why $\mat{A}$ is
+parameterised as $-\exp(\mat{A}_{\log})$. When $\mat{A},\mat{B},\mat{C},\Delta$ do not depend on $t$ (S4),
+unrolling gives $y=\mat{K}*x$ with the convolution kernel
+$\mat{K}=(\mat{C}\bar{\mat{B}},\,\mat{C}\bar{\mat{A}}\bar{\mat{B}},\,\mat{C}\bar{\mat{A}}^2\bar{\mat{B}},\ldots)$,
+which FFTs compute in $O(T\log T)$. Selectivity makes $\bar{\mat{A}}_t$ time-varying and removes this option.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  b/.style={draw, rounded corners=2pt, minimum width=1.7cm, minimum height=0.55cm, font=\scriptsize, align=center},
+  arr/.style={-{Stealth[length=1.6mm]}, thick}]
+\node[b, fill=fcompute!20] (in) at (0,0) {in\_proj\\$d\to 2E$};
+\node[b, fill=fdata!20] (conv) at (-1.5,1.2) {causal conv1d\\(width 4)};
+\node[b, fill=fdata!20] (act) at (-1.5,2.2) {SiLU};
+\node[b, fill=keygreen!25] (ssm) at (-1.5,3.3) {selective SSM\\$\Delta_t,\mat{B}_t,\mat{C}_t$ from input};
+\node[b, fill=fdata!20] (gate) at (1.5,2.2) {SiLU};
+\node[circle, draw, inner sep=1pt, font=\scriptsize] (mul) at (0,4.4) {$\times$};
+\node[b, fill=fcompute!20] (out) at (0,5.3) {out\_proj\\$E\to d$};
+\draw[arr] (0,-0.8) -- (in);
+\draw[arr] (in) -| node[pos=0.75, left, font=\tiny] {$x$} (conv);
+\draw[arr] (in) -| node[pos=0.75, right, font=\tiny] {$z$} (gate);
+\draw[arr] (conv) -- (act); \draw[arr] (act) -- (ssm);
+\draw[arr] (ssm) |- (mul); \draw[arr] (gate) |- (mul);
+\draw[arr] (mul) -- (out); \draw[arr] (out) -- (0,6.0);
+\node[font=\scriptsize, align=left, text=black!70, anchor=west] at (2.6,1.2) {decode state:\\last 3 conv inputs};
+\node[font=\scriptsize, align=left, text=black!70, anchor=west] at (2.6,3.3) {decode state:\\$h\in\R^{E\times N}$};
+\end{tikzpicture}
+\caption{The Mamba block as implemented in \code{llmsys/ssm.py}. Two pieces of state are carried during
+decoding, both of fixed size. The short convolution gives each token a little local context before the
+recurrence; the gate plays the role of a GLU.}
+\label{fig:attnalt:mamba}
+\end{figure}
+
+\begin{lstlisting}[caption={The selective scan and the Mamba block's decode step (\texttt{llmsys/ssm.py}, abridged).},label={lst:attnalt:mamba}]
+def selective_scan(x, dt, A, Bm, Cm, D, parallel=True, h0=None):
+    dA = torch.exp(dt[..., None] * A)                        # (B,T,E,N) decay
+    dBx = dt[..., None] * Bm[:, :, None, :] * x[..., None]   # (B,T,E,N) input
+    h = scan_parallel(dA, dBx) if parallel and h0 is None \
+        else scan_sequential(dA, dBx, h0)
+    y = torch.einsum("bten,btn->bte", h, Cm) + D * x
+    return y, h[:, -1]
+
+@torch.no_grad()
+def step(self, u_t, state):                                  # u_t: (B, 1, d_model)
+    conv_s, h = state                                        # (B,E,3), (B,E,N)
+    x, z = self.in_proj(u_t).chunk(2, dim=-1)
+    window = torch.cat([conv_s, x.transpose(1, 2)], dim=-1)  # last 4 inputs
+    xc = F.silu((window * self.conv.weight.squeeze(1)).sum(-1) + self.conv.bias)[:, None]
+    dt, Bm, Cm = self._ssm_params(xc)
+    y, h = selective_scan(xc, dt, -torch.exp(self.A_log), Bm, Cm, self.D,
+                          parallel=False, h0=h)
+    return self.out_proj(y * F.silu(z)), (window[..., 1:], h)
+\end{lstlisting}
+
+\begin{systemslens}[Hardware-aware scans]
+The state $h$ has $E\cdot N$ entries per token position; materialising it for every $t$ in HBM, as our
+reference does, costs $T\cdot E\cdot N$ values, far more than the activations themselves. Mamba's kernel
+avoids this: it loads $\Delta,\mat{A},\mat{B},\mat{C},x$ for a block into SRAM, runs the discretisation and
+the scan there, writes only $y$, and \emph{recomputes} the states in the backward pass. This is the same
+IO-aware philosophy as FlashAttention (\cref{sec:attention:flash}). Mamba-2's SSD reformulation goes
+further by turning most of the work into chunked matmuls (\cref{eq:attnalt:chunk} with decay), because a
+scan of elementwise operations cannot use tensor cores and a matmul can.
+\end{systemslens}
+
+% =====================================================================
+\section{Hybrid architectures}\label{sec:attnalt:hybrid}
+
+Fixed-size states are cheap but lossy; softmax attention is expensive but can retrieve any token exactly.
+Pure recurrent models struggle on tasks that need verbatim recall from far back, such as copying,
+associative recall and needle-in-a-haystack retrieval. Hybrids keep a few attention layers for retrieval and
+use cheap mixers everywhere else. Reported designs include Jamba (one attention layer per seven Mamba layers,
+with MoE MLPs), MiniMax-01 (seven ``lightning'' linear-attention layers per softmax layer), NVIDIA's
+Nemotron-H family (mostly Mamba-2 with a few attention layers), and Qwen's ``Next'' models (gated-DeltaNet
+and attention at about 3:1). Controlled published ablations are still scarce, but a consistent finding is
+that a small fraction of attention layers recovers most of the gap to a full-attention model.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.78\linewidth, height=5.6cm, xmode=log, ymode=log, log basis x=2,
+  xlabel={context length $T$ (tokens)}, ylabel={per-sequence cache (bytes)},
+  xmin=1024, xmax=1048576, grid=both, grid style={black!8},
+  legend pos=north west, legend style={font=\scriptsize}, tick label style={font=\scriptsize}]
+% 36 layers, 8 KV heads, 32 query heads, dh=128, bf16
+\addplot[warnred, thick, domain=1024:1048576, samples=20] {2*36*8*128*x*2};
+\addlegendentry{full attention (GQA 8)}
+\addplot[napkin, thick, dashed, domain=1024:1048576, samples=40] {2*36*8*128*min(x,4096)*2};
+\addlegendentry{sliding window $w=4096$}
+\addplot[sysblue, thick, domain=1024:1048576, samples=20] {2*9*8*128*x*2 + 27*32*128*128*2};
+\addlegendentry{hybrid 3 linear : 1 full}
+\addplot[keygreen, thick, domain=1024:1048576, samples=20] {36*32*128*128*2};
+\addlegendentry{all linear / SSM state}
+\end{axis}
+\end{tikzpicture}
+\caption{Decoding memory for one sequence of a Qwen3-8B-shaped stack (36 layers, 32 query heads, 8 KV
+heads, $\dhead=128$, bf16) as the sequence mixer changes. The hybrid's cache still grows linearly but four
+times more slowly; the pure recurrent state is constant at 37.7\,MB, the KV cache of 256 tokens.}
+\label{fig:attnalt:cache}
+\end{figure}
+
+\paragraph{Why some attention is needed: associative recall.} The cleanest diagnostic is
+\emph{multi-query associative recall} (MQAR; Arora et al., 2023). The input lists key--value pairs, and later
+queries repeat some of the keys; the model must output the matching values (\cref{fig:attnalt:mqar}).
+Softmax attention solves it with one layer at any number of pairs, because it can look up the exact earlier
+token. A fixed-size state must \emph{compress} all pairs into $d_k\times d_v$ numbers, so accuracy falls
+once the number of pairs exceeds the state's capacity. Accuracy on MQAR across state sizes tracked
+language-modelling quality gaps between attention and recurrent models remarkably well, and it is the
+quickest test to run on a new mixer.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  tok/.style={draw, minimum width=0.55cm, minimum height=0.5cm, font=\scriptsize\ttfamily, inner sep=1pt},
+  kk/.style={tok, fill=sysblue!20}, vv/.style={tok, fill=keygreen!25},
+  qq/.style={tok, fill=napkin!25}, aa/.style={tok, fill=keygreen!45, draw=keygreen, thick}]
+\foreach \x/\k/\v in {0/A/4,1.2/C/9,2.4/F/1,3.6/B/7} {
+  \node[kk] at (\x,0) {\k}; \node[vv] at (\x+0.55,0) {\v};
+}
+\node[font=\scriptsize] at (5.0,0) {$\cdots$};
+\foreach \x/\q/\a in {5.8/F/1,7.0/A/4} {
+  \node[qq] at (\x,0) {\q}; \node[aa] at (\x+0.55,0) {\a};
+}
+\draw[-{Stealth}, keygreen, thick] (6.35,0.3) to[out=140,in=40] (2.95,0.3);
+\draw[-{Stealth}, keygreen, thick] (7.55,0.3) to[out=150,in=30] (0.55,0.3);
+\node[font=\scriptsize, align=left, anchor=west] at (8.1,0) {predict the value\\filed under the key};
+\node[font=\scriptsize, text=black!70] at (1.8,-0.6) {key--value pairs};
+\node[font=\scriptsize, text=black!70] at (6.45,-0.6) {queries};
+\end{tikzpicture}
+\caption{Multi-query associative recall. Attention can point back at the exact earlier token (arrows); a
+recurrent model must have stored the pair in its fixed-size state.}
+\label{fig:attnalt:mqar}
+\end{figure}
+
+We ran this probe with \code{labs/lab08\_attnalt/recall.py}: two-layer \code{HybridLM}s with $d=64$, a
+64-token vocabulary, 8 key--value pairs and 4 queries per sequence, trained for 2{,}500 steps (one seed,
+measured on CPU in this environment). \Cref{tab:attnalt:mqar} shows the result. The pure attention model
+switches from guessing to perfect recall abruptly at around 1{,}000 steps, which is the familiar signature of an
+induction-style circuit forming. The two pure recurrent models never get far above chance in the same budget, and a
+single attention layer on top of a linear layer is enough to recover recall almost completely.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}llr@{}}
+\toprule
+Pattern & Layers & Recall accuracy\\
+\midrule
+\texttt{AA} & softmax, softmax & 1.000\\
+\texttt{LA} & gated linear, softmax & 0.998\\
+\texttt{MM} & Mamba, Mamba & 0.176\\
+\texttt{LL} & gated linear, gated linear & 0.126\\
+\midrule
+chance & & 0.031\\
+\bottomrule
+\end{tabular}
+\caption{Associative recall after 2{,}500 steps (8 pairs, 4 queries, $d=64$; one seed; CPU). Recurrent states
+of this size cannot hold the pairs well enough; one attention layer fixes it. Larger states and longer training
+help the recurrent models, so treat this as a qualitative illustration, not a ranking.}
+\label{tab:attnalt:mqar}
+\end{table}
+
+
+\begin{systemslens}[Training recurrent layers on long sequences across GPUs]
+For softmax attention, context parallelism shards the sequence and circulates KV blocks around a ring
+(\cref{ch:distributed}). Recurrent layers have a simpler but more \emph{sequential} structure: device $r$ needs
+the state at the end of device $r-1$'s shard. One approach computes each shard's local outputs and its
+local state contribution in parallel and then fixes up the cross-shard term once the incoming states are
+known. Because the state transition is linear, the incoming states can themselves be obtained with a scan
+over devices: each device sends a single $d_k\times d_v$ matrix (plus a decay scalar) per head, which is far
+less traffic than shipping KV blocks.
+\end{systemslens}
+
+\begin{systemslens}[Serving a hybrid]
+Hybrids complicate the serving engine of \cref{ch:serving}. Attention layers want a paged KV cache, while
+recurrent layers want one fixed-size state slot per sequence, which needs no paging but must be copied
+for beam search or parallel sampling and cannot be partially reused. Prefix caching becomes harder because
+a recurrent state summarises an \emph{entire} prefix: to reuse a shared prompt you must have checkpointed
+the state exactly at the prefix boundary, not just kept per-token KV blocks. Speculative decoding needs the
+state to roll back on rejection, so engines snapshot states per draft position. Chunked prefill works
+naturally, since the chunkwise algorithm is chunked prefill. These are solvable problems, but they are
+why support for new mixers in inference engines usually lags the model releases.
+\end{systemslens}
+
+
+% =====================================================================
+\section{Setting up a hybrid model end to end}\label{sec:attnalt:setup}
+
+New sequence mixers fail in practice far more often through plumbing than through modelling. The
+workflow that keeps them correct is the same one used throughout this chapter:
+\begin{enumerate}
+\item \textbf{Write the obviously correct form first}: the recurrent loop, or the quadratic masked form,
+  in float64, with no cleverness.
+\item \textbf{Write the fast form} (chunked, scan-based, or a fused kernel) and compare it against the slow
+  one on random inputs, over many shapes, chunk sizes and gate regimes, including gates near 0 and near 1.
+\item \textbf{Write the decode step} and check that feeding a sequence one token at a time through
+  \code{step} reproduces \code{forward} at every position. This catches off-by-one errors in conv windows,
+  RoPE offsets and state updates.
+\item \textbf{Only then integrate} the mixer into a model, a training loop and a serving path.
+\end{enumerate}
+
+\begin{lstlisting}[caption={The equivalence-test pattern used for every mixer in this chapter (from Lab 8).},label={lst:attnalt:test}]
+@pytest.mark.parametrize("gamma", [None, per_head_decay, per_step_gates])
+def test_three_forms_agree(gamma):
+    q, k, v = random_qkv(dtype=torch.float64)            # float64: compare to 1e-10
+    ref = linear_attention_quadratic(q, k, v, gamma)      # slow, obviously correct
+    rec, _ = linear_attention_recurrent(q, k, v, gamma)   # decode path
+    assert torch.allclose(ref, rec, atol=1e-10)
+    for chunk in (1, 4, 7, 64):                           # include ragged last chunks
+        assert torch.allclose(ref, linear_attention_chunked(q, k, v, gamma, chunk=chunk),
+                              atol=1e-10)
+
+def test_step_matches_forward():
+    layer = LinearAttention(16, 2).eval()
+    x = torch.randn(2, 20, 16)
+    full, state, outs = layer(x), None, []
+    for t in range(x.shape[1]):                           # one token at a time
+        y, state = layer.step(x[:, t:t + 1], state)
+        outs.append(y)
+    assert torch.allclose(torch.cat(outs, 1), full, atol=1e-5)
+\end{lstlisting}
+Two details are easy to miss. Test in float64 so that a tolerance of $10^{-10}$ separates bugs from rounding,
+and include chunk sizes that do not divide $T$, because ragged last chunks are where index arithmetic breaks.
+
+
+\code{HybridLM} in \code{llmsys/linear\_attn.py} is a small but complete example of step 4. A pattern string
+such as \code{"LLLA"} chooses the mixer for each layer: gated linear attention (L), Mamba (M) or softmax
+attention with RoPE and a KV cache (A). Each layer is a pre-norm residual block with an MLP. The same
+weights serve a parallel \code{forward} for training and a \code{decode\_step} that threads a
+heterogeneous list of per-layer states through the network, as in \cref{lst:attnalt:hybrid}.
+
+\begin{lstlisting}[caption={Decoding a hybrid model: one state object per layer, of a type that depends on the layer.},label={lst:attnalt:hybrid}]
+@torch.no_grad()
+def decode_step(self, ids_t, states):          # ids_t: (B, 1); states: list per layer
+    x = self.emb(ids_t)
+    new = []
+    for p, mix, n1, n2, mlp, st in zip(self.pattern, self.mixers, self.n1,
+                                       self.n2, self.mlps, states):
+        h = n1(x)
+        if p == "A":                            # KV cache: grows by one entry per step
+            y, st = mix(h, st)
+        elif p == "L":                          # (B, H, dk, dv+1) matrix state, fixed
+            y, st = mix.step(h, st)
+        else:                                   # Mamba: (conv window, SSM state), fixed
+            st = st if st is not None else mix.init_state(ids_t.shape[0], ids_t.device)
+            y, st = mix.step(h, st)
+        new.append(st)
+        x = x + y
+        x = x + mlp(n2(x))
+    return self.head(self.norm(x)), new
+
+model = HybridLM(pattern="LMLA").eval()
+states = [None] * len(model.pattern)
+for t in range(ids.shape[1]):                   # equals model(ids) position by position
+    logits_t, states = model.decode_step(ids[:, t:t + 1], states)
+print(model.cache_numel(states))                # only the 'A' entry grows with t
+\end{lstlisting}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  ly/.style={draw, rounded corners=1.5pt, minimum width=2.3cm, minimum height=0.55cm, font=\scriptsize},
+  cache/.style={draw, minimum height=0.45cm, font=\tiny, anchor=west}]
+\foreach \i/\t/\c in {0/L/keygreen,1/M/keygreen,2/L/keygreen,3/A/warnred} {
+  \node[ly, fill=\c!18, draw=\c] (l\i) at (0,\i*0.85) {layer \i: \t};
+}
+\foreach \i in {0,2} { \node[cache, fill=keygreen!25, minimum width=0.9cm] at (1.6,\i*0.85) {$\mat{S}$: $H\!\times\! d_k\!\times\! d_v$}; }
+\node[cache, fill=keygreen!25, minimum width=0.9cm] at (1.6,0.85) {(conv, $h$): $E\!\times\!(3+N)$};
+\node[cache, fill=warnred!25, minimum width=4.6cm] at (1.6,2.55) {K, V: $2\times H\times t\times d_h$ (grows)};
+\draw[-{Stealth}, thick, black!50] (6.5,2.55) -- (7.3,2.55) node[right, font=\scriptsize] {$+1$ per token};
+\node[font=\scriptsize, align=center] at (0,-0.75) {pattern \texttt{"LMLA"}};
+\end{tikzpicture}
+\caption{The decode-time state of a hybrid stack. Only the attention layers hold memory that grows with the
+generated length; the serving engine must manage paged blocks for them and fixed slots for the others.}
+\label{fig:attnalt:hybridstate}
+\end{figure}
+
+To train it, use any loop from \cref{ch:pretrain} or \code{llmsys.ablate.train\_lm}'s structure: the model's
+\code{forward(ids)} returns logits like every other model in the book. To profile it, time
+\code{forward} at increasing $T$ for patterns \code{"AAAA"}, \code{"LLLA"} and \code{"LLLL"}: the
+quadratic term appears only in proportion to the number of A layers. To serve it, the engine of
+\cref{ch:serving} needs a second kind of cache slot, as discussed in the Systems Lens above. Lab~8's
+stretch goals walk through each of these steps. \Cref{fig:attnalt:flops} shows what the profile should look like analytically.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.78\linewidth, height=5.4cm, xmode=log, ymode=log, log basis x=2,
+  xlabel={position $T$ in the sequence}, ylabel={mixer MACs per token per layer},
+  xmin=256, xmax=1048576, grid=both, grid style={black!8}, legend pos=north west,
+  legend style={font=\scriptsize}, tick label style={font=\scriptsize}]
+% d = 4096, dh = 128, C = 64 ; softmax ~ 2 T d ; linear ~ C d + 2 d dh
+\addplot[warnred, thick, domain=256:1048576, samples=30] {2*x*4096}; \addlegendentry{softmax attention}
+\addplot[sysblue, thick, domain=256:1048576, samples=30] {0.25*2*x*4096 + 0.75*(64*4096 + 2*4096*128)}; \addlegendentry{hybrid, 1 in 4 layers softmax}
+\addplot[keygreen, thick, domain=256:1048576, samples=30] {64*4096 + 2*4096*128}; \addlegendentry{chunked linear ($C=64$)}
+\addplot[black!50, densely dotted, domain=256:1048576, samples=2] {3*4096*12288}; \addlegendentry{SwiGLU MLP (for scale)}
+\end{axis}
+\end{tikzpicture}
+\caption{Analytic per-token cost of the sequence mixer for a $d=4096$, $\dhead=128$ layer, averaged over a
+causal prefix of length $T$, with the MLP's fixed cost for comparison. Softmax attention overtakes the MLP
+near $T=18$k tokens; a 1:3 hybrid pushes that point four times further out; a pure linear mixer stays
+constant and small.}
+\label{fig:attnalt:flops}
+\end{figure}
+
+\begin{deepdive}[Test-time training and learned memories]
+The delta rule is one step of SGD on a regression loss whose ``weights'' are the state. Generalising that
+view gives \emph{test-time training} layers, in which the state is the parameters of a small model (linear or
+an MLP) trained online, as the sequence is read, by an inner optimiser with its own learning rate,
+momentum or weight decay. Recent proposals in this family (TTT layers; Titans, with a neural long-term
+memory) differ in the inner model and update rule, and they inherit the systems questions of this chapter: how
+to chunk the inner updates so that tensor cores do the work, and how large a state each sequence must carry
+at decode time.
+\end{deepdive}
+
+
+% =====================================================================
+\section{Multi-head latent attention, revisited}\label{sec:attnalt:mla}
+
+\Cref{ch:modern} introduced MLA as ``caching a compressed latent''. Here are the details that make it work.
+For each token, MLA projects the hidden state down to a small latent $\vect{c}_t=\mat{W}^{DKV}\vect{h}_t\in\R^{d_c}$
+and caches only that. Keys and values for head $i$ are reconstructed by up-projections:
+$\vect{k}_t^{(i)}=\mat{W}^{UK}_i\vect{c}_t$, $\vect{v}_t^{(i)}=\mat{W}^{UV}_i\vect{c}_t$.
+
+\paragraph{Absorption.} At decode time nobody actually materialises the keys. The score
+$\vect{q}^{(i)\top}\vect{k}_t^{(i)}=(\mat{W}^{UK\top}_i\vect{q}^{(i)})^\top\vect{c}_t$ can be computed
+against the latent directly by folding $\mat{W}^{UK}_i$ into the query projection; similarly,
+$\mat{W}^{UV}_i$ folds into the output projection. Attention then runs over $d_c$-dimensional cached
+vectors shared by all heads, much like MQA with a wide head.
+
+\paragraph{The RoPE problem.} Absorption requires the score to be bilinear in fixed matrices, but RoPE
+inserts a position-dependent rotation $\mat{R}_{t}$ between $\vect{q}$ and $\vect{k}$, which cannot be
+folded into a fixed $\mat{W}^{UK}$. DeepSeek-V2's fix is \emph{decoupled RoPE}: a small extra key component
+$\vect{k}^{R}_t\in\R^{d_R}$, shared across heads and rotated normally, is cached alongside $\vect{c}_t$, and
+the score becomes the sum of an absorbed no-position part and a small rotated part.
+
+\begin{napkinmath}[MLA cache size]
+DeepSeek-V2's published configuration uses 128 heads of key dimension 128 (plus 64 decoupled RoPE dimensions),
+$d_c=512$ and $d_R=64$. Plain MHA would cache $2\times128\times128=32{,}768$ values per token per layer; MLA
+caches $512+64=576$, which is 57 times less and comparable to GQA with only about two KV heads. Because the
+absorbed decode attention reads one 576-wide vector per token for all 128 heads, its arithmetic intensity
+per byte of cache is much higher than GQA's, which makes long-context decoding far less memory-bound.
+\end{napkinmath}
+
+\paragraph{Multi-token prediction.} DeepSeek-V3 also trains lightweight extra heads that predict one token
+further ahead (MTP). It is a training signal, and at inference time the extra head can serve as a built-in
+draft model for speculative decoding (\cref{ch:efficient}).
+
+% =====================================================================
+\section{Sparse experts, revisited}\label{sec:attnalt:moe}
+
+\Cref{sec:modern:moe} implemented a top-$k$ MoE layer with an auxiliary balancing loss and expert
+parallelism. Current MoE designs add several refinements.
+
+\paragraph{Fine-grained and shared experts.} DeepSeekMoE splits each expert into $m$ smaller ones and routes to
+$m$ times as many, which keeps FLOPs fixed while making the combinatorics of expert selection far richer.
+It also adds a few \emph{shared} experts that every token uses, so common knowledge need not be replicated
+across routed experts. \Cref{tab:attnalt:moe} lists published routing setups.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{@{}lrrrl@{}}
+\toprule
+Model & routed experts & active per token & shared & notes\\
+\midrule
+Switch Transformer & up to 2048 & 1 & 0 & top-1 routing\\
+Mixtral 8x7B & 8 & 2 & 0 & 47B total, 13B active\\
+OLMoE & 64 & 8 & 0 & fine-grained\\
+DeepSeek-V2 & 160 & 6 & 2 & fine-grained + shared\\
+DeepSeek-V3 & 256 & 8 & 1 & aux-loss-free balancing, 671B total / 37B active\\
+Qwen3-30B-A3B & 128 & 8 & 0 & see \cref{sec:modern:moe}\\
+\bottomrule
+\end{tabular}
+\caption{Expert configurations of some published MoE models (per MoE layer).}
+\label{tab:attnalt:moe}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  ex/.style={draw, rounded corners=1pt, minimum height=0.55cm, font=\tiny, inner sep=1pt},
+  arr/.style={-{Stealth[length=1.4mm]}, thick}]
+\node[font=\scriptsize\bfseries, align=center] at (1.75,0.95) {coarse:\\8 experts, top-2};
+\foreach \i in {0,...,7} {
+  \pgfmathsetmacro{\c}{(\i==2 || \i==5) ? 45 : 8}
+  \node[ex, minimum width=0.42cm, fill=sysblue!\c] (a\i) at (\i*0.5,0) {};
+}
+\node[font=\scriptsize] at (1.9,-0.65) {each expert: $d_\text{ff}$ wide};
+\begin{scope}[xshift=6.3cm]
+\node[font=\scriptsize\bfseries, align=center] at (2.3,0.95) {fine-grained + shared:\\32 routed, top-8, 1 shared};
+\node[ex, minimum width=0.42cm, fill=keygreen!45] at (-0.6,0) {S};
+\foreach \i in {0,...,31} {
+  \pgfmathsetmacro{\c}{(\i==1 || \i==4 || \i==9 || \i==13 || \i==18 || \i==22 || \i==27 || \i==30) ? 45 : 8}
+  \node[ex, inner sep=0pt, minimum width=0.11cm, fill=sysblue!\c] at (\i*0.15,0) {};
+}
+\node[font=\scriptsize] at (2.3,-0.65) {each routed expert: $d_\text{ff}/4$ wide};
+\end{scope}
+\end{tikzpicture}
+\caption{Fine-grained experts with a shared expert (right) activate the same number of MLP FLOPs as a
+coarse top-2 design (left) but choose among $\binom{32}{8}\approx10^7$ combinations instead of
+$\binom{8}{2}=28$. The always-on shared expert (S) holds common knowledge.}
+\label{fig:attnalt:moe}
+\end{figure}
+
+\paragraph{Keeping routers stable.} Routers are small softmax classifiers, and their logits are prone to the
+same growth as LM logits. ST-MoE (Zoph et al., 2022) computes the router in fp32 and adds a \emph{router
+z-loss} on $\log\sum_e\exp(r_e)$, analogous to \cref{eq:archdesign:zloss}. Older recipes add multiplicative
+jitter noise to router inputs to make experts less brittle.
+
+\paragraph{Balancing without an auxiliary loss.} The auxiliary loss of \cref{eq:modern:aux} trades
+quality for balance. DeepSeek-V3 instead adds a per-expert bias $b_e$ to the routing scores used only for
+\emph{selection} (not for the combination weights) and nudges it after each step: decrease $b_e$ if expert
+$e$ was overloaded and increase it if underloaded. This is an online control loop that keeps loads balanced
+with only a tiny sequence-level auxiliary term.
+
+\paragraph{Capacity, dropping, and nondeterminism.} With a fixed capacity per expert
+(\cref{sec:modern:moe}), tokens beyond capacity are dropped and pass through on the residual stream
+only. Which tokens are dropped depends on everything else in the batch, so in a serving system \emph{another
+user's request can change your output}. Dropless implementations such as MegaBlocks use block-sparse or
+grouped GEMMs to process variable-size expert batches without capacity limits.
+
+\begin{systemslens}[Dispatching tokens to experts]
+An MoE layer's runtime is dominated by data movement and load imbalance, not by FLOPs. With expert
+parallelism (\cref{ch:distributed}) each token's hidden vector is sent to the devices holding its $k$ experts
+and the results are sent back: two all-to-all exchanges of $k\cdot d$ values per token per MoE layer. For
+DeepSeek-V3-like shapes ($k=8$, $d=7168$, bf16) that is about 115\,KB per token each way, which is why it
+restricts each token to experts on at most four nodes and overlaps communication with computation. On each
+device, the tokens routed to its experts form groups of different sizes; a \emph{grouped GEMM} (one kernel
+launch over many small matrices of varying row counts) or block-sparse formulation, as in MegaBlocks,
+processes them without padding to a capacity. The slowest expert sets the step time, so balance is a
+throughput problem as much as a modelling one.
+\end{systemslens}
+
+\paragraph{Upcycling and fine-tuning.} An MoE can be initialised from a dense checkpoint by copying its MLP
+into every expert and adding a fresh router (``sparse upcycling'', Komatsuzaki et al., 2023). Several
+released MoEs were reportedly built this way. MoEs fine-tuned on small datasets can overfit, which some
+recipes mitigate by fine-tuning only non-expert parameters or by using much larger SFT sets.
+
+% =====================================================================
+\section{Choosing a sequence mixer}\label{sec:attnalt:choose}
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Mixer & Training cost & Decode state & Exact long-range recall & Ecosystem\\
+\midrule
+Softmax (GQA) & $O(T^2)$ FLOPs, IO-optimal kernels & grows with $T$ & strong & mature everywhere\\
+Sliding window & $O(Tw)$ & bounded by $w$ & only within window & mature\\
+MLA & $O(T^2)$ & grows, $\sim$57$\times$ smaller & strong & engine support growing\\
+Linear / GLA / Mamba-2 & $O(TCd)$, chunked matmuls & constant & weak (capacity-limited) & specialised kernels\\
+Gated DeltaNet & chunked, WY form & constant & better than additive & specialised kernels\\
+Hybrid (1:3--1:7) & mostly linear & small + constant & close to full attention & needs dual cache management\\
+\bottomrule
+\end{tabularx}
+\caption{A qualitative comparison of sequence mixers. ``Exact recall'' refers to tasks such as associative
+recall and needle retrieval; the hybrid entry summarises reported results, not a controlled comparison.}
+\label{tab:attnalt:choose}
+\end{table}
+
+\Cref{tab:attnalt:choose} summarises the trade-offs. For a new model whose deployment is dominated by long
+generations, a hybrid with a small fraction of full-attention layers is now a credible default. For a model
+that must be served everywhere tomorrow, plain GQA attention with sliding-window layers remains the
+lowest-risk choice, because every kernel library and inference engine supports it.
+
+% =====================================================================
+\section{Summary}\label{sec:attnalt:summary}
+\begin{itemize}
+\item Long-context cost is dominated by the KV cache at decode time; shrinking it (GQA, MLA, quantisation),
+  bounding it (windows, sinks) or replacing it (recurrent states) are the three strategies.
+\item Removing the softmax makes attention associative: the same operator has parallel ($O(T^2)$),
+  recurrent ($O(T)$, constant state) and chunkwise forms. Training uses the chunked form and decoding the
+  recurrent one.
+\item Decay ($\gamma$) adds forgetting: constant per head (RetNet) or data-dependent (GLA, Mamba-2). It turns
+  the causal mask into a decay mask.
+\item The delta rule writes errors instead of sums, giving overwrite semantics and a test-time-training
+  interpretation; gated DeltaNet adds forgetting.
+\item Selective SSMs are first-order linear recurrences, parallelisable with associative scans, and run
+  efficiently only with IO-aware kernels or chunked-matmul reformulations.
+\item Hybrids keep a few attention layers for exact retrieval; they complicate caching, prefix reuse and
+  speculative decoding in serving engines.
+\item Modern MoEs use fine-grained and shared experts, fp32 routers with z-loss, bias-based balancing and
+  dropless kernels; capacity-based dropping makes outputs batch-dependent.
+\end{itemize}
+
+% =====================================================================
+\section{Exercises}\label{sec:attnalt:exercises}
+
+\begin{exercise}[Normaliser for free]
+Show that appending a column of ones to $\mat{V}$ in any of the three linear-attention forms yields the
+denominator of \cref{eq:attnalt:linear} in the last output column. Why can this denominator approach zero
+with an unbounded feature map, and why does $\mathrm{elu}+1$ avoid sign problems but not small values?
+\end{exercise}
+
+\begin{exercise}[Chunked derivation]
+Starting from \cref{eq:attnalt:gated}, derive the chunked form with decay: express $\vect{y}_i$ for $i$ in chunk
+$c$ in terms of the state at the end of chunk $c-1$ and the tokens of chunk $c$, and give the state update.
+Verify that your expressions match \cref{lst:attnalt:chunked}.
+\end{exercise}
+
+\begin{exercise}[Crossover]
+For a model with $d=4096$, 32 heads of $\dhead=128$ and chunk size 64, plot per-token forward FLOPs of causal
+softmax attention and chunked linear attention against $T$. At $T=32{,}768$, what is the ratio?
+\end{exercise}
+
+\begin{exercise}[Capacity of a matrix memory]
+Write $n$ random unit keys in $\R^{d}$ with additive updates $\mat{S}=\sum_i\vect{k}_i\vect{v}_i^\top$ and
+retrieve with $\vect{q}=\vect{k}_j$. Derive the signal-to-interference ratio as a function of $n/d$. Measure
+it with \code{llmsys.linear\_attn}, then repeat with the delta rule ($\beta=1$, sequential writes) and
+explain the difference.
+\end{exercise}
+
+\begin{exercise}[Scan work and depth]
+Count the combine operations and parallel rounds used by Hillis--Steele and by Blelloch scans for $T=2^{16}$.
+Which would you choose on a GPU with 132 SMs for a single sequence? For a batch of 256 sequences?
+\end{exercise}
+
+\begin{exercise}[Underflow]
+A gate of $\gamma=0.9$ applied over 1000 steps gives $0.9^{1000}\approx10^{-46}$, which underflows bf16 and
+fp16. Identify the operations in \cref{lst:attnalt:chunked} that would fail if implemented with explicit
+products and divisions, and explain why working with differences of cumulative log-gates is safe.
+\end{exercise}
+
+\begin{exercise}[Hybrid budget]
+For the Qwen3-8B shape of \cref{fig:attnalt:cache}, find the largest attention fraction (one full layer every
+$k$ layers) such that a batch of 32 sequences of 128k tokens fits in 40\,GB of cache memory alongside a
+sliding-window alternative for the remaining layers with $w=4096$.
+\end{exercise}
+
+\begin{exercise}[MLA absorption]
+Show algebraically that $\vect{q}^\top\mat{W}^{UK}\vect{c}$ can be computed as $(\mat{W}^{UK\top}\vect{q})^\top\vect{c}$
+and count the FLOPs of both orders during decode with $H$ heads, $\dhead=128$ and $d_c=512$. Why does
+absorption help decode but not necessarily training?
+\end{exercise}
+
+\begin{exercise}[Batch-dependent MoE outputs]
+Construct a small example of top-1 routing with capacity factor 1.0 where the output for token A changes when
+token B is added to the batch. What does this imply for testing an MoE inference engine for determinism?
+\end{exercise}
+
+\begin{exercise}[Serving a recurrent layer]
+Design the data structures a continuous-batching engine (\cref{ch:serving}) needs for a hybrid with paged KV
+for attention layers and fixed-size state slots for recurrent layers. How do you support (a) prefix caching
+of a shared system prompt, (b) parallel sampling of 8 continuations, and (c) preemption with swap-out?
+\end{exercise}
+
+% =====================================================================
+\section{Lab 8: Linear attention, the delta rule, and selective scans}\label{sec:attnalt:lab}
+\begin{labbox}{8}{Linear attention, the delta rule, and selective scans}
+\labdir{lab08_attnalt}
+\labsection{Goals}
+Build the core operators of non-softmax sequence mixers in their parallel, recurrent and chunked forms;
+prove their equivalence with tests; and quantify their memory advantage at decode time.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+LAB_IMPL=starter  python -m pytest -q labs/lab08_attnalt
+LAB_IMPL=solution python -m pytest -q labs/lab08_attnalt
+python labs/lab08_attnalt/bench.py --device cpu     # or --device cuda
+\end{lstlisting}
+Reference layers: \code{llmsys/linear\_attn.py} (\code{LinearAttention}, all three forms, delta rule,
+memory calculators) and \code{llmsys/ssm.py} (\code{scan\_parallel}, \code{MambaBlock}). Tests use float64
+so equivalences can be checked to $10^{-10}$.
+
+\labsection{Tasks}
+\begin{enumerate}
+\item \code{linear\_attention\_quadratic}: masked $(\mat{Q}\mat{K}^\top\odot\mat{D})\mat{V}$ with a decay
+  mask built from cumulative log-gates; support no decay, per-head decay $(H,)$ and per-step gates $(B,H,T)$.
+\item \code{linear\_attention\_recurrent}: the RNN form, returning the final state so that a sequence can be
+  continued later (tested by splitting a sequence in two).
+\item \code{linear\_attention\_chunked}: the chunkwise form; it must agree for chunk sizes 1, 4, 7 and 64.
+\item \code{delta\_rule\_step}: the (gated) delta update. The test checks exact overwrite of repeated keys.
+\item \code{associative\_scan}: Hillis--Steele scan for $h_t=a_th_{t-1}+b_t$.
+\item \code{selective\_ssm\_step}: one discretised Mamba step; the test plugs it into \code{MambaBlock} and
+  compares against the block's own forward pass.
+\item \code{sliding\_window\_mask} and \code{decode\_cache\_bytes} for full, windowed, linear and hybrid stacks.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{itemize}
+\item Run \code{bench.py} at increasing context lengths. On a GPU, per-token decode time of softmax
+  attention should grow linearly with $T$ while the linear and SSM steps stay flat; find the crossover length.
+  (On a busy CPU the numbers are noisy; look for the trend over a wide range of $T$.)
+\item Reproduce \cref{fig:attnalt:cache} with \code{decode\_cache\_bytes} for a model of your choice.
+\item Run \code{recall.py} for the patterns \code{AA}, \code{LL}, \code{MM} and \code{LA} at 8 and 16 pairs
+  (reproducing \cref{tab:attnalt:mqar}), then increase $d$ for the recurrent models until they solve 8 pairs.
+  How does the required state size scale with the number of pairs?
+\end{itemize}
+
+\labsection{Deliverables}
+Passing tests; a decode-time plot; a cache-memory plot; a recall table with a paragraph explaining it in
+terms of state capacity.
+
+\labsection{Stretch goals}
+Implement the Blelloch (work-efficient) scan; implement a chunked delta rule using the WY representation and
+test it against the recurrent form; write a Triton kernel for the chunked forward that keeps $\mat{S}$ in
+shared memory (\cref{app:triton}).
+\end{labbox}

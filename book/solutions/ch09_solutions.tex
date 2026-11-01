@@ -1,100 +1,85 @@
-\subsection*{Chapter 9: Fine-Tuning for Classification}
+\subsection*{Chapter 9: Optimizers and the Training Loop from First Principles}
 
-\paragraph{Exercise 9.1.} With global padding every batch is $8\times120$; with dynamic
-padding the mean batch width falls to roughly the batch's longest message (typically
-30--60 tokens for SMS), so epoch time drops roughly in proportion once the GPU is
-compute-bound. On CPU, or with tiny batches, the gain is smaller because fixed overheads
-dominate. Accuracy should be statistically indistinguishable \emph{if} the head reads
-the last real token. Padding to 1{,}024 multiplies linear-layer work by about
-$1024/120\approx8.5$ and attention-score work by about $73$. If the head reads position
-$-1$, it now reads a padding token that sits 900+ positions after the message. Its
-hidden state is still a function of the message, but a very different input
-distribution from the one seen in training, and accuracy typically drops sharply.
+\paragraph{Exercise 9.1.} Without correction, $m_1=(1-\beta_1)g$ and $v_1=(1-\beta_2)g^2$, so
+the step is $\eta\,(1-\beta_1)|g|/\sqrt{1-\beta_2}\,|g| = \eta\cdot0.1/0.0316\approx3.16\,\eta$
+per coordinate. With $\beta_2=0.95$ it is $0.1/\sqrt{0.05}\approx0.45\,\eta$. The second-moment
+correction matters more because $\sqrt{1-\beta_2^t}$ stays far below $1-\beta_1^t$ for many
+steps when $\beta_2$ is close to 1. The uncorrected ratio $(1-\beta_1^t)/\sqrt{1-\beta_2^t}$
+peaks at about $6.6$ around $t=12$ for $(0.9, 0.999)$, so an uncorrected Adam takes steps
+several times larger than $\eta$ throughout the first hundreds of steps.
 
-\paragraph{Exercise 9.2.} Per-step cost is predicted by $2N + 4N_{\text{tr}}$ per token:
-with $k$ trainable blocks out of 12, $N_{\text{tr}}\approx (k/12)N$, so time per step
-$\propto 2 + 4k/12$. That is $1.0$ ($k=0$, head only, up to a tiny head), $1.17$
-($k=1$), $1.33$ ($k=2$), $1.67$ ($k=4$) and $3.0$ ($k=12$) relative to a forward pass.
-Peak memory grows with $k$ through activations kept for backward (only blocks above the
-lowest trainable one store them) and through $14$ bytes per trainable parameter.
-Accuracy usually improves from $k=0$ to $k=1$ and changes little after that.
-Discrepancies come from fixed overheads (optimizer step, kernel launches) and from the
-embedding/head layers, which the block-count model ignores.
+\paragraph{Exercise 9.2.} Adam + L2: the gradient is $\lambda\theta$, so $\hat m\approx\lambda\theta$
+and $\sqrt{\hat v}\approx\lambda|\theta|$ once the moments have adapted, giving a step of
+$\eta\,\mathrm{sign}(\theta)$: a \emph{linear} shrink of $\eta$ per step regardless of $\lambda$,
+until $\theta$ reaches $\approx0$ and oscillates at amplitude $\sim\eta$. AdamW: the adaptive
+term is zero ($g=0$, so $m=0$) and $\theta_t=(1-\eta\lambda)^t\theta_0$ decays geometrically with
+rate set by $\lambda$. The coupled version's decay strength therefore depends on the gradient
+statistics, which is the problem decoupling fixes.
 
-\paragraph{Exercise 9.3.} Run blocks 1--11 under \code{torch.no\_grad()} once, storing
-$h_{11}$ of shape $(n, T, 768)$ in bf16 (about \SI{193}{MB} for 1{,}045 messages padded
-to 120). Train block 12, the final norm and the head on the cache. With dropout off,
-the forward computation is identical, so the loss curves match to floating-point
-tolerance. Measuring cost in units of one block's forward FLOPs (2 per parameter), an uncached step costs $12\times2 + 4 = 28$ (twelve forwards, one backward of block 12), a cached step $2+4=6$, so each epoch is about $28/6\approx4.7\times$ faster (less if data movement of the cache dominates).
+\paragraph{Exercise 9.3.} (a) SGD with momentum in fp32: read $p,g,b$ (12\,B), write $p,b$
+(8\,B), 20\,B/param, 5.97\,ms per billion parameters. (b) Lion with fp32 master weights: read bf16
+$g$ (2), master (4), $m$ (4); write master (4), $m$ (4), bf16 copy (2): 20\,B/param, 5.97\,ms/B.
+(c) AdamW with bf16 $m,v$ and fp32 master: read $g$ (2), master (4), $m$ (2), $v$ (2); write
+master (4), $m$ (2), $v$ (2), bf16 copy (2): 20\,B/param, 5.97\,ms/B. For comparison, fp32 or
+standard mixed-precision AdamW is 28\,B/param, 8.36\,ms/B.
 
-\paragraph{Exercise 9.4.} Plain cross-entropy on 87/13 data reaches high accuracy but
-lower spam recall. Class weights $w_c\propto 1/\text{freq}(c)$ raise recall at some cost
-in precision. Undersampling behaves similarly but trains on less data. Accuracy is
-misleading under imbalance; report precision/recall/F1 for the spam class, and for a
-dashboard prefer precision at a fixed recall (or vice versa), matched to the product
-cost of each error.
+\paragraph{Exercise 9.4.} $310\times10\times5\,\mu$s $=15.5$\,ms of launch overhead per step,
+against a memory-bound time of $28\times0.596\times10^9/3.35\times10^{12}\approx5.0$\,ms. The loop
+implementation is launch-bound, three times slower than the bandwidth limit, before counting the
+kernels' own runtime. The \code{foreach} path issues about ten launches per parameter group
+($\sim$50\,$\mu$s); a fused kernel approaches the 5\,ms bound.
 
-\paragraph{Exercise 9.5.} Let a message occupy positions $0..\ell-1$ with padding at
-$\ell..T-1$. Under the causal mask, the hidden state at position $t$ depends only on
-tokens $0..t$. In particular position $\ell-1$ never attends to padding, and
-LayerNorm/MLP act per position, so $h_{\ell-1}$, and hence the logits read there, are
-independent of $T-\ell$. Counterexample for position $-1$: with $T=\ell+1$, the last
-position is a padding token attending to $\ell+1$ keys. With $T=\ell+5$ it attends to
-$\ell+5$ keys, four of which are padding tokens with different position embeddings,
-so the softmax weights and the output differ.
+\paragraph{Exercise 9.5.} Qwen3-0.6B: $N\approx0.596\times10^9$, so model state is $16N\approx9.5$\,GB.
+At $T=4096$ in bf16 the saved tensors of \cref{sec:optim:account} give (per sequence):
+(i) naive attention, $\approx1.26$\,GB per layer, dominated by the $2HT^2$ score and probability
+tensors (1.07\,GB), so $28\times1.26\approx35.2$\,GB, plus about 5\,GB for fp32 logits and softmax
+($T\cdot V\cdot4\cdot2$ bytes with $V=151{,}936$). That is $\approx40$\,GB per sequence:
+$\text{mem}(B)\approx40.2B+9.5$\,GB, which does not fit even $B=1$ on a 24\,GB GPU. (ii) With
+FlashAttention, $\approx0.185$\,GB per layer, so $\approx5.2+5.0=10.2$\,GB per sequence:
+$\text{mem}(B)\approx10.2B+9.5$\,GB, and $B=1$ fits. The logits are now half the activation memory:
+computing the loss in chunks (\cref{ch:distill}) would allow $B=2$, and activation
+checkpointing (\cref{sec:pretrain:efficiency}) more.
 
-\paragraph{Exercise 9.6.} With left padding the real tokens occupy positions
-$T-\ell..T-1$ instead of $0..\ell-1$, so they receive different learned position
-embeddings, and the logits differ (often by a few percent of their magnitude, enough to
-flip borderline cases). The key mask removes the influence of padded tokens but cannot
-undo the position shift. With RoPE, attention depends only on $i-j$, which is unchanged
-for every pair of real tokens, so the logits match up to floating-point error.
+\paragraph{Exercise 9.6.} Their schedule restarts at step 0: if it has warmup, the learning rate
+ramps up again from near zero to the peak, then follows a complete cosine compressed into the
+remaining steps. The original run was somewhere down its cosine (say at $0.4\,\eta_{\max}$),
+so the resumed run jumps back to $\eta_{\max}$. The loss curve shows a bump or spike shortly
+after resumption (a ``warm restart''), then decays again. The final loss is usually worse than the
+uninterrupted run's, and the run is not reproducible. The fix is to construct the schedule with the
+original \code{total} and call it with the restored global step.
 
-\paragraph{Exercise 9.7.} Sort-within-mega-batch as in \cref{lst:classify:bucket}, then
-greedily add sequences to the current batch while $\max(\text{len})\times(\text{count})
-\le K$. Short-message batches then contain many sequences and long ones few. The number
-of batches varies, padding waste matches bucketing, and step-time variance drops
-because every batch has roughly $K$ token-slots. Learning-rate schedules should then be
-defined in tokens rather than steps.
+\paragraph{Exercise 9.7.} The global norm is $\sqrt{3^2+4^2}=5$, so both ranks must scale by
+$1/5$; the result has norm 1 and the original direction. Independent clipping scales rank 0 by
+$1/3$ and rank 1 by $1/4$: each shard has norm 1, the combined norm is $\sqrt2$, and the
+direction changes (the components' ratio goes from $3:4$ to $1:1$). The fix is one scalar
+collective: each rank computes $s_r=\|g_r\|^2$, then \code{all\_reduce(SUM)} over the
+tensor-parallel group, and every rank uses $\sqrt{\sum_r s_r}$. Replicated parameters, such as
+norm gains that every rank holds, must be counted once, not once per rank.
 
-\paragraph{Exercise 9.8.} Compute $\log p(\text{`` spam''}\mid\text{prompt})$ and
-$\log p(\text{`` ham''}\mid\text{prompt})$ from one forward pass each (or one pass with
-both continuations scored via \code{sequence\_logprob}) and predict the larger. Base
-GPT-2 models typically score only modestly above chance on the balanced split, and the
-improvement with model size is gradual. Fine-tuning closes most of the gap. Note that
-the label words should be chosen as single tokens with a leading space, otherwise
-multi-token labels are penalised by length.
+\paragraph{Exercise 9.8.} With $X=U\Sigma V^\top$, $XX^\top=U\Sigma^2U^\top$, hence
+$(XX^\top)X=U\Sigma^3V^\top$ and $(XX^\top)^2X=U\Sigma^5V^\top$. So
+$p(X)=U(a\Sigma+b\Sigma^3+c\Sigma^5)V^\top=U\,p(\Sigma)\,V^\top$, and singular vectors are
+preserved. The scalar map only pushes values in $(0,1]$ into the band near 1. For $\sigma$ much
+above 1 the $c\sigma^5$ term dominates and iterating diverges, so the input is divided by its
+Frobenius norm, which upper-bounds $\sigma_{\max}$. Muon is restricted to 2-D hidden matrices
+because 1-D gains and biases have no singular structure, and because embedding and unembedding
+matrices are lookups or classifiers over tokens: each row belongs to one token and receives
+gradient only when that token appears, and orthogonalising would redistribute update magnitude
+across rare and frequent tokens. The original Muon recipe keeps them on AdamW.
 
-\paragraph{Exercise 9.9.} Demand: $20{,}000\times35 = 7.0\times10^5$ real tokens/s. With
-random batching at about 60\% waste, the GPUs must process $7.0\times10^5/0.4=1.75\times
-10^6$ token-slots/s; with bucketing at about 7\% waste, $7.5\times10^5$. An L4 offers
-\SI{121}{TFLOP/s}; at 40\% utilisation and $1.7\times10^8$ FLOPs/token it processes
-about $2.85\times10^5$ tokens/s. So random batching needs $\lceil 6.1\rceil = 7$ GPUs
-and bucketing needs $\lceil 2.6\rceil=3$, plus headroom for peaks. A 160-token message
-in a batch of 64 takes about $64\times160\times1.7\times10^8/4.8\times10^{13}\approx
-\SI{36}{ms}$ of compute, so the \SI{50}{ms} p99 constrains the batching window to a few
-milliseconds. The weakest assumption is the 40\% utilisation: at such short sequences,
-kernel-launch and framework overheads can halve it unless CUDA graphs or a compiled
-engine are used.
+\paragraph{Exercise 9.9.} Number the $n$ valid windows (e.g.\ disjoint windows $i\cdot T$).
+Each epoch draws $a$ with $\gcd(a,n)=1$ and an offset $c$; the $k$-th sample is window
+$(a k + c)\bmod n$, a bijection on $\{0,\dots,n-1\}$ computed in $O(1)$ without storing a
+permutation. The state is (epoch, $k$, $a$, $c$), or the seed from which $a$ and $c$ are derived.
+Affine permutations mix poorly (consecutive samples are an arithmetic progression of windows), so
+production samplers use a small keyed Feistel network or a block-shuffled order instead; the
+state has the same shape.
 
-\paragraph{Exercise 9.10.} The SMS collection contains several hundred exact duplicate
-texts, mostly spam templates, and more after normalisation. Re-splitting after
-deduplication typically lowers test accuracy slightly. The difference measures how much
-the original score benefited from test messages whose duplicates were in training.
-
-\paragraph{Exercise 9.11.} Temperature scaling multiplies all logits of an example by the
-same positive constant $1/T$. Because $\argmax_c z_c/T = \argmax_c z_c$ for $T>0$,
-predictions and therefore accuracy are unchanged. A fine-tuned classifier is typically
-over-confident ($T>1$ after fitting), and ECE drops substantially after scaling.
-
-\paragraph{Exercise 9.12.} Sort test examples by calibrated confidence. Escalating the
-least confident fraction $e$ makes cascade accuracy
-$=1-(\text{errors among the confident }1-e)/n$. Increase $e$ until accuracy reaches
-99.5\%; the cost is then $(1+eR)/R$ of the large-only budget. Well-calibrated models
-concentrate their errors in the low-confidence region, so a small $e$ suffices.
-
-\paragraph{Exercise 9.13.} For pretrained GPT-2 small, probe accuracy typically rises over
-the first several blocks and plateaus in the middle-to-upper layers. Sometimes it dips
-slightly in the last block, which is specialised for next-token prediction. If the
-plateau is reached by block $\ell$, serving only blocks $1..\ell$ plus a head saves
-about $(12-\ell)/12$ of the per-token FLOPs (embeddings and head aside).
+\paragraph{Exercise 9.10.} Expect the following pattern; exact values depend on your hardware
+and seeds. With clipping, the largest learning rates spike but recover; our run at $\eta=1$
+spiked from 5.8 to 7.3 and then trained. With clipping disabled, the loss at the highest
+learning rates becomes non-finite within tens of steps, which defines the divergence point
+$\eta_{\text{div}}$. The best learning rate typically sits 3--30$\times$ below $\eta_{\text{div}}$
+on a broad plateau. Removing QK-norm lets attention logits grow with the weights, which lowers
+$\eta_{\text{div}}$, often by several times, and usually moves the optimum down with it: QK-norm
+buys stability headroom (\cref{sec:archdesign:stability}).

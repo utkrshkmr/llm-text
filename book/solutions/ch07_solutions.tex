@@ -1,93 +1,69 @@
-\subsection*{Chapter 7: Pretraining on Unlabeled Data}
+\subsection*{Chapter 7: The Architecture Design Space}
 
-\paragraph{Exercise 7.1 (Initial loss).}
-The loss at one position is $-z_y+\log\sum_u e^{z_u}$. Since $z_y$ has mean zero,
-$\E[\mathcal L]=\E[\log\sum_u e^{z_u}]$. For large $V$ the sum concentrates around its mean,
-$V\,\E[e^{z}]=V e^{\sigma^2/2}$ (log-normal mean), so $\E[\mathcal L]\approx\ln V+\sigma^2/2$.
-For GPT-2 small, the final LayerNorm makes each hidden coordinate roughly unit variance and the
-head weights have standard deviation $0.02$, so each logit has variance
-$\approx768\cdot0.02^2=0.31$. Prediction: $\ln 50{,}257+0.15\approx10.98$ nats.
+\paragraph{Exercise 7.1} (a) \texttt{"bgrqd,bgkd->bgrqk"}: the KV group axis $g$ is shared and kept, $r$ and
+$q$ come only from the queries, and $d$ is contracted. (b) \texttt{"bi,bj->bij"}. (c) \texttt{"bii->b"}
+(a repeated index on one operand selects the diagonal, and dropping it from the output sums it).
+(d) \texttt{"bhtd,hdD->btD"}: both $h$ and $d$ are contracted, which is the per-head output projection
+followed by the sum over heads, i.e.\ exactly $\mathrm{concat}_h(\mat{O}_h)\mat{W}_O$.
 
-\paragraph{Exercise 7.2 (Perplexity across tokenizers).}
-Model A: total NLL $=3.10\times10^6$ nats over $4.3\times10^6$ bytes $=0.721$ nats/byte $=1.04$
-bits/byte. Model B is byte-level, so tokens $=$ bytes and $0.95$ nats/byte $=1.37$ bits/byte.
-Model A is better, even though its per-token loss is three times larger.
+\paragraph{Exercise 7.2} $(\mat{A}\mat{B})\mat{C}$: forming the $n\times n$ product costs $2n^2d$ FLOPs and
+multiplying it by $\mat{C}$ another $2n^2d$, so $4n^2d$ in total. $\mat{A}(\mat{B}\mat{C})$: the $d\times d$
+product costs $2nd^2$ and the final product another $2nd^2$, so $4nd^2$. The second order is cheaper when
+$n>d$, i.e.\ beyond $n=128$; at $n=32{,}768$ it is $n/d=256$ times cheaper. In attention the row-wise
+softmax applied to $\mat{Q}\mat{K}^\top$ prevents re-association.
 
-\paragraph{Exercise 7.3 (Training vs.\ validation).}
-Expect the validation minimum within the first few epochs; dropout delays it slightly and
-keeps the validation loss lower afterwards, because it limits how precisely the model can store
-the training windows. Samples near the validation minimum are novel but story-like; late samples
-reproduce training passages verbatim, especially with greedy decoding.
+\paragraph{Exercise 7.3} With fan-average initialisation $\sigma_1^2=\sigma_2^2=2/(d+4d)=2/(5d)$. Then
+$\operatorname{Var}(h_j)=d\sigma_1^2=2/5$, and since $h_j$ is a centred Gaussian,
+$\E[\mathrm{ReLU}(h_j)^2]=\operatorname{Var}(h_j)/2=1/5$. Hence $\operatorname{Var}(y_o)=4d\,\sigma_2^2\cdot\frac15
+=4d\cdot\frac{2}{5d}\cdot\frac15=\frac{8}{25}=0.32$: the block shrinks the signal. Keeping unit variance
+requires $\sigma_2^2=\frac{1}{4d\cdot(1/5)}=\frac{5}{4d}$, i.e.\ He-style scaling for the layer after a ReLU.
 
-\paragraph{Exercise 7.4 (Temperature limits).}
-Let $z_1>z_j$ for $j\neq1$. Then $p_\tau(j)/p_\tau(1)=e^{(z_j-z_1)/\tau}\to0$ as $\tau\to0^+$,
-so $p_\tau\to e_1$. As $\tau\to\infty$, $z_j/\tau\to0$ for all $j$ and $p_\tau(j)\to1/V$. With
-$k$ tied maxima the limit is uniform over the tied set (the ratios between tied tokens are always
-1), which differs from \code{argmax}, which deterministically returns the first index.
+\paragraph{Exercise 7.4} (a) $\sigma_z\approx0.02\sqrt{1024}=0.64$, so the loss is about
+$\ln151{,}936+0.64^2/2\approx11.93+0.20=12.13$. (b) With $s=1$, $\sigma_z\approx32$: the logits are
+essentially random with a huge spread, so $\log Z$ is dominated by the maximum of $V$ Gaussians,
+$\approx\sigma_z\sqrt{2\ln V}\approx32\times4.9\approx156$, while the target logit has mean 0. The initial loss is
+on the order of 150 nats, a clear sign of a broken init. (Qwen3-0.6B ties its head to the embedding table, so
+in the real model this exercise is about the embedding's init scale.)
 
-\paragraph{Exercise 7.5 (Do top-$k$ and temperature commute?).}
-Yes for top-$k$: dividing by $\tau>0$ preserves the order of the logits, so the same $k$ tokens
-survive, and the softmax over the survivors is the same either way. No for top-$p$: the kept set
-depends on the cumulative probabilities, which temperature changes. A high temperature flattens
-the distribution, so more tokens are needed to reach mass $p$. Applying temperature first (the
-common convention) lets temperature widen the nucleus.
+\paragraph{Exercise 7.5} Parameters: $3\cdot d\cdot\frac83d=8d^2=2\cdot d\cdot4d$; matmul FLOPs per token are
+$2\times$ parameters in both cases. Saved activations per token, counting GEMM inputs and activation inputs:
+plain MLP stores $x$ ($d$), the pre-activation ($4d$) and the activation output, which is the input to
+$\mat{W}_2$ ($4d$), for $9d$ values. The GLU stores $x$ ($d$), the gate pre-activation, the up projection and
+their product ($3\times\frac83d=8d$), also $9d$. In bf16 both are $18d$ bytes per token. Unfused GLU code also
+materialises $\mathrm{SiLU}(\text{gate})$, adding $\frac83d$ values unless the elementwise ops are fused or
+recomputed.
 
-\paragraph{Exercise 7.6 (Resume correctness).}
-Required: model weights; optimizer state (moments, step counts); scheduler/step counter; CPU and
-CUDA RNG states (dropout); Python \code{random} and NumPy RNGs if used anywhere; the sampler's
-generator state and the position within the epoch (how many batches have been consumed); worker
-seeding (\code{worker\_init\_fn}/base seed) so augmentation inside workers replays; and the
-\code{GradScaler} state (current scale and growth tracker). Listing~7.5 omits the data-loader
-position and sampler RNG, the Python/NumPy RNGs and the \code{GradScaler}; autocast itself holds
-no state.
+\paragraph{Exercise 7.6} With uniform weights the output at position $i$ is $\frac{1}{i+1}\sum_{j\le i}\vect{v}_j$.
+If the first token is a distinguishable BOS token whose value vector is $\vect{e}_1$, and all other tokens have
+value vectors with zero first coordinate, the first output coordinate is $1/(i+1)$, strictly decreasing in $i$.
+The causal mask's varying denominator alone encodes position; later layers can read it off and build
+sharper positional features.
 
-\paragraph{Exercise 7.7 (Checkpoint interval).}
-Job MTBF $M=50{,}000\,\text{h}/2048=24.4\,\text{h}\approx87{,}900\,\text{s}$.
-Synchronous ($\delta=90$\,s): $T=\sqrt{2\cdot90\cdot87{,}900}\approx3{,}980$\,s ($\approx66$ min).
-Expected overhead $\approx\delta/T+T/(2M)\approx2.3\%+2.3\%=4.5\%$.
-Asynchronous ($\delta=6$\,s): $T\approx1{,}030$\,s ($\approx17$ min), overhead
-$\approx0.6\%+0.6\%=1.2\%$ (restart time excluded in both).
+\paragraph{Exercise 7.7} $\partial(\log Z)^2/\partial z_j=2\log Z\,p_j$ with $\vect{p}=\softmax(\vect{z})$. Its
+projection on the all-ones direction is $\frac{2\log Z}{V}\vect{1}$ (since $\sum_jp_j=1$), and the orthogonal
+part is $2\log Z\,(\vect{p}-\frac1V\vect{1})$. The cross-entropy gradient $\vect{p}-\vect{y}$ sums to zero, so it
+has no all-ones component: CE never moves $\log Z$ as such. The z-loss provides the only force along
+$\vect{1}$, pulling $\log Z$ toward 0. Its orthogonal part does perturb the distribution, but it is scaled by
+$\alpha\approx10^{-4}$ and vanishes as $\log Z\to0$, so predictions are essentially unaffected.
 
-\paragraph{Exercise 7.8 (Accumulation is not always exact).}
-(1) Padding: if each micro-batch's loss is the mean over its \emph{non-padding} tokens and the
-micro-batches contain different numbers of real tokens, averaging the $k$ means weights tokens
-unequally; the exact large-batch loss divides the summed NLL by the total token count. Fix: sum
-token losses and divide by the global token count. (2) Layers with batch statistics (BatchNorm)
-see smaller batches. Also: the last, partial micro-batch of an epoch, and dropout masks that
-differ because the RNG is consumed in a different pattern.
+\paragraph{Exercise 7.8} Qwen3-8B, 8192 tokens: each RMSNorm reads and writes $8192\times4096\times2$\,B, i.e.\
+134\,MB, or about 40\,$\mu$s; two per block give 80\,$\mu$s (the QK-norms act on smaller tensors and add
+little). The block has about $1.93\times10^8$ weight parameters
+($2\cdot4096^2+2\cdot4096\cdot1024+3\cdot4096\cdot12288$), so its matmuls take
+$2\times1.93\times10^8\times8192\approx3.2\times10^{12}$ FLOPs, plus about $2.8\times10^{11}$ for causal attention
+scores and outputs: about 3.5\,ms at peak, or 6--7\,ms at a realistic 50\% MFU. Unfused norms add 1--2\%. A
+fused version needs one extra read to compute the RMS (or folds the scaling into the GEMM epilogue),
+about 20\,$\mu$s per norm, roughly halving the overhead. The general lesson: norm cost is small relative
+to a full block but not negligible, and it grows in relative terms for smaller $d$.
 
-\paragraph{Exercise 7.9 (Activation memory, GPT-2 xl).}
-Model states: $16\times1.558\text{B}=24.9$\,GB; budget $0.9\cdot80-24.9=47.1$\,GB.
-(a) No FlashAttention: per sample $48\cdot1024\cdot1600\cdot(34+5\cdot25\cdot1024/1600)=8.97$\,GB
-$\Rightarrow b=5$. (b) FlashAttention: $48\cdot1024\cdot1600\cdot34=2.67$\,GB $\Rightarrow b=17$.
-(c) Full checkpointing: block inputs $2\cdot1024\cdot1600\cdot48=0.157$\,GB plus one layer's full
-activations during recomputation ($0.187$\,GB) $\approx0.344$\,GB per sample $\Rightarrow b\approx136$
-(in practice temporary buffers and the logits tensor limit this much earlier).
+\paragraph{Exercise 7.9} With $N\approx12Ld^2=1.3\times10^9$: for $d/L=32$, $d^3=1.3\times10^9\cdot32/12$ gives
+$d\approx1514$ and $L\approx47$; for $d/L=128$, $d\approx2402$ and $L\approx19$. Decode reads the same 2.6\,GB of
+bf16 weights (about 0.78\,ms at 3.35\,TB/s) in both cases, plus per-layer overhead of
+$47\times15\,\mu$s$=0.71$\,ms versus $0.28$\,ms. The wide model decodes faster (about 1.06\,ms versus
+1.49\,ms per token). It also suits tensor parallelism better: each layer's GEMMs are larger, which gives better
+per-GPU efficiency after splitting, and there are fewer layers and so fewer all-reduces per token.
 
-\paragraph{Exercise 7.10 (Measure MFU).}
-Typical ordering: fp32 lowest (no tensor cores; TF32 if enabled helps); bf16 autocast a large
-jump; SDPA a further gain (no $T\times T$ materialization, fewer memory-bound kernels); compile
-another 10--30\% from fusing LayerNorm/GELU/residual chains and reducing launches; activation
-checkpointing reduces MFU by roughly a quarter (recompute is not counted in MFU) but allows larger
-micro-batches, which can partly win it back.
-
-\paragraph{Exercise 7.11 (Chinchilla planning).}
-$C=1000\cdot86{,}400\cdot0.4\cdot989\times10^{12}=3.4\times10^{22}$ FLOPs, so
-$N_{\text{opt}}=\sqrt{C/120}\approx16.9$B and $D_{\text{opt}}\approx338$B tokens.
-Inference over a year: $1.2\times10^{13}$ tokens $\times2N$. Option A ($N=16.9$B):
-$4.1\times10^{23}$ inference FLOPs, total $\approx4.4\times10^{23}$. Option B ($N=8.4$B,
-$D=1.35$T): training $6\cdot8.4\text{B}\cdot1.35\text{T}=6.8\times10^{22}$ (2$\times$ the budget),
-inference $2.0\times10^{23}$, total $\approx2.7\times10^{23}$. Option B is about 40\% cheaper in total;
-with the Chinchilla loss fit its loss is only slightly higher than option A's, which is the
-argument for over-training models that will be served heavily.
-
-\paragraph{Exercise 7.12 (Chunked loss).}
-Implement an \code{autograd.Function} whose forward takes the final hidden states $\mat H$
-\code{(N, d)}, the head weight $\mat W$ \code{(V, d)} and targets. Loop over chunks of rows: compute
-$\mat Z_c=\mat H_c\mat W^\top$ in fp32, its log-sum-exp, the chunk loss, and immediately the
-gradient $\partial\mathcal L/\partial\mat Z_c=(\softmax(\mat Z_c)-\text{onehot})/N$; accumulate
-$\partial\mathcal L/\partial\mat H_c=\partial\mathcal L/\partial\mat Z_c\,\mat W$ and
-$\partial\mathcal L/\partial\mat W\mathrel{+}=(\partial\mathcal L/\partial\mat Z_c)^\top\mat H_c$.
-Save only these gradients for backward (which just scales them by the incoming gradient). Peak
-memory drops from $N\cdot V$ to $\text{chunk}\cdot V$ floats; verify with
-\code{torch.autograd.gradcheck} on small sizes in float64.
+\paragraph{Exercise 7.10} There is no single answer. A good report states the hypothesis before running
+anything, shows that the difference exceeds the seed-to-seed spread of the baseline, includes the LR sweep
+for both variants, and offers a mechanism. For example: ``QK-norm without z-loss: max attention logit stays
+bounded and the run tolerates $3\times$ higher LR; final loss unchanged within noise at the tuned LR.''

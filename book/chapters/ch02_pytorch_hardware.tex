@@ -39,7 +39,7 @@ explain what those programs do on the hardware.}
 \end{figure}
 
 % =====================================================================
-\section{What is PyTorch?}\label{sec:pytorch:what}\covers{LLM A.1}
+\section{What is PyTorch?}\label{sec:pytorch:what}
 
 PyTorch is an open-source Python library for deep learning, originally released by Meta AI in 2016 and now
 governed by the PyTorch Foundation. It has been the most widely used framework in machine-learning research
@@ -47,7 +47,7 @@ for years, and it is the substrate of nearly every open LLM codebase, from Huggi
 vLLM, SGLang, Megatron-LM and veRL. Its popularity comes from a design that feels like ordinary Python: you
 write imperative code, run it line by line, inspect any value, and get gradients for free.
 
-\subsection{The three core components}\covers{LLM A.1.1}
+\subsection{The three core components}
 It is helpful to see PyTorch as three libraries in one (\cref{fig:pytorch:stack}):
 \begin{enumerate}
 \item A \textbf{tensor library}: an array library in the spirit of NumPy, whose arrays can live on CPUs,
@@ -84,7 +84,7 @@ operations are slow in eager mode and why kernel fusion and compilation matter (
 \label{fig:pytorch:stack}
 \end{figure}
 
-\subsection{Deep learning in one paragraph}\covers{LLM A.1.2}
+\subsection{Deep learning in one paragraph}
 Artificial intelligence aims at systems that perform tasks associated with human intelligence; machine
 learning is the subfield that achieves this by learning from data; deep learning is the part of machine
 learning that uses neural networks with many layers, which learn both the features and the decision rule
@@ -94,7 +94,7 @@ of the loss with respect to $\theta$ are computed by backpropagation; and an opt
 gradient. After training, the model is used for \emph{inference} on new inputs. Everything in this book,
 including LLM pretraining and RL, is an instance of this recipe with a particular model, loss and data stream.
 
-\subsection{Installing PyTorch}\covers{LLM A.1.3}
+\subsection{Installing PyTorch}
 PyTorch is installed with \code{pip} or \code{conda}. CPU-only wheels work everywhere; GPU builds must match
 the CUDA (or ROCm) version supported by the installed driver, and the selector on \code{pytorch.org} prints the
 right command. Two lines confirm what is available:
@@ -115,9 +115,9 @@ selects a device with \code{llmsys.utils.get\_device()} and runs on whatever is 
 gives a complete environment recipe, including cloud GPUs.
 
 % =====================================================================
-\section{Tensors}\label{sec:pytorch:tensors}\covers{LLM A.2}
+\section{Tensors}\label{sec:pytorch:tensors}
 
-\subsection{Scalars, vectors, matrices and beyond}\covers{LLM A.2.1}
+\subsection{Scalars, vectors, matrices and beyond}
 A tensor is an $n$-dimensional array with a single element type. Its \emph{rank} (or order) is the number
 of dimensions: a scalar has rank 0, a vector rank 1, a matrix rank 2, and LLM activations are usually rank 3
 with shape \texttt{(batch, sequence, features)} or rank 4 inside attention,
@@ -131,7 +131,7 @@ x = torch.zeros(8, 1024, 768)            # rank 3: (batch, seq, d_model)
 print(x.ndim, x.shape, x.dtype, x.device, x.numel())
 \end{lstlisting}
 
-\subsection{Tensor data types}\covers{LLM A.2.2}
+\subsection{Tensor data types}
 PyTorch infers the data type (\emph{dtype}) from the input: Python integers become \code{torch.int64}, Python
 floats become \code{torch.float32}. Token ids are integers (\code{int64} by default, since embedding lookups
 expect it); everything that is learned or computed is floating point. Converting is explicit:
@@ -139,7 +139,7 @@ expect it); everything that is learned or computed is floating point. Converting
 and cost on CPUs, but on modern accelerators most LLM arithmetic runs in 16-bit or even 8-bit formats, which
 we examine in \cref{sec:pytorch:formats}.
 
-\subsection{Common tensor operations}\covers{LLM A.2.3}
+\subsection{Common tensor operations}
 A handful of operations recur throughout the book:
 
 \begin{lstlisting}[caption={Operations used constantly in LLM code.},label={lst:pytorch:ops}]
@@ -223,7 +223,7 @@ weights even when the forward pass runs in bf16 (\cref{ch:pretrain}).
 \end{napkinmath}
 
 % =====================================================================
-\section{Models as computation graphs}\label{sec:pytorch:graphs}\covers{LLM A.3}
+\section{Models as computation graphs}\label{sec:pytorch:graphs}
 
 A neural network is a composition of operations, and it is useful to draw it as a directed acyclic graph
 whose nodes are operations and whose edges carry tensors: the \emph{computation graph}. Take logistic
@@ -292,7 +292,7 @@ $\partial\mathcal{L}/\partial z = a-y$.}
 \end{figure}
 
 % =====================================================================
-\section{Automatic differentiation}\label{sec:pytorch:autograd}\covers{LLM A.4}
+\section{Automatic differentiation}\label{sec:pytorch:autograd}
 
 Training needs the gradient of the loss with respect to every parameter. By the chain rule, the gradient
 of $\mathcal{L}$ with respect to $\vect{w}$ is a product of local derivatives along the path from $\vect{w}$
@@ -332,7 +332,7 @@ checkpointing (recomputing them during backward, \cref{ch:pretrain}) trades FLOP
 \end{systemslens}
 
 % =====================================================================
-\section{Implementing multilayer neural networks}\label{sec:pytorch:mlp}\covers{LLM A.5}
+\section{Implementing multilayer neural networks}\label{sec:pytorch:mlp}
 
 Real models are built by subclassing \code{torch.nn.Module}. A module registers its parameters (as
 \code{nn.Parameter} attributes or submodules) in \code{\_\_init\_\_} and defines the computation in
@@ -378,7 +378,7 @@ with torch.no_grad():
 \end{lstlisting}
 
 % =====================================================================
-\section{Setting up efficient data loaders}\label{sec:pytorch:loaders}\covers{LLM A.6}
+\section{Setting up efficient data loaders}\label{sec:pytorch:loaders}
 
 PyTorch separates \emph{what} the data are from \emph{how} they are batched. A \code{Dataset} implements
 \code{\_\_len\_\_} and \code{\_\_getitem\_\_(i)}, returning one example. A \code{DataLoader} draws indices (shuffled
@@ -448,7 +448,7 @@ the previous step's compute. In Jupyter notebooks, multi-process loading is unre
 \end{systemslens}
 
 % =====================================================================
-\section{A typical training loop}\label{sec:pytorch:loop}\covers{LLM A.7}
+\section{A typical training loop}\label{sec:pytorch:loop}
 
 With a model, a loss and a loader, the training loop has the same skeleton in every chapter of this book
 (\cref{fig:pytorch:loop}):
@@ -510,7 +510,7 @@ decay and gradient clipping to this loop. Evaluating on a held-out set separates
 for LLMs we will track validation loss and, later, task accuracy.
 
 % =====================================================================
-\section{Saving and loading models}\label{sec:pytorch:save}\covers{LLM A.8}
+\section{Saving and loading models}\label{sec:pytorch:save}
 
 A module's \code{state\_dict()} is an ordered mapping from parameter (and buffer) names to tensors. Saving and
 restoring it is the standard way to checkpoint:
@@ -540,9 +540,9 @@ exist for this reason.
 \end{napkinmath}
 
 % =====================================================================
-\section{Training on GPUs}\label{sec:pytorch:gpu}\covers{LLM A.9}
+\section{Training on GPUs}\label{sec:pytorch:gpu}
 
-\subsection{Computations on GPU devices}\covers{LLM A.9.1}
+\subsection{Computations on GPU devices}
 Every tensor lives on a device, and an operation runs on the device of its inputs. Moving a tensor is
 explicit, and mixing devices in one operation is an error:
 
@@ -559,7 +559,7 @@ model = model.to(device)  # moves all parameters and buffers in place
 On a machine with several GPUs, \code{"cuda:0"}, \code{"cuda:1"}, \ldots{} name individual devices, and the
 environment variable \code{CUDA\_VISIBLE\_DEVICES} restricts and renumbers what a process can see.
 
-\subsection{Single-GPU training}\covers{LLM A.9.2}
+\subsection{Single-GPU training}
 Moving the loop of \cref{lst:pytorch:loop} to a GPU needs three changes: move the model once, move each batch
 inside the loop, and leave everything else alone. For a tiny MLP the GPU will not be faster (each kernel does
 almost nothing and launch overhead dominates), but for anything matrix-heavy, including every LLM, the
@@ -578,7 +578,7 @@ for epoch in range(3):
         optimizer.step()
 \end{lstlisting}
 
-\subsection{Training with multiple GPUs}\label{sec:pytorch:ddp}\covers{LLM A.9.3}
+\subsection{Training with multiple GPUs}\label{sec:pytorch:ddp}
 The simplest way to use several GPUs is \emph{data parallelism} with PyTorch's
 \code{DistributedDataParallel} (DDP). One process is launched per GPU; each holds a full replica of the model
 and receives a different slice of every global batch. After the backward pass, gradients are averaged across

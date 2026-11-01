@@ -1,75 +1,78 @@
-\subsection*{Chapter 8: Distributed Training Systems}
+\subsection*{Chapter 8: Beyond Softmax Attention}
 
-\paragraph{Exercise 8.1 (Ring all-reduce cost).}
-Each of the $p-1$ reduce-scatter steps and $p-1$ all-gather steps sends one chunk of $n/p$
-bytes per rank, all links busy in parallel: $2(p-1)(\alpha+\frac np\beta)$, which is
-\cref{eq:dist:ring}. Recursive halving: in round $j=1..\log_2p$ each rank exchanges half of its
-current working set with a partner at distance $p/2^j$, i.e.\ $n/2,n/4,\dots,n/p$ bytes, summing
-to $n(p-1)/p$ in $\log_2p$ messages; recursive doubling for the all-gather mirrors it. Total
-$2\log_2p\,\alpha+2\frac{p-1}{p}n\beta$.
+\paragraph{Exercise 8.1} With $\vect{v}$ augmented by a 1, every form accumulates
+$\sum_{j\le i}(\text{decay})\,\phi(\vect{k}_j)\cdot1=\vect{z}_i$ in the last column of the state, and the last
+output column is $\phi(\vect{q}_i)^\top\vect{z}_i$: exactly the denominator of \cref{eq:attnalt:linear}. With an
+arbitrary feature map the features can have mixed signs and the denominator can cross zero; $\mathrm{elu}+1>0$
+keeps it positive, but it can still be tiny when $\phi(\vect{q}_i)$ is small, which amplifies noise. This is why
+implementations add an $\varepsilon$ or replace the division by an output normalisation.
 
-\paragraph{Exercise 8.2 (Two-level all-reduce).}
-Reduce-scatter inside the node: $\frac78\,n/B_1$; all-reduce of the $n/8$ shards across $N$
-nodes (each GPU uses its own NIC): $2\frac{N-1}{N}\frac n8/B_2$; all-gather inside the node:
-$\frac78\,n/B_1$. For large $N$: $\approx1.75\,n/B_1+0.25\,n/B_2$. A flat ring over $8N$ GPUs is
-limited by its inter-node hops: $\approx2n/B_2$. With $B_1=450$, $B_2=50$\,GB/s: $0.0089\,n$ vs
-$0.040\,n$ seconds per GB, about $4.5\times$ faster hierarchically (latency terms aside).
+\paragraph{Exercise 8.2} For chunk $c$ starting at $s$ with incoming state $\mat{S}$ (the state after token
+$s-1$), unrolling \cref{eq:attnalt:gated} gives, for $i\ge s$,
+\[
+\mat{S}_i=\Big(\prod_{l=s}^{i}\gamma_l\Big)\mat{S}+\sum_{j=s}^{i}\Big(\prod_{l=j+1}^{i}\gamma_l\Big)\vect{k}_j\vect{v}_j^\top ,
+\]
+so $\vect{y}_i^\top=\big(\prod_{l=s}^{i}\gamma_l\big)\vect{q}_i^\top\mat{S}+\sum_{j=s}^{i}D_{ij}(\vect{q}_i^\top\vect{k}_j)\vect{v}_j^\top$
+with $D_{ij}=\prod_{l=j+1}^i\gamma_l$. The new state is the same expression at the chunk end $e$. In logs,
+with $c_i=\sum_{l=s}^{i}\log\gamma_l$: the inter-chunk factor is $\exp(c_i)$ (\code{cum.exp()}), the
+intra-chunk mask is $\exp(c_i-c_j)$ (\code{decay\_mask}), the state's carried factor is $\exp(c_e)$
+(\code{total.exp()}), and the per-token write weight is $\exp(c_e-c_j)$ (\code{w}), matching the listing.
 
-\paragraph{Exercise 8.3 (Bucket size).}
-Require $\alpha\le0.05\,n\beta$, i.e.\ $n\ge20\alpha/\beta=20\cdot\SI{20}{\micro s}\cdot\SI{50}{GB/s}
-=\SI{20}{MB}$. Very large buckets fill late: the first all-reduce starts only after a large
-fraction of the backward pass, and the final (exposed) bucket is large, so less communication is
-hidden.
+\paragraph{Exercise 8.3} Per token and layer, causal softmax attention does about $2Td$ multiply-adds (scores and
+outputs, averaged over the causal triangle); chunked linear attention does $Cd+2d\dhead$. At $T=32{,}768$,
+$d=4096$: softmax needs $2.7\times10^8$ multiply-adds and linear attention
+$64\cdot4096+2\cdot4096\cdot128\approx1.3\times10^6$, about $205\times$ fewer. The curves cross near $T\approx160$.
 
-\paragraph{Exercise 8.4 (No-sync accumulation).}
-Add a flag \code{self.sync=True} and a context manager that sets it to \code{False}; in
-\code{\_on\_grad\_ready} return immediately when \code{not self.sync} (gradients simply keep
-accumulating in \code{.grad}); on the last micro-batch the flag is \code{True} and buckets
-launch as usual, carrying the accumulated sums. Without it, $k$-step accumulation performs $k$
-all-reduces; with it, one---so communication time drops by $\approx k\times$.
+\paragraph{Exercise 8.4} Retrieval returns $\mat{S}^\top\vect{k}_j=\vect{v}_j+\sum_{i\neq j}(\vect{k}_i^\top\vect{k}_j)\vect{v}_i$.
+For random unit keys $\vect{k}_i^\top\vect{k}_j$ has variance about $1/d$, so with unit-variance values the
+interference has variance $(n-1)/d$ per coordinate and the signal-to-interference ratio is about $d/(n-1)$:
+retrieval degrades once $n$ approaches $d$. With the delta rule and sequential writes, each write first
+removes what the memory currently returns for its key, so the most recent writes are retrieved almost
+exactly, while older entries are perturbed by later writes along non-orthogonal directions. The memory
+behaves like a recency-weighted store with ``overwrite'' semantics instead of an ever-blurrier sum. For
+orthonormal keys ($n\le d$) it is exact.
 
-\paragraph{Exercise 8.5 (ZeRO arithmetic).}
-\Cref{tab:dist:zero} follows from $\Psi=7.5$B, $N_d=64$, $K=12$. For 13B on 16 GPUs: DP 208\,GB
-(no); ZeRO-1 $(4+12/16)\cdot13=61.8$\,GB (18\,GB left, no); ZeRO-2 $(2+14/16)\cdot13=37.4$\,GB
-(42.6\,GB left, yes). ZeRO-2 is the lowest stage that works.
+\paragraph{Exercise 8.5} For $T=2^{16}$: Hillis--Steele uses 16 rounds and $\sum_{r=0}^{15}(T-2^r)=16T-(T-1)\approx9.8\times10^5$
+combines; Blelloch uses 32 rounds (up-sweep and down-sweep) and $2(T-1)\approx1.3\times10^5$ combines. Even
+for a single sequence, every round of either algorithm exposes thousands of independent operations per
+channel, which is enough to fill 132 SMs once the many channels of a real layer are counted, so the
+work-efficient Blelloch scan (or a blocked scan: sequential within a block, scan across blocks) wins. With 256
+sequences the parallelism across sequences and channels is ample, and simple chunked sequential scans are
+best.
 
-\paragraph{Exercise 8.6 (TP backward).}
-$\mat Y_r=\mat X\mat W_r^\top$ for every $r$, so $\mathcal L$ depends on $\mat X$ through all
-$\mat Y_r$ and $\partial\mathcal L/\partial\mat X=\sum_r(\partial\mathcal L/\partial\mat Y_r)\mat W_r$.
-Rank $r$ only knows its own term, hence the all-reduce in the backward of $f$. For the row-parallel
-layer $\mat Y=\sum_r\mat X_r\mat W_r^\top$, so $\partial\mathcal L/\partial\mat X_r=
-(\partial\mathcal L/\partial\mat Y)\mat W_r$: the output gradient is replicated after $g$'s
-(identity) backward, and each rank needs only its own $\mat W_r$---no communication.
+\paragraph{Exercise 8.6} Implementations that form $P_i=\prod_{l\le i}\gamma_l$ explicitly and then compute
+$D_{ij}=P_i/P_j$, or that rescale the state by $1/P$, fail: $P$ underflows to 0 and the ratio becomes $0/0$.
+The reference code only ever computes $\exp$ of a difference of cumulative log-gates that is
+$\le0$ (\code{decay\_mask} for $j\le i$, \code{cum.exp()}, \code{(total - cum).exp()}), so every factor lies in
+$(0,1]$ and underflow merely produces a correct 0.
 
-\paragraph{Exercise 8.7 (Attention under TP).}
-Give each rank $H/t$ query heads with their Q/K/V columns (column-parallel) and the matching
-$H/t\cdot\dhead$ input columns of the output projection (row-parallel); softmax and the causal mask
-act per head, so they stay local. Constraint: $t$ divides $H$. With GQA, each rank also needs the KV
-heads its query heads use; if $t$ exceeds the number of KV groups $G$, KV heads must be replicated
-on $t/G$ ranks (and their gradients all-reduced among those replicas), which wastes memory and
-compute and caps useful TP at $G$ for KV projections.
+\paragraph{Exercise 8.7} Per full-attention layer the cache costs $2\cdot8\cdot128\cdot2=4096$\,B per token, or
+537\,MB for 131{,}072 tokens; a window-4096 layer costs 16.8\,MB. The budget is $40/32=1.25$\,GB per sequence.
+With 2 full layers: $1.074+34\times0.0168=1.65$\,GB, which is too much. With 1: $0.537+35\times0.0168=1.12$\,GB,
+which fits. So at this batch size and length only one of the 36 layers can be full attention; a
+recurrent alternative for the other layers instead of windows frees about 0.55\,GB more per sequence.
 
-\paragraph{Exercise 8.8 (Bubbles).}
-For $p=8$ both schedules give $7/(m+7)$: $46.7\%$, $30.4\%$, $17.9\%$, $9.9\%$ for
-$m=8,16,32,64$. Peak in-flight micro-batches: GPipe $m$ on every stage; 1F1B $\min(8-s,m)$, i.e.\
-at most 8. With $v=2$ interleaving the bubble becomes $3.5/(m+3.5)$ (e.g.\ $9.9\%$ at $m=32$).
+\paragraph{Exercise 8.8} $\vect{q}^\top(\mat{W}^{UK}\vect{c})=(\mat{W}^{UK\top}\vect{q})^\top\vect{c}$ by
+associativity. During decode with $T$ cached tokens: reconstructing keys costs $T\cdot H\cdot128\cdot512$
+multiply-adds plus $T\cdot H\cdot128$ for the dots; absorption costs $H\cdot512\cdot128$ once plus $T\cdot H\cdot512$
+for the dots, about $128\times$ fewer for large $T$. In training every token is both a query and a key: keys are
+materialised once per token ($T\cdot H\cdot128\cdot512$), the same cost as absorbing queries, and attention over
+128-dimensional keys is cheaper than over 512-dimensional latents, so training uses the non-absorbed form.
 
-\paragraph{Exercise 8.9 (Causal load balance).}
-With contiguous chunks, device $i$'s queries attend to key blocks $0..i$: $i+1$ block pairs (the
-diagonal one half-masked), so device $c-1$ does $c$ times the work of device 0. Split the sequence
-into $2c$ chunks and give device $i$ chunks $i$ and $2c-1-i$: it computes $(i+1)+(2c-i)=2c+1$
-block pairs, the same for every device.
+\paragraph{Exercise 8.9} Two experts, top-1, capacity factor 1.0, two tokens per batch: capacity is one token per
+expert. Alone, token A routes to expert 1 and is processed. Add token B that also prefers expert 1 and comes
+first in the dispatch order (or has a higher router score, if priority routing is used): B takes the slot and A
+is dropped, so its MoE output becomes zero and its final output changes. Testing must therefore either use
+a dropless implementation, fix the batch composition, or compare outputs per request only under
+batch-invariant settings. Bitwise ``same input, same output'' tests across different batches will fail by
+design.
 
-\paragraph{Exercise 8.10 (Plan a 405B run).}
-One defensible plan (close to the layout Meta reported for Llama~3 405B at 8k context): TP $=8$
-(one node), PP $=16$ ($\approx8$ layers per stage, first/last stage lighter), CP $=1$, DP $=128$
-with ZeRO-1. Parameters per GPU $405\text{B}/128=3.2$B; ZeRO-1 states
-$(4+12/128)\cdot3.2\approx13$\,GB. Global batch 16M tokens $=2{,}048$ sequences, i.e.\ 16
-micro-batches per pipeline. Plain 1F1B would idle $15/31\approx48\%$, so use interleaving with
-$v=4$ virtual stages: $3.75/(16+3.75)\approx19\%$. Activations with FlashAttention and TP+SP:
-$8192\cdot16{,}384\cdot34/8\approx0.57$\,GB per layer per micro-batch; stage 0 can hold up to 16
-micro-batches $\times$ 8 layers, so selective or full recomputation is needed (full recompute:
-$\approx4$\,GB). DP traffic: each rank reduces a 6.4\,GB bf16 gradient shard over 128 replicas,
-$\approx0.26$\,s at 50\,GB/s, well hidden behind $\approx6$\,s of compute per step at 40\% MFU. The
-remaining inefficiency is the pipeline bubble, which is why larger batches or zero-bubble
-schedules are attractive at this scale.
+\paragraph{Exercise 8.10} Per sequence keep (i) a block table into the paged KV pool for each attention layer and
+(ii) an index into a pool of fixed-size state slots for the recurrent layers. (a) Prefix caching: when a
+prompt prefix is first computed, snapshot the recurrent states exactly at the prefix boundary into a prefix
+cache keyed by the prefix hash, alongside the refcounted KV blocks; a hit copies the state snapshot into a
+fresh slot. (b) Parallel sampling: share KV blocks with copy-on-write and copy the state slot 8 times. The copy
+is cheap and fixed-size, but it is a real copy, because recurrent states cannot be shared once the
+continuations diverge. (c) Preemption: swap both the KV blocks and the state slot to host memory. With
+recompute-based preemption, the recurrent layers must re-run the whole prefix, since there are no per-token
+states to keep.

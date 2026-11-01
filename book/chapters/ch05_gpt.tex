@@ -49,7 +49,7 @@ generate text with it, and finally account for every parameter, FLOP and byte.}
 \end{figure}
 
 % =====================================================================
-\section{Coding an LLM architecture}\label{sec:gpt:arch}\covers{LLM 4.1}
+\section{Coding an LLM architecture}\label{sec:gpt:arch}
 
 A GPT (\emph{generative pretrained transformer}) is a decoder-only transformer: a stack of
 identical blocks, each combining causal self-attention with a small per-token neural network,
@@ -193,7 +193,7 @@ $\vocab\approx\num{152000}$) compute the loss in \emph{chunks} of the sequence, 
 \end{napkinmath}
 
 % =====================================================================
-\section{Normalizing activations with layer normalization}\label{sec:gpt:ln}\covers{LLM 4.2}
+\section{Normalizing activations with layer normalization}\label{sec:gpt:ln}
 
 Deep networks are hard to train when the scale of the activations drifts from layer to layer:
 gradients either explode or shrink exponentially with depth, and the optimizer spends its
@@ -312,7 +312,7 @@ mean subtraction and the shift, is the default in modern LLMs (\cref{sec:modern:
 \end{deepdive}
 
 % =====================================================================
-\section{A feed-forward network with GELU activations}\label{sec:gpt:ffn}\covers{LLM 4.3}
+\section{A feed-forward network with GELU activations}\label{sec:gpt:ffn}
 
 Attention mixes information \emph{across} positions; the feed-forward network (FFN, also called
 the MLP) transforms each position \emph{independently}. It is a two-layer perceptron that first
@@ -459,7 +459,7 @@ are never very far from the memory wall.
 \end{napkinmath}
 
 % =====================================================================
-\section{Adding shortcut connections}\label{sec:gpt:shortcut}\covers{LLM 4.4}
+\section{Adding shortcut connections}\label{sec:gpt:shortcut}
 
 A deep stack of layers computes a composition $f_L\circ\cdots\circ f_1$, and by the chain rule
 the gradient reaching layer 1 is a product of $L$ Jacobians. If those Jacobians typically shrink
@@ -565,7 +565,7 @@ in today's models.
 \end{deepdive}
 
 % =====================================================================
-\section{Connecting attention and linear layers in a transformer block}\label{sec:gpt:block}\covers{LLM 4.5}
+\section{Connecting attention and linear layers in a transformer block}\label{sec:gpt:block}
 
 We now have every ingredient of the GPT-2 block (\cref{fig:gpt:block}): masked multi-head
 attention from \cref{ch:attention}, the FFN, two LayerNorms, two residual connections, and dropout
@@ -661,7 +661,7 @@ element). Counts are approximate for the elementwise rows.}
 \end{table}
 
 % =====================================================================
-\section{Coding the GPT model}\label{sec:gpt:model}\covers{LLM 4.6}
+\section{Coding the GPT model}\label{sec:gpt:model}
 
 With the block in hand, the full model is short. \Cref{lst:gpt:model} replaces the placeholders of
 the skeleton with real blocks and a real final LayerNorm. (The library version in
@@ -804,7 +804,7 @@ dropout rate to zero (\cref{ch:modern}).
 \end{deepdive}
 
 % =====================================================================
-\section{Generating text}\label{sec:gpt:generate}\covers{LLM 4.7}
+\section{Generating text}\label{sec:gpt:generate}
 
 The model outputs logits for every position, but to generate text we only need the last one: it
 scores every candidate for the token that follows the whole input. Generation is a loop

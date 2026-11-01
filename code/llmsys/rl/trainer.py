@@ -1,8 +1,8 @@
-"""A compact, configurable GRPO trainer (Chapters 17-18).
+"""A compact, configurable GRPO trainer (Chapters 27-28).
 
 One ``grpo_step`` = sample P prompts x G rollouts -> rewards -> group advantages ->
 old/ref log-probs (no grad) -> ``inner_epochs`` x ``minibatches`` gradient updates.
-Every knob discussed in Chapter 18 is a field of ``GRPOConfig`` so ablations are
+Every knob discussed in Chapter 28 is a field of ``GRPOConfig`` so ablations are
 one-line changes.
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ class GRPOConfig:
     eps_high: float = 0.2
     adv_scale: str = "std"            # std (GRPO) | none (Dr. GRPO)
     kl_coeff: float = 0.0
-    kl_kind: str = "k3"               # k1 | k2 | k3 | seq_simple (Ch. 17's sampled surrogate)
+    kl_kind: str = "k3"               # k1 | k2 | k3 | seq_simple (Ch. 27's sampled surrogate)
     kl_is_weighted: bool = False
     ref_update_every: int = 0         # 0 = frozen reference
     filter_zero_std: bool = False     # DAPO dynamic-sampling (filter variant)
@@ -206,7 +206,7 @@ class GRPOTrainer:
         else:
             raise ValueError(cfg.loss)
         if lp_ref is not None and cfg.kl_coeff > 0 and cfg.loss != "token_clip":
-            if cfg.kl_kind == "seq_simple":     # Chapter 17/18's sampled surrogate
+            if cfg.kl_kind == "seq_simple":     # Chapter 27/18's sampled surrogate
                 kl = ((lp_new - lp_ref) * mask).sum(-1).mean()
             else:
                 k = kl_estimate(lp_new, lp_ref, cfg.kl_kind)

@@ -1,11 +1,14 @@
 torch>=2.3
 numpy
 tiktoken
+regex
 tokenizers
 safetensors
 huggingface_hub
 sympy
 matplotlib
 pytest
+# optional (Chapter 7 listings):
+einops
 # optional, GPU only:
 # triton

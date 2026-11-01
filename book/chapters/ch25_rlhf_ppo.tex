@@ -1,0 +1,1319 @@
+\chapter{RLHF: Reward Models, Value Functions, and PPO}\label{ch:rlhf}
+
+Chapter~\ref{ch:pg} derived the policy gradient and the tools that tame its variance:
+baselines, advantages, importance ratios and clipping. This chapter puts those tools to work in
+the system that made chat models possible: \emph{reinforcement learning from human feedback}
+(RLHF) with Proximal Policy Optimization (PPO). Chapter~\ref{ch:grpo} met RLHF briefly as the
+ancestor of RLVR; here we build all of it. That means collecting preference data, training a reward model
+on it, adding a value model (the critic), shaping per-token rewards with a KL penalty,
+estimating advantages with GAE, and running the full PPO loop over four interacting networks.
+
+For a systems engineer, PPO-RLHF is the most demanding training workload in this book. One
+iteration generates text autoregressively, which is memory-bound and runs at small batch. It then
+runs prefill-style forward passes through four models, and finally performs several epochs of
+backward passes through two of them. All four models are as large as the policy or close to it.
+\Cref{sec:rlhf:system} works out where the memory and time go and how real frameworks place the
+models. The lab builds the complete system at toy scale and shows, on a laptop CPU, the
+two things every practitioner must see at least once: PPO raising a learned reward, and the policy
+\emph{over-optimising} it, so that the proxy reward keeps rising while true quality falls.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  st/.style={draw, rounded corners=3pt, align=center, font=\small, minimum height=11mm,
+    text width=25mm, line width=0.6pt},
+  num/.style={circle, fill=sysblue, text=white, font=\scriptsize\bfseries, inner sep=1.5pt},
+  >={Stealth[length=2.2mm]}]
+\node[st, fill=fdata!15] (s1) at (0,0) {Preference data\\{\scriptsize pairs, rankings}};
+\node[st, fill=napkin!18] (s2) at (3.3,0) {Reward model\\{\scriptsize BT loss, $r_\phi$}};
+\node[st, fill=fcompute!15] (s3) at (6.6,0) {Per-token rewards\\{\scriptsize score $-\beta\,$KL}};
+\node[st, fill=fcompute!15] (s4) at (9.9,0) {Value model + GAE\\{\scriptsize $V_\psi$, $\hat A_t$}};
+\node[st, fill=fcompute!25] (s5) at (13.2,0) {PPO update\\{\scriptsize clip, value loss}};
+\node[st, fill=fcomm!15] (s6) at (13.2,-2.1) {Diagnostics\\{\scriptsize KL, EV, over-opt.}};
+\node[st, fill=sysbluebg] (s7) at (9.9,-2.1) {Four-model system\\{\scriptsize memory, placement}};
+\node[st, fill=keygreen!12] (s8) at (6.6,-2.1) {RLAIF, agents,\\case studies};
+\foreach \n/\k in {s1/1,s2/2,s3/3,s4/4,s5/5,s6/6,s7/7,s8/8}
+  \node[num] at (\n.north west) {\k};
+\draw[->] (s1)--(s2); \draw[->] (s2)--(s3); \draw[->] (s3)--(s4); \draw[->] (s4)--(s5);
+\draw[->] (s5)--(s6); \draw[->] (s6)--(s7); \draw[->] (s7)--(s8);
+\draw[->, dashed, fcompute] (s5.north) -- ++(0,0.5) -| node[pos=0.25, above, font=\scriptsize]
+  {new rollouts from the updated policy} (s3.north);
+\end{tikzpicture}}
+\caption{Roadmap of the chapter. Stages 1--2 turn human judgements into a differentiable scorer;
+stages 3--5 form the PPO loop, which runs many times (dashed arrow); stages 6--8 are about
+making it work and making it fit on hardware.}
+\label{fig:rlhf:roadmap}
+\end{figure}
+
+\section{Why a third training stage?}\label{sec:rlhf:why}
+
+Pretraining (\cref{ch:pretrain}) produces a model of text, and supervised fine-tuning
+(\cref{ch:instruct}) imitates demonstrations of the behaviour we want. Imitation has two limits
+that a third stage removes.
+
+\begin{enumerate}
+  \item \textbf{Demonstrations are expensive and capped by the demonstrator.} Writing an excellent
+        answer is far harder than recognising one. This \emph{generator--verifier gap} is the
+        economic argument for RLHF: annotators compare two model outputs in seconds, but they
+        would need minutes to write a better one.
+  \item \textbf{SFT has no negative signal.} Maximum likelihood pushes probability \emph{up} on the
+        demonstrations and has no direct way to say ``never do \emph{this}''. A comparison
+        ``$A$ is better than $B$'' carries information about both responses.
+\end{enumerate}
+
+The RLHF stage therefore solves the KL-regularised problem
+\begin{equation}
+  \max_{\theta}\; \E_{x\sim\mathcal{D},\,y\sim\pitheta(\cdot\mid x)}
+  \big[r_\phi(x,y)\big] \;-\; \beta\,\E_{x}\,
+  \KL\!\big(\pitheta(\cdot\mid x)\,\big\|\,\piref(\cdot\mid x)\big),
+  \label{eq:rlhf:objective}
+\end{equation}
+where $r_\phi$ is a \emph{learned} reward model, $\piref$ is the SFT model, and $\beta$ sets
+how far the policy may wander from it. Each term in \cref{eq:rlhf:objective} is needed. Without
+the reward, nothing changes. Without the KL term, the policy finds inputs on which the learned
+reward is wrong and exploits them, a failure we will reproduce in \cref{sec:rlhf:overopt}.
+Chapter~\ref{ch:dpo} shows that the same objective admits a closed-form optimum, which leads to
+DPO. Here we optimise it the original way, with on-policy RL.
+
+\begin{keyidea}[The three-stage recipe]
+InstructGPT (Ouyang et al., 2022) set the template that most later chat models follow: \textbf{(1)}
+SFT on demonstrations, \textbf{(2)} a reward model trained on human comparisons of SFT outputs,
+\textbf{(3)} PPO against that reward model with a KL penalty to the SFT model. Later work varies
+every stage. DPO (\cref{ch:dpo}) skips the explicit reward model, RLVR (\cref{ch:grpo}) swaps it
+for a program, and GRPO drops the critic. All of them, however, keep the
+generate--score--update loop built in this chapter.
+\end{keyidea}
+
+\section{From classical RL to RLHF: the actor--critic view}\label{sec:rlhf:actorcritic}
+
+
+\Cref{ch:pg} introduced the mapping between RL and language modelling: the state is the prompt
+plus the tokens generated so far, an action is the next token, the environment's transition is
+deterministic concatenation, and an episode is one response. PPO adds one component that GRPO
+does not have, a learned \emph{critic}. RL algorithms fall into three families:
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXXl@{}}
+\toprule
+\textbf{Family} & \textbf{What is learned} & \textbf{How actions are chosen} & \textbf{LLM examples}\\
+\midrule
+Value-based & $Q(s,a)$ or $V(s)$ & $\argmax_a Q(s,a)$ & rare for LLMs (huge action space)\\
+Policy-based & $\pitheta(a\mid s)$ & sample from the policy & REINFORCE, GRPO, RLOO\\
+Actor--critic & policy \emph{and} $V_\psi(s)$ & sample; critic supplies the baseline & PPO\\
+\bottomrule
+\end{tabularx}
+\caption{Where PPO sits. DPO is policy-based but is not a policy-gradient method at all: it is a
+supervised loss on preference pairs.}
+\label{tab:rlhf:families}
+\end{table}
+
+In PPO the \textbf{actor} is the policy LLM and the \textbf{critic} is a second network
+$V_\psi(s_t)$ that predicts, for every prefix, the return the actor will eventually collect.
+Its job is to turn one noisy end-of-sequence reward into a per-token learning signal, the
+advantage $\hat A_t$: did choosing token $t$ make the outcome better or worse than expected?
+\Cref{tab:rlhf:mapping} lists what changes when classical PPO is moved onto text.
+
+\begin{table}[h]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+& \textbf{Classical PPO (e.g.\ robotics, games)} & \textbf{PPO in RLHF}\\
+\midrule
+Environment & physics simulator or game engine & string concatenation (deterministic)\\
+Episode & hundreds to millions of steps & one response, tens to thousands of tokens\\
+Reward & dense, from the environment & one scalar from $r_\phi$ at the last token, plus a per-token KL penalty\\
+Discount $\gamma$ & $0.99$ & usually $1$ (episodes are short and finite)\\
+Action space & small, or a low-dimensional continuous vector & vocabulary, $|V|\approx 10^5$\\
+Critic & small MLP & a full transformer, as large as the policy or nearly\\
+Reference policy & none & SFT model $\piref$ (frozen), anchors the KL term\\
+Cost of an episode & cheap to simulate & autoregressive decoding of a large model\\
+\bottomrule
+\end{tabularx}
+\caption{The same algorithm, a very different workload. The last two rows explain most of the
+systems difficulty of PPO-RLHF.}
+\label{tab:rlhf:mapping}
+\end{table}
+
+\section{Collecting preference data}\label{sec:rlhf:data}
+
+The reward model can only be as good as its data, and RLHF data collection is a craft of its own.
+
+\paragraph{The comparison format.} Annotators see a prompt and two or more responses sampled from
+the current model, typically at temperature near 1 so they differ, and choose the better one. Some setups
+collect a full ranking of $K$ responses (InstructGPT used $K$ between 4 and 9), a Likert-scale
+strength (``much better'', ``slightly better''), or separate judgements per axis (helpfulness,
+harmlessness, honesty). A ranking of $K$ responses yields $\binom{K}{2}$ pairwise comparisons for
+the cost of reading $K$ responses, which is why rankings were popular.
+
+\paragraph{Guidelines and agreement.} Labeling guidelines define what ``better'' means: following the
+instruction, truthfulness, avoiding harm, and so on. Even with good guidelines, independent
+annotators agree on only about three-quarters of comparisons in the published RLHF datasets.
+That agreement rate is a rough ceiling on the held-out accuracy any reward model can reach.
+
+\paragraph{Who labels matters.} The annotator pool's demographics, expertise and stylistic tastes
+shift the resulting model. A strong, well-documented effect is \emph{length}: both human
+and LLM judges prefer longer, more structured answers (bullet points, headings), and
+policies learn to exploit this. Expert annotation for maths, code and law is now a large
+industry. AI feedback (\cref{sec:rlhf:rlaif}) is the other answer to the cost and consistency problem.
+
+\paragraph{Practical data plumbing.} Store preference data as JSONL with one comparison per line and
+\emph{keep the provenance}: which model and which sampling settings produced each response, the annotator ID, and
+the time. Split train and validation \emph{by prompt}, never by pair, so the validation accuracy
+measures generalisation to new prompts. Collect comparisons on samples from the \emph{current}
+policy in rounds. A reward model trained only on SFT outputs is out of distribution for a
+policy that PPO has already moved, the shift behind the over-optimisation in
+\cref{sec:rlhf:overopt}.
+
+\begin{lstlisting}[style=plain,caption={One line of a preference dataset, with the metadata that later turns out to matter.},label={lst:rlhf:jsonl}]
+{"prompt_id": "p-01733", "prompt": [{"role": "user", "content": "..."}],
+ "chosen":   {"text": "...", "model": "sft-v3", "temperature": 1.0, "seed": 17},
+ "rejected": {"text": "...", "model": "sft-v3", "temperature": 1.0, "seed": 18},
+ "strength": "slightly_better", "axis": "helpfulness",
+ "annotator": "a-112", "round": 2, "split": "train"}
+\end{lstlisting}
+
+\section{Reward models}\label{sec:rlhf:rm}
+
+\subsection{The Bradley--Terry model as a latent-utility model}
+
+Suppose every response $y$ to prompt $x$ has a latent quality $r^\star(x,y)$, and an annotator
+perceives $r^\star + \epsilon$ with independent noise $\epsilon$. If the noise follows a Gumbel
+distribution, the difference of two noises is logistic, and the probability that the annotator
+prefers $y_w$ (``win'') over $y_l$ (``lose'') is
+\begin{equation}
+  \Pr[y_w \succ y_l \mid x] \;=\; \sigma\!\big(r^\star(x,y_w) - r^\star(x,y_l)\big),
+  \qquad \sigma(z)=\frac{1}{1+e^{-z}}.
+  \label{eq:rlhf:bt}
+\end{equation}
+This is the Bradley--Terry model from \cref{sec:eval:leaderboards}, with responses in place of
+chatbots. Fitting a parametric $r_\phi$ by maximum likelihood gives the reward-model loss
+\begin{equation}
+  \mathcal{L}_{\text{RM}}(\phi) = -\E_{(x,y_w,y_l)}\,\log\sigma\!\big(r_\phi(x,y_w)-r_\phi(x,y_l)\big).
+  \label{eq:rlhf:rmloss}
+\end{equation}
+Two properties follow directly. First, the loss depends only on \emph{differences}, so
+$r_\phi$ is defined up to a per-prompt constant and the reward has no natural zero. Second, the
+gradient with respect to the margin $\Delta = r_w - r_l$ is $-(1-\sigma(\Delta))$, so pairs the
+model already ranks confidently stop contributing, which is the same self-weighting we will
+see in DPO.
+
+\paragraph{Margins and ties.} When annotators report \emph{how much} better, a margin
+$m\ge 0$ can be subtracted inside the sigmoid, $-\log\sigma(r_w-r_l-m)$, so ``much better'' pairs
+must be separated by more. Llama~2 (Touvron et al., 2023) trained its reward models this way.
+Ties can be dropped, or modelled with a symmetric loss that pulls the two scores together.
+
+\paragraph{$K$-way rankings.} With $K$ ranked responses per prompt, form all $\binom{K}{2}$ pairs.
+InstructGPT's important engineering detail: put all pairs from one prompt \emph{in the same batch
+element} and average the loss over the pairs of that prompt. If the pairs are shuffled into the
+dataset independently, each response appears in $K-1$ separate gradient steps within an epoch and
+the reward model overfits after one epoch. Grouping also saves compute: the $K$ responses each go
+through one forward pass, not $K-1$.
+
+\begin{lstlisting}[caption={Bradley--Terry and the grouped $K$-way ranking loss (\ident{llmsys/rlhf/losses.py}).},label={lst:rlhf:btloss}]
+def bt_loss(r_chosen, r_rejected, margin=None):
+    diff = r_chosen - r_rejected
+    if margin is not None:
+        diff = diff - margin
+    return -F.logsigmoid(diff).mean()
+
+def ranking_loss(scores, ranks):          # scores, ranks: (P, K); rank 0 = best
+    P, K = scores.shape
+    losses = []
+    for i, j in itertools.combinations(range(K), 2):
+        better_i = (ranks[:, i] < ranks[:, j]).float()
+        diff = scores[:, i] - scores[:, j]
+        oriented = better_i * diff + (1 - better_i) * (-diff)
+        losses.append(-F.logsigmoid(oriented))
+    # average within each prompt, then across prompts
+    return torch.stack(losses, dim=1).mean()
+\end{lstlisting}
+
+\subsection{Architecture: a language model with a scalar head}
+
+A reward model is the policy architecture with the vocabulary projection
+$\R^{d}\to\R^{|V|}$ replaced by a scalar projection $\R^{d}\to\R$. The prompt and response are
+concatenated and run through the trunk, and the hidden state of the \emph{last real token}
+(normally the end-of-sequence token) is projected to a score. Because the model is causal, the
+last position is the only one that has seen the whole response. Starting from the SFT model is
+standard: the trunk already ``reads'' the domain, and the head is the only fresh layer.
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[tok/.style={draw, minimum width=7mm, minimum height=6mm, font=\scriptsize},
+  >={Stealth[length=2mm]}]
+\def\row#1#2#3#4{% y, label, n_resp, fill
+  \node[font=\scriptsize, anchor=east] at (-0.5,#1) {#2};
+  \foreach \i in {0,...,3} \node[tok, fill=fdata!18] at (0.75*\i,#1) {$x_{\i}$};
+  \foreach \i in {1,...,#3} \node[tok, fill=#4] at (3+0.75*\i-0.75,#1) {$y_{\i}$};
+}
+\row{0}{chosen $y_w$}{5}{keygreen!18}
+\node[tok, fill=keygreen!45] at (3+0.75*5,0) {\textsc{eos}};
+\node[tok, fill=black!8] at (3+0.75*6,0) {pad};
+\row{-0.9}{rejected $y_l$}{3}{warnred!15}
+\node[tok, fill=warnred!40] at (3+0.75*3,-0.9) {\textsc{eos}};
+\foreach \k in {4,5,6} \node[tok, fill=black!8] at (3+0.75*\k,-0.9) {pad};
+\node[font=\scriptsize, text width=82mm, align=left, anchor=north west] at (-0.4,-1.4)
+  {Rows $1..B$ hold the chosen responses and rows $B{+}1..2B$ the rejected ones, so a pair shares one
+   batch. The score is read at each row's own last real token (gather by length).};
+\node[draw, rounded corners, fill=fcompute!15, minimum width=34mm, minimum height=17mm,
+  align=center, font=\small] (trunk) at (10.6,-0.45) {transformer trunk\\(SFT weights)\\[2pt]
+  {\scriptsize one forward over $2B$ rows}};
+\draw[->] (8.1,-0.45) -- (trunk.west);
+\node[draw, rounded corners, fill=napkin!20, font=\small] (h1) at (14.2,0) {$\mathbf{w}^\top h_{\textsc{eos}}$};
+\node[draw, rounded corners, fill=napkin!20, font=\small] (h2) at (14.2,-0.9) {$\mathbf{w}^\top h_{\textsc{eos}}$};
+\draw[->] (trunk.east |- h1) -- (h1); \draw[->] (trunk.east |- h2) -- (h2);
+\node[font=\small] (rw) at (15.9,0) {$r_w$}; \node[font=\small] (rl) at (15.9,-0.9) {$r_l$};
+\draw[->] (h1)--(rw); \draw[->] (h2)--(rl);
+\node[draw, rounded corners, fill=white, font=\small] (loss) at (18.4,-0.45) {$-\log\sigma(r_w-r_l)$};
+\draw[->] (rw) -- (loss.north west); \draw[->] (rl) -- (loss.south west);
+\end{tikzpicture}}
+\caption{Reward-model training. The chosen and rejected responses of a pair are stacked into one
+right-padded batch. The trunk runs once, the scalar head reads each row at its own
+\textsc{eos} position, and the BT loss compares the two scores.}
+\label{fig:rlhf:rmbatch}
+\end{figure}
+
+\begin{lstlisting}[caption={A reward model and a value model share one trunk class; they differ only in which positions they read (\ident{llmsys/rlhf/models.py}).},label={lst:rlhf:models}]
+def trunk_hidden(model, ids, pad_mask=None):          # Qwen3 trunk, no LM head
+    x = model.tok_emb(ids)
+    for blk in model.trf_blocks:
+        x = blk(x, model.cos, model.sin, pad_mask=pad_mask)
+    return model.final_norm(x)
+
+class RewardModel(ScalarHeadModel):
+    def forward(self, ids, lengths):                     # -> (B,)
+        h = self.hidden(ids)
+        last = (lengths - 1).clamp(min=0)
+        return self.head(h[torch.arange(ids.shape[0]), last]).squeeze(-1)
+
+class ValueModel(ScalarHeadModel):
+    def forward(self, ids):                       # -> (B, T): V(s_t) per prefix
+        return self.head(self.hidden(ids)).squeeze(-1)
+\end{lstlisting}
+
+\begin{pitfall}[Where the score is read]
+Right padding plus ``take position $-1$'' reads a \emph{pad} token for every row except the longest.
+The model then learns a function of padding length, and its accuracy can look fine on a
+validation set with the same length distribution. Always gather by length (or by the \textsc{eos}
+index). With left padding, take position $-1$, but then the absolute positions differ from those
+at generation time unless RoPE is used (\cref{sec:serving:masks}). Test it: shuffle the padding
+amount and check that the scores do not change.
+\end{pitfall}
+
+\subsection{How big, how long, how good?}
+
+\paragraph{Size.} InstructGPT used a 6B reward model for a 175B policy and reported that a 175B
+reward model was less stable to train. Later pipelines more often use a reward model of the
+policy's size or larger. The trade-off is systems-shaped: a larger reward model is a better judge, but it costs
+a full forward pass over every rollout in every PPO iteration.
+
+\paragraph{Epochs.} Reward models overfit quickly. One epoch over the comparisons is common, and
+validation accuracy should be tracked every few hundred steps.
+
+\paragraph{Normalisation.} Because BT fixes $r_\phi$ only up to a constant, many pipelines shift
+the reward so that a reference set (for example SFT samples) scores zero on average, and some also
+scale it to unit variance. This makes the KL coefficient $\beta$ transferable between reward models.
+
+\paragraph{Evaluation.} The primary metric is \emph{pairwise accuracy} on held-out prompts. For
+human-labelled data it is typically in the mid-60s to low-70s, close to inter-annotator agreement.
+Check accuracy separately for each data source, response-length bucket and topic, because averages hide the
+slices the policy will exploit. Benchmarks such as RewardBench (Lambert et al., 2024) compare reward models
+on curated pairs. The real test is whether optimising against the reward model improves what you
+care about, and only a downstream evaluation (\cref{ch:eval}) answers that.
+
+\paragraph{Outcome versus process rewards.} The reward models here are \emph{outcome} reward models
+(ORMs): one score for the whole response. A \emph{process} reward model (PRM) scores each step of a
+reasoning chain (Lightman et al., 2023). That provides denser credit assignment, but step labels are costly
+to collect. \Cref{ch:refine} used a PRM as a verifier at inference time. In PPO, a PRM's
+per-step scores simply become additional per-token rewards in the shaped reward of
+\cref{sec:rlhf:kl}.
+
+\begin{systemslens}[Reward-model inference is pure prefill]
+At PPO time the reward model never generates. It runs one prefill per response and reads one
+position. That makes it compute-bound and easy to batch: sort rollouts by length to reduce
+padding, run with large batches, and cache nothing. If the reward model and the policy share a
+tokenizer and chat template, the policy's token IDs can be fed straight in. If not (a
+different model family), every response must be detokenised and re-tokenised, a CPU cost that
+belongs in the profile. Some systems serve the reward model as a separate service (for example a vLLM
+instance in scoring mode) so it can scale independently of the trainer (\cref{sec:rlsys:reward}).
+\end{systemslens}
+
+\begin{lstlisting}[caption={Training the reward model on stacked pairs (\ident{llmsys/rlhf/ppo.py}, abridged).},label={lst:rlhf:rmtrain}]
+def train_reward_model(rm, pairs, pad_id, epochs=3, batch_size=32, lr=1e-3, ...):
+    opt = torch.optim.AdamW(rm.parameters(), lr=lr, weight_decay=0.0)
+    for ep in range(epochs):
+        rng.shuffle(pairs)
+        for i in range(0, len(pairs), batch_size):
+            batch = pairs[i: i + batch_size]
+            ids, lens = pad_pairs(batch, pad_id)   # (2B, T)
+            r = rm(ids, lens)
+            n = len(batch)
+            loss = loss_fn(r[:n], r[n:])                 # Bradley-Terry
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(rm.parameters(), 1.0)
+            opt.step()
+\end{lstlisting}
+
+\section{Per-token rewards and the KL penalty}\label{sec:rlhf:kl}
+
+The reward model emits one number per response, but PPO assigns credit per token. RLHF bridges the two by
+\emph{shaping} the reward: every generated token pays a KL toll, and the final token also collects the
+reward-model score,
+\begin{equation}
+  r_t \;=\; -\beta\,\underbrace{\log\frac{\piold(y_t\mid s_t)}{\piref(y_t\mid s_t)}}_{\text{KL}_t\ (k_1\text{ estimator})}
+  \;+\; \mathbb{1}[t = T]\; r_\phi(x, y),
+  \qquad t = 1,\dots,T.
+  \label{eq:rlhf:shaped}
+\end{equation}
+Summed over the response, the KL tolls are an unbiased single-sample estimate of
+$\beta\,\KL(\piold\,\|\,\piref)$ for that prompt, so maximising $\sum_t r_t$ maximises the
+objective~\eqref{eq:rlhf:objective}. The log-probabilities are those of the
+policy \emph{at rollout time} ($\piold$); they are constants during the update.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1, horizontal sep=1.6cm},
+  width=0.5\linewidth, height=4.6cm, xlabel={response token $t$},
+  symbolic x coords={1,2,3,4,5,6,7}, xtick=data, axis lines*=left, enlarge x limits=0.08,
+  tick label style={font=\scriptsize}, label style={font=\small}, title style={font=\small}]
+\nextgroupplot[ybar, bar width=8pt, title={KL toll $-\beta\,\mathrm{KL}_t$ (every token)}, ymin=-0.14, ymax=0.04,
+  ylabel={reward}, yticklabel style={/pgf/number format/fixed}]
+\addplot[fill=warnred!45, draw=warnred] coordinates {(1,-0.02) (2,-0.06) (3,0.01) (4,-0.12) (5,-0.03) (6,-0.05) (7,-0.04)};
+\nextgroupplot[ybar, bar width=8pt, title={total $r_t$ (score added at \textsc{eos})}, ymin=-0.2, ymax=2.2]
+\addplot[fill=napkin!55, draw=napkin] coordinates {(1,-0.02) (2,-0.06) (3,0.01) (4,-0.12) (5,-0.03) (6,-0.05) (7,1.96)};
+\end{groupplot}
+\end{tikzpicture}
+\caption{The shaped reward of one response (illustrative values, $\beta=0.1$, reward-model
+score $2.0$). The KL toll (left, note the scale) is paid token by token and can be slightly positive where the policy is \emph{less} confident than
+the reference; the reward-model score arrives only at the end-of-sequence token. GAE spreads that
+terminal reward back over the response.}
+\label{fig:rlhf:shaped}
+\end{figure}
+
+\paragraph{KL in the reward or in the loss?} PPO-RLHF puts the KL penalty \emph{inside the reward},
+so it flows through the critic and GAE like any other reward and is subject to clipping. GRPO
+(\cref{sec:grpo2:kl}) instead adds an explicit $\beta\,\widehat{\KL}$ term to the
+\emph{loss}, usually with the non-negative $k_3$ estimator, because it has no critic to carry a per-token reward.
+The two are not equivalent. In the reward, the penalty's gradient is a policy-gradient estimate of
+$\nabla\KL$; in the loss, it is the gradient of the estimator, which is unbiased for $\nabla\KL$
+only for particular estimator choices (\cref{ch:grpo2} discusses this subtlety). Our code
+implements the $k_1$, $k_2$ and $k_3$ estimators so you can compare them in the lab.
+
+\paragraph{Choosing $\beta$: fixed or adaptive.} With a fixed $\beta$, the KL the policy ends up
+spending depends on how exploitable the reward model is. Ziegler et al.\ (2019) introduced an
+\emph{adaptive} controller that targets a KL budget:
+\begin{equation}
+  \beta \leftarrow \beta\Big(1 + \operatorname{clip}\big(\tfrac{\mathrm{KL}-\mathrm{KL}_{\text{target}}}{\mathrm{KL}_{\text{target}}},
+  -0.2,\,0.2\big)\cdot \tfrac{n}{H}\Big),
+\end{equation}
+where $n$ is the number of samples since the last update and $H$ is a horizon. This is a
+proportional controller with a bounded gain: if the policy overspends, $\beta$ rises, and if it
+underspends, $\beta$ falls. Targeting KL makes runs comparable across reward models with
+different scales.
+
+\paragraph{Missing \textsc{eos}.} A response truncated at the length limit has no well-defined
+score, because the reward model was trained on complete responses. Common practice is to replace its
+score with a fixed penalty, which also teaches the policy to finish. Our trainer does this with
+\code{missing\_eos\_score}.
+
+\begin{lstlisting}[caption={KL estimators and the shaped reward (\ident{llmsys/rlhf/losses.py}).},label={lst:rlhf:shaped}]
+def kl_per_token(logp, logp_ref, kind="k1"):
+    log_ratio = logp - logp_ref                # log(pi/pi_ref), sampled token
+    if kind == "k1": return log_ratio                 # unbiased, can be negative
+    if kind == "k2": return 0.5 * log_ratio ** 2      # biased, low variance
+    if kind == "k3": return torch.expm1(-log_ratio) + log_ratio   # unbiased, >= 0
+
+def kl_shaped_rewards(score, logp, logp_ref, mask, beta, kind="k1"):
+    kl = kl_per_token(logp, logp_ref, kind) * mask
+    rewards = -beta * kl
+    last = (mask.sum(1).long() - 1).clamp(min=0)   # each row's final token
+    rewards = rewards.clone()
+    rewards[torch.arange(rewards.shape[0]), last] += score
+    return rewards * mask, kl
+\end{lstlisting}
+
+\section{The value model}\label{sec:rlhf:value}
+
+\paragraph{What it predicts.} $V_\psi(s_t)$ estimates the expected shaped return from state
+$s_t = (x, y_{<t})$ onwards, $\E\big[\sum_{k\ge t} r_k\big]$ under the current policy. With
+$\gamma=1$ and a terminal-only score, that is ``the score this response will end up with,
+minus the KL still to be paid, judged from a prefix''. The value at the prompt's last token is
+a per-prompt baseline: some prompts are easy to score well on and some are not. Values at later
+tokens let the critic say \emph{which} tokens moved the expected outcome.
+
+\paragraph{Where it reads.} Column $t$ of the value model's output values the state that
+\emph{precedes} response token $t$. For a prompt of length $P$, the values aligned with response
+tokens are therefore at positions $P-1,\dots,P+T-2$, exactly the same slice as the logits that
+produce those tokens. Getting this off by one is the classic critic bug: the critic then sees the
+token whose value it is predicting.
+
+\paragraph{Initialisation and architecture.} InstructGPT initialised the value model from the
+\emph{reward model}, which already maps text to a score. Other implementations start from the
+SFT policy and add a fresh head. A separate network doubles the trained memory
+(\cref{sec:rlhf:system}). Sharing the policy's trunk with a second head halves it, but couples
+two losses with very different scales on one set of weights, which can destabilise both. Most
+large-scale systems keep them separate. A common trick is a short \emph{critic warm-up}: train
+only the value model for the first few iterations, so the first policy updates do not use
+garbage advantages.
+
+\paragraph{Its loss.} The value model regresses onto the GAE returns of the next section, with
+PPO2-style clipping that forbids moving more than $\epsilon_v$ away from the rollout-time
+prediction in one update:
+\begin{equation}
+  \mathcal{L}_V(\psi) = \tfrac12\,\E_t\Big[\max\big((V_\psi(s_t)-\hat R_t)^2,\;
+   (V^{\text{old}}_t + \clip(V_\psi(s_t)-V^{\text{old}}_t,-\epsilon_v,\epsilon_v)-\hat R_t)^2\big)\Big].
+  \label{eq:rlhf:vloss}
+\end{equation}
+Value clipping is controversial: it was introduced as an implementation detail and some studies
+find it neutral or harmful. Keep it configurable (\code{vf\_clip=None} disables it).
+
+\paragraph{Degenerate cases worth knowing.} If $\lambda=1$ and $\gamma=1$, GAE ignores the critic
+except as a baseline at each token, so a bad critic only adds variance, not bias. If $\lambda=0$, the
+advantage is the one-step TD error $\delta_t$, which relies entirely on the critic, so a bad critic
+gives biased advantages. If the critic predicts a constant, PPO degenerates to REINFORCE with a
+constant baseline. Measure the critic with \textbf{explained variance},
+$1-\mathrm{Var}[\hat R-V]/\mathrm{Var}[\hat R]$: near 0 means the critic is useless, and negative means it
+is actively harmful.
+
+\section{Generalised advantage estimation}\label{sec:rlhf:gae}
+
+Given per-token rewards and values, how much credit should token $t$ get? Define the TD residual
+\begin{equation}
+  \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t), \qquad V(s_{T+1}) := 0 \text{ (terminal)}.
+\end{equation}
+$\delta_t$ is a one-step advantage estimate: what happened at step $t$, plus what the critic now
+expects, minus what it expected before. Summing $k$ residuals gives the $k$-step estimate
+$\hat A^{(k)}_t = \sum_{l=0}^{k-1}\gamma^l\delta_{t+l}$, which telescopes to
+$\sum_{l<k}\gamma^l r_{t+l} + \gamma^k V(s_{t+k}) - V(s_t)$. Small $k$ trusts the critic (low
+variance, biased if the critic is wrong); large $k$ trusts the sampled rewards (unbiased, high
+variance). GAE (Schulman et al., 2016) averages all $k$ with geometric weights $(1-\lambda)\lambda^{k-1}$,
+which collapses to a simple recursion:
+\begin{equation}
+  \hat A_t \;=\; \sum_{l\ge0} (\gamma\lambda)^l\,\delta_{t+l}
+  \;=\; \delta_t + \gamma\lambda\,\hat A_{t+1},
+  \qquad \hat R_t = \hat A_t + V(s_t).
+  \label{eq:rlhf:gae}
+\end{equation}
+The returns $\hat R_t$ are the value model's regression targets. $\lambda=0$ gives the TD error, and
+$\lambda=1$ gives the Monte Carlo return minus the baseline. For LLMs $\gamma=1$ and
+$\lambda\in[0.9,1]$ are typical.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+token $t$ & 1 & 2 & 3 & 4 (\textsc{eos})\\
+\midrule
+$\mathrm{KL}_t=\log\piold-\log\piref$ & $0.20$ & $0.00$ & $-0.50$ & $0.10$\\
+$r_t$ ($\beta=0.1$, score $2.0$) & $-0.02$ & $0.00$ & $0.05$ & $1.99$\\
+$V(s_t)$ & $0.50$ & $0.80$ & $1.20$ & $1.60$\\
+$\delta_t$ & $0.28$ & $0.40$ & $0.45$ & $0.39$\\
+\midrule
+$\hat A_t$, $\lambda=0$ & $0.28$ & $0.40$ & $0.45$ & $0.39$\\
+$\hat A_t$, $\lambda=0.95$ & $1.40$ & $1.18$ & $0.82$ & $0.39$\\
+$\hat A_t$, $\lambda=1$ & $1.52$ & $1.24$ & $0.84$ & $0.39$\\
+$\hat R_t$, $\lambda=0.95$ & $1.90$ & $1.98$ & $2.02$ & $1.99$\\
+\bottomrule
+\end{tabular}
+\caption{GAE on a four-token response ($\gamma=1$), computed with \code{gae()}. With $\lambda=1$ the
+first token's advantage is the total reward minus the first value, $2.02-0.50$. With $\lambda=0$
+every token sees only its own TD error.}
+\label{tab:rlhf:gae}
+\end{table}
+
+\begin{figure}[ht]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[tok/.style={draw, rounded corners=2pt, minimum width=13mm, minimum height=8mm,
+  font=\small, fill=fcompute!12}, >={Stealth[length=2mm]}]
+\foreach \i/\lbl in {0/$y_1$,1/$y_2$,2/$y_3$,3/$y_4$,4/\textsc{eos}}
+  \node[tok] (t\i) at (2.2*\i,0) {\lbl};
+\foreach \i in {0,...,4} \node[font=\scriptsize] at (2.2*\i,-0.75) {$\delta_{\the\numexpr\i+1\relax}$};
+\node[draw, rounded corners, fill=napkin!25, font=\small] (rm) at (11.6,0) {$r_\phi$};
+\draw[->] (rm) -- (t4);
+\foreach \i in {4,3,2,1} {
+  \pgfmathtruncatemacro{\j}{\i-1}
+  \draw[->, thick, fcompute] (t\i.north) to[out=140, in=40]
+    node[above, font=\scriptsize] {$\times\gamma\lambda$} (t\j.north);
+}
+\end{tikzpicture}}
+\caption{GAE as a backward scan, $\hat A_t=\delta_t+\gamma\lambda\hat A_{t+1}$: one right-to-left
+pass per response, with padding masked so the recursion stops at each row's own \textsc{eos}.
+Each token's advantage is its own TD residual plus a discounted copy of its successor's advantage, so the terminal reward-model score flows backwards, attenuated by
+$\gamma\lambda$ per step and corrected by the critic's predictions along the way.}
+\label{fig:rlhf:gae}
+\end{figure}
+
+\begin{lstlisting}[caption={GAE over right-padded responses (\ident{llmsys/rlhf/losses.py}).},label={lst:rlhf:gae}]
+def gae(rewards, values, mask, gamma=1.0, lam=0.95):
+    B, T = rewards.shape
+    adv = torch.zeros_like(rewards)
+    last_gae = torch.zeros(B)
+    for t in reversed(range(T)):
+        nv = values[:, t + 1] * mask[:, t + 1] if t + 1 < T else torch.zeros(B)
+        delta = rewards[:, t] + gamma * nv - values[:, t]
+        carry = mask[:, t + 1] if t + 1 < T else 0.0   # stop after final token
+        last_gae = (delta + gamma * lam * last_gae * carry) * mask[:, t]
+        adv[:, t] = last_gae
+    return adv * mask, (adv + values) * mask             # advantages, returns
+\end{lstlisting}
+
+\begin{systemslens}[GAE is cheap, but sequential]
+GAE is $O(BT)$ arithmetic, negligible next to the forward passes, but the scan over $t$ is
+sequential. In PyTorch a Python loop over $T$ launches a few kernels per step: fine for $T$ in the
+hundreds, noticeable for 16k-token reasoning traces on a GPU. Options: run it on the CPU in NumPy (the
+tensors are small), write the scan as a reversed cumulative sum when $\gamma\lambda$ is constant and
+there is no masking inside a row, or fuse it into one Triton kernel with one program per row
+(\cref{app:triton}). Whiten advantages \emph{across the whole batch} (masked mean and variance over
+all real tokens), not per sequence: per-sequence whitening removes the signal that one response was
+better than another.
+\end{systemslens}
+
+\section{The PPO objective for RLHF}\label{sec:rlhf:ppo}
+
+With advantages in hand, the policy update is the clipped surrogate from \cref{ch:pg} and
+\cref{sec:grpo2:clip}, applied per token:
+\begin{equation}
+  \mathcal{L}_\pi(\theta) = -\,\E_t\Big[\min\big(\rho_t\hat A_t,\;
+     \clip(\rho_t, 1-\epsilon, 1+\epsilon)\hat A_t\big)\Big],
+  \qquad \rho_t = \frac{\pitheta(y_t\mid s_t)}{\piold(y_t\mid s_t)}.
+  \label{eq:rlhf:clip}
+\end{equation}
+The expectation is a masked mean over all real response tokens in the minibatch. The full PPO
+objective adds the critic and an optional entropy bonus:
+\begin{equation}
+  \mathcal{L}(\theta,\psi) = \mathcal{L}_\pi(\theta) + c_v\,\mathcal{L}_V(\psi) - c_H\,\E_t\big[H(\pitheta(\cdot\mid s_t))\big]
+  \;\big[\, + \gamma_{\text{ptx}}\,\mathcal{L}_{\text{LM}}(\theta)\,\big].
+  \label{eq:rlhf:total}
+\end{equation}
+When actor and critic are separate networks with separate optimisers, as in our trainer, $c_v$
+only matters if they share parameters. The entropy bonus is usually zero for LLMs, because the KL
+penalty already keeps the policy from collapsing.
+
+\paragraph{PPO-Clip versus PPO-Penalty.} The original PPO paper offered two ways to keep the new policy near
+the old one: clip the ratio, or penalise $\KL(\piold\|\pitheta)$ with an adaptive coefficient. The
+clipped version won in practice and is what ``PPO'' means today. Do not confuse it with the
+KL-to-\emph{reference} penalty of RLHF. PPO-RLHF uses \emph{both} a trust region (clipping,
+relative to $\piold$, which changes every iteration) and an anchor (KL in the reward, relative to
+$\piref$, which never changes).
+
+\paragraph{PPO-ptx.} InstructGPT observed an \emph{alignment tax}: RLHF lowered performance on some
+public NLP benchmarks. Their fix mixes a pretraining language-modelling loss into every PPO update
+(the bracketed term in \cref{eq:rlhf:total}), so the policy keeps its general capabilities. The cost is an extra
+forward and backward pass on a pretraining batch per minibatch. Our trainer exposes it as
+\code{ptx\_coef} with a pluggable batch function.
+
+\begin{lstlisting}[caption={Clipped policy loss and clipped value loss (\ident{llmsys/rlhf/losses.py}).},label={lst:rlhf:losses}]
+def ppo_policy_loss(logp, logp_old, adv, mask, clip=0.2):
+    log_ratio = (logp - logp_old) * mask
+    ratio = torch.exp(log_ratio)
+    clipped = torch.clamp(ratio, 1 - clip, 1 + clip)
+    surr = torch.minimum(ratio * adv, clipped * adv)
+    loss = masked_mean(-surr, mask)
+    outside = ((ratio - 1).abs() > clip).float()
+    stats = {"clipfrac": float(masked_mean(outside, mask)),
+             "approx_kl": float(masked_mean(0.5 * log_ratio ** 2, mask))}
+    return loss, stats
+
+def value_loss(values, values_old, returns, mask, clip=0.2):
+    err = (values - returns) ** 2
+    if clip is not None:
+        v_clip = values_old + torch.clamp(values - values_old, -clip, clip)
+        err = torch.maximum(err, (v_clip - returns) ** 2)
+    return 0.5 * masked_mean(err, mask)
+\end{lstlisting}
+
+\begin{pitfall}[Token mean, sequence mean, and length]
+\code{masked\_mean} over all tokens of a minibatch weights long responses more than short ones,
+since they contribute more terms. A per-sequence mean followed by a batch mean does the opposite.
+Neither is ``correct''. The choice changes the effective objective, and with it the length
+dynamics (\cref{sec:grpo2:more} catalogues the variants and \cref{ch:pg} derives the bias).
+Pick one deliberately, log the mean response length, and keep the choice fixed when comparing
+runs.
+\end{pitfall}
+
+\section{The PPO-RLHF loop}\label{sec:rlhf:loop}
+
+We now have every component. One PPO iteration has three phases and two nested loops: an outer
+loop that collects fresh rollouts, and an inner loop that makes several optimisation passes over them.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lccXX@{}}
+\toprule
+\textbf{Model} & \textbf{Trained?} & \textbf{Initialised from} & \textbf{Input $\to$ output} & \textbf{Role}\\
+\midrule
+Policy $\pitheta$ & yes & SFT model & prefix $\to$ next-token distribution & generates rollouts; the model we ship\\
+Reference $\piref$ & no & SFT model & prefix $\to$ log-prob of the sampled token & anchors the policy through the KL toll\\
+Reward $r_\phi$ & no (here) & SFT trunk + scalar head & (prompt, response) $\to$ one scalar & stands in for the human judge\\
+Value $V_\psi$ & yes & reward model or SFT trunk & every prefix $\to$ one scalar & per-token baseline for GAE\\
+\bottomrule
+\end{tabularx}
+\caption{The four models of PPO-RLHF. Only two are trained, but all four run a forward pass on every
+rollout, and the policy additionally generates them.}
+\label{tab:rlhf:roles}
+\end{table}
+
+\begin{lstlisting}[style=plain,caption={One PPO-RLHF iteration in pseudocode.},label={lst:rlhf:pseudo}]
+repeat for iteration = 1, 2, ...:
+  # Phase 1: rollout (policy in inference mode, KV cache)
+  sample B prompts x;  y ~ pi_theta(. | x)       -> responses, mask, has_eos
+  # Phase 2: score (four forward passes, no gradients)
+  logp_old = log pi_theta(y_t | s_t) logp_ref = log pi_ref(y_t | s_t)
+  V_old    = V_psi(s_t)              score    = r_phi(x, y)  (penalty if no eos)
+  r_t      = -beta * (logp_old - logp_ref) + [t = T] * score
+  A_t, R_t = GAE(r, V_old; gamma, lambda);  A_t = whiten(A_t over the batch)
+  # Phase 3: learn (ppo_epochs passes, shuffled minibatches)
+  for epoch in 1..E:  for minibatch in shuffle(B) / M:
+      L_pi = clipped surrogate(logp_new / logp_old, A)   -> step actor
+      L_V  = clipped value loss(V_new, V_old, R)         -> step critic
+  update beta with the KL controller
+\end{lstlisting}
+
+Three subtleties trip up first implementations:
+
+\begin{itemize}
+  \item \textbf{``Old'' means rollout-time.} \code{logp\_old} and \code{V\_old} are computed once in
+        phase 2 and frozen. During phase 3 the ratio starts at exactly 1 on the first minibatch,
+        and drifts as the epochs proceed; clipping only becomes active after the first update.
+        Recomputing \code{logp\_old} every epoch silently turns PPO into a sequence of tiny
+        on-policy steps without a trust region.
+  \item \textbf{Sampling and scoring must agree.} The log-probabilities used in the ratio must be those
+        of the distribution you \emph{sampled from}. If generation used temperature $\tau$ or top-$p$,
+        either score with the same transformation or accept an off-policy bias. In large systems the
+        rollout engine and the trainer compute slightly different numbers even with identical settings,
+        which is the train/inference mismatch of \cref{sec:rlsys:mismatch}.
+  \item \textbf{Frozen means frozen.} The reference and reward models must never receive gradients, never
+        be put in train mode (dropout), and never be updated by an optimizer that was built over all
+        parameters. Freeze them explicitly and assert it.
+\end{itemize}
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  ph/.style={draw, rounded corners=2pt, minimum height=8mm, font=\scriptsize, align=center},
+  >={Stealth[length=2mm]}]
+\node[font=\scriptsize\bfseries, anchor=east] at (-0.2,1.6) {policy $\pi_\theta$};
+\node[font=\scriptsize\bfseries, anchor=east] at (-0.2,0.8) {reference $\pi_{\text{ref}}$};
+\node[font=\scriptsize\bfseries, anchor=east] at (-0.2,0.0) {reward $r_\phi$};
+\node[font=\scriptsize\bfseries, anchor=east] at (-0.2,-0.8) {value $V_\psi$};
+% rollout
+\node[ph, fill=fmemory!30, minimum width=50mm, anchor=west] at (0,1.6) {generate (decode, memory-bound)};
+% score
+\node[ph, fill=fcompute!20, minimum width=11mm, anchor=west] at (5.1,1.6) {fwd};
+\node[ph, fill=fcompute!20, minimum width=11mm, anchor=west] at (5.1,0.8) {fwd};
+\node[ph, fill=fcompute!20, minimum width=11mm, anchor=west] at (5.1,0.0) {fwd};
+\node[ph, fill=fcompute!20, minimum width=11mm, anchor=west] at (5.1,-0.8) {fwd};
+\node[ph, fill=white, minimum width=10mm, anchor=west] at (6.3,0.4) {GAE};
+% learn
+\foreach \e in {0,1,2,3} {
+  \node[ph, fill=fcompute!40, minimum width=13mm, anchor=west] at (7.5+1.4*\e,1.6) {fwd+bwd};
+  \node[ph, fill=fcompute!40, minimum width=13mm, anchor=west] at (7.5+1.4*\e,-0.8) {fwd+bwd};
+}
+\draw[decorate, decoration={brace, amplitude=4pt}] (0,2.15) -- node[above=4pt, font=\scriptsize]{phase 1: rollout} (5.0,2.15);
+\draw[decorate, decoration={brace, amplitude=4pt}] (5.1,2.15) -- node[above=4pt, font=\scriptsize]{phase 2: score} (7.3,2.15);
+\draw[decorate, decoration={brace, amplitude=4pt}] (7.5,2.15) -- node[above=4pt, font=\scriptsize]{phase 3: learn ($E$ epochs $\times$ minibatches)} (13.1,2.15);
+\draw[->] (0,-1.5) -- node[below, font=\scriptsize]{time within one iteration} (13.1,-1.5);
+\end{tikzpicture}}
+\caption{Anatomy of one PPO-RLHF iteration. Only the policy and the value model are trained; the
+reference and reward models run a single forward pass each. In practice the generation bar is often
+the longest one, despite doing the fewest FLOPs, because decoding is memory-bound
+(\cref{ch:inference}).}
+\label{fig:rlhf:anatomy}
+\end{figure}
+
+\begin{lstlisting}[caption={The trainer's phases (\ident{llmsys/rlhf/ppo.py}, abridged). The losses come from an injectable module \code{fns}, so Lab 25 runs the whole system on your own implementations.},label={lst:rlhf:trainer}]
+@torch.no_grad()
+def score(self, ro):
+    P, full = ro.prompts.shape[1], ro.full
+    ro.logp_old   = response_logprobs(self.policy, full, P) * ro.mask
+    ro.logp_ref   = response_logprobs(self.ref, full, P) * ro.mask
+    # value of the state *before* each response token y_t
+    ro.values_old = self.value(full)[:, P - 1: -1] * ro.mask
+    score = self.rm(full, P + ro.mask.sum(1).long())
+    penalty = torch.full_like(score, cfg.missing_eos_score)
+    score = torch.where(ro.has_eos, score, penalty)
+    ro.rewards, ro.kl = self.fns.kl_shaped_rewards(
+        score, ro.logp_old, ro.logp_ref, ro.mask, self.kl_ctl.beta, cfg.kl_kind)
+    adv, ro.returns = self.fns.gae(ro.rewards, ro.values_old, ro.mask,
+                                   cfg.gamma, cfg.lam)
+    ro.advantages = self.fns.whiten(adv, ro.mask)
+    return ro
+
+def learn(self, ro):
+    for _ in range(cfg.ppo_epochs):
+        for mb in torch.randperm(B).split(cfg.minibatch_size):
+            m = ro.mask[mb]
+            logp, ent = response_logprobs(self.policy, full[mb], P,
+                                          with_entropy=True)
+            pl, st = self.fns.ppo_policy_loss(logp * m, ro.logp_old[mb],
+                                              ro.advantages[mb], m, cfg.clip)
+            step(self.opt_pi, pl - cfg.ent_coef * masked_mean(ent, m))
+            v = self.value(full[mb])[:, P - 1: -1] * m
+            vl, _ = self.fns.value_loss(v, ro.values_old[mb], ro.returns[mb],
+                                        m, cfg.vf_clip)
+            step(self.opt_v, vl)
+\end{lstlisting}
+
+\section{Setting it up end to end}\label{sec:rlhf:setup}
+
+RLHF is a pipeline of four jobs, and each one produces an artifact the next one consumes. Treat it
+like a build system: every stage writes a versioned checkpoint plus a small JSON manifest saying
+what it was built from.
+
+\begin{lstlisting}[style=plain,caption={A project layout for an RLHF run.},label={lst:rlhf:layout}]
+rlhf-run/
+  configs/  sft.yaml  rm.yaml  ppo.yaml     # one config per stage, in git
+  data/     sft.jsonl  prefs_r1.jsonl  prefs_r2.jsonl  prompts_rl.jsonl
+  ckpt/     sft/  rm-r1/  ppo-r1/  rm-r2/  ppo-r2/   # + manifest.json
+  logs/     ppo-r1/metrics.jsonl  samples/iter_000050.jsonl
+  eval/     rm_acc.json  winrate_vs_sft.json  safety.json
+\end{lstlisting}
+
+\begin{lstlisting}[style=plain,caption={A PPO configuration with the knobs that matter, and values that are reasonable defaults for a first 1B--8B run.},label={lst:rlhf:yaml}]
+policy_init:  ckpt/sft            # trained copy
+reference:    ckpt/sft            # frozen copy of the same weights
+reward_model: ckpt/rm-r1
+value_init:   ckpt/rm-r1          # InstructGPT-style critic init
+rollout: {prompts_per_iter: 512, max_new_tokens: 512,
+          temperature: 1.0, top_p: 1.0}
+ppo:     {epochs: 2, minibatch_size: 64, clip: 0.2, vf_clip: 0.2,
+          gamma: 1.0, lam: 0.95, lr_policy: 1.0e-6, lr_value: 5.0e-6,
+          max_grad_norm: 1.0, ent_coef: 0.0}
+kl:      {init_beta: 0.05, target: 6.0, horizon: 10000,
+          estimator: k1}          # target in nats per response
+reward:  {normalize: true, missing_eos_score: -1.0, clip: 10.0}
+ptx:     {coef: 0.0, data: data/pretrain_sample.bin}
+log:     {every: 1, samples_every: 25, eval_every: 100}
+\end{lstlisting}
+
+The commands follow the stages. In the lab they are functions, but the shape is the same
+at scale:
+
+\begin{lstlisting}[style=shell,caption={The four stages as commands (the lab's \code{run.py} mirrors this).},label={lst:rlhf:cmds}]
+python run.py sft   --config configs/sft.yaml --out ckpt/sft
+python run.py prefs --policy ckpt/sft --n 4096 \
+                    --out data/prefs_r1.jsonl        # sample + label pairs
+python run.py rm    --config configs/rm.yaml  --out ckpt/rm-r1   # BT training
+python run.py ppo   --config configs/ppo.yaml --out ckpt/ppo-r1  # the loop
+python run.py eval  --policy ckpt/ppo-r1 --baseline ckpt/sft     # win rate, KL
+\end{lstlisting}
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXX@{}}
+\toprule
+\textbf{Metric} & \textbf{Healthy behaviour} & \textbf{If not, suspect}\\
+\midrule
+ratio at first minibatch & exactly 1.0, clipfrac 0 & sampling and scoring disagree (temperature, mask offset, dropout on)\\
+KL to reference & starts at 0, grows smoothly to the target & starts $>0$: ref is not a copy of the init policy\\
+RM score & rises, then plateaus & flat: lr too low or advantages all near 0; erratic: lr too high\\
+clipfrac & $0.05$--$0.3$ & $\approx 0$: updates too small; $>0.4$: lr or epochs too large\\
+approx\_kl ($\piold\to\pitheta$) & small, $\sim10^{-3}$--$10^{-2}$ per iteration & large: steps too big for the trust region\\
+value explained variance & rises from $\le0$ towards $0.5$--$0.9$ & stays $<0$: critic misaligned (off-by-one) or lr too low\\
+response length & changes slowly & runaway growth: length-biased RM or loss aggregation\\
+entropy & declines slowly & collapses fast: KL too weak, lr too high\\
+\bottomrule
+\end{tabularx}
+\caption{The dashboard of a PPO-RLHF run and what deviations usually mean.}
+\label{tab:rlhf:dashboard}
+\end{table}
+
+\begin{deepdive}[Sanity checks before spending GPU hours]
+\begin{enumerate}
+  \item \textbf{Zero-update test:} run phase 3 with learning rate 0. The ratio must be exactly 1 and the KL
+        exactly 0 every iteration.
+  \item \textbf{Reward-model probes:} hand-write five pairs where the answer is obvious and check the
+        ordering. Then check that padding and batch composition do not change any score.
+  \item \textbf{Oracle reward:} replace $r_\phi$ with a simple programmatic reward (for example ``contains
+        the word \emph{thanks}''). PPO should learn it within a few dozen iterations; if not, the bug
+        is in the RL code, not the reward model.
+  \item \textbf{Critic-only warm-up:} freeze the policy, train the value model for a few iterations, and
+        watch explained variance rise.
+  \item \textbf{Read samples:} log a few prompts and responses every $N$ iterations, and read them. Reward
+        hacking is usually visible in the text long before it shows up in any metric.
+\end{enumerate}
+\end{deepdive}
+
+\section{Running it: PPO on a synthetic preference task}\label{sec:rlhf:results}
+
+The lab's \code{llmsys.rlhf.task} defines a small world where ``human'' preferences are known
+exactly, so we can measure what the reward model and PPO do to \emph{true} quality. A prompt
+names one of four topics. A response is a short sequence of words (positive, neutral and negative words)
+ending in \textsc{eos}. The hidden preference function rewards mentioning the topic's own
+word, using distinct positive words, avoiding negative words, ending near six words, finishing with
+\textsc{eos}, and \emph{not repeating words}. Simulated annotators compare two responses with
+Bradley--Terry noise on that hidden score. The SFT ``base model'' is fluent but has no taste: it emits
+2--9 distinct random words and stops.
+
+The pipeline is exactly the one of \cref{lst:rlhf:cmds}, at toy scale: a 2-layer, 48-wide
+Qwen3-shaped policy with untied embeddings; SFT for 150 steps; 1,024 comparisons sampled from
+the SFT policy; a reward model initialised from the SFT trunk and trained for four epochs; then
+PPO with a value model initialised from the SFT trunk.
+
+The reward model reaches about $70\%$ held-out pairwise accuracy after four epochs, roughly where
+real reward models sit relative to annotator agreement. Its labels came from SFT samples, which almost
+never repeat a word, so it has \emph{no information} about the true preference function's repetition
+penalty. \Cref{fig:rlhf:curves} shows PPO for three KL coefficients, starting from the same SFT model and
+reward model.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=3 by 1, horizontal sep=1.25cm},
+  width=0.37\linewidth, height=4.6cm, xlabel={PPO iteration}, xmin=0, xmax=71,
+  tick label style={font=\scriptsize}, label style={font=\small}, title style={font=\small},
+  every axis plot/.append style={line width=0.8pt, mark=none}, grid=major, grid style={black!8}]
+\nextgroupplot[title={reward-model score (proxy)}]
+\addplot[color=sysblue, draw=sysblue] coordinates {(1,1.188) (3,2.416) (5,3.095) (7,3.373) (9,3.927) (11,3.912) (13,3.904) (15,4.002) (17,3.945) (19,4.027) (21,3.950) (23,3.973) (25,4.086) (27,4.171) (29,4.094) (31,3.943) (33,4.042) (35,4.097) (37,4.117) (39,4.026) (41,4.107) (43,4.017) (45,3.995) (47,3.996) (49,4.079) (51,4.002) (53,4.137) (55,3.883) (57,4.097) (59,4.083) (61,3.949) (63,4.230) (65,4.082) (67,4.077) (69,4.196) (70,3.945)};
+\addplot[color=keygreen, draw=keygreen] coordinates {(1,1.188) (3,2.513) (5,3.233) (7,3.645) (9,4.021) (11,4.242) (13,4.344) (15,4.373) (17,4.355) (19,4.290) (21,4.546) (23,4.401) (25,4.566) (27,4.584) (29,4.568) (31,4.535) (33,4.623) (35,4.622) (37,4.634) (39,4.624) (41,4.598) (43,4.604) (45,4.557) (47,4.606) (49,4.599) (51,4.628) (53,4.608) (55,4.633) (57,4.565) (59,4.659) (61,4.639) (63,4.650) (65,4.670) (67,4.656) (69,4.639) (70,4.657)};
+\addplot[color=warnred, draw=warnred] coordinates {(1,1.188) (3,2.541) (5,3.264) (7,3.639) (9,3.818) (11,4.212) (13,4.407) (15,4.510) (17,4.614) (19,4.604) (21,4.704) (23,4.705) (25,4.735) (27,4.773) (29,4.781) (31,4.796) (33,4.779) (35,4.809) (37,4.761) (39,4.674) (41,4.777) (43,4.802) (45,4.801) (47,4.766) (49,4.788) (51,4.795) (53,4.812) (55,4.529) (57,4.800) (59,4.810) (61,4.825) (63,4.821) (65,4.816) (67,4.829) (69,4.821) (70,4.818)};
+
+\nextgroupplot[title={true (hidden) score}]
+\addplot[color=sysblue, draw=sysblue] coordinates {(1,-0.048) (3,0.973) (5,1.973) (7,2.355) (9,3.122) (11,3.278) (13,2.880) (15,3.389) (17,3.061) (19,3.133) (21,2.858) (23,3.209) (25,3.350) (27,3.798) (29,3.291) (31,3.192) (33,2.880) (35,3.327) (37,3.542) (39,3.192) (41,3.327) (43,3.178) (45,3.145) (47,3.383) (49,3.620) (51,3.123) (53,3.164) (55,2.950) (57,3.228) (59,3.211) (61,3.017) (63,3.567) (65,3.281) (67,3.233) (69,3.730) (70,3.434)};
+\addplot[color=keygreen, draw=keygreen] coordinates {(1,-0.048) (3,1.055) (5,2.153) (7,2.488) (9,3.261) (11,3.827) (13,3.488) (15,3.952) (17,3.403) (19,3.923) (21,3.866) (23,3.778) (25,3.908) (27,4.030) (29,3.808) (31,4.159) (33,4.358) (35,4.189) (37,4.200) (39,4.531) (41,4.275) (43,4.414) (45,4.408) (47,4.502) (49,4.675) (51,4.442) (53,4.588) (55,4.591) (57,4.586) (59,4.242) (61,4.358) (63,4.405) (65,4.319) (67,4.638) (69,4.487) (70,4.595)};
+\addplot[color=warnred, draw=warnred] coordinates {(1,-0.048) (3,1.044) (5,2.095) (7,2.845) (9,2.867) (11,3.614) (13,3.498) (15,3.280) (17,2.891) (19,2.392) (21,2.345) (23,1.803) (25,2.077) (27,2.055) (29,1.767) (31,1.859) (33,2.152) (35,2.247) (37,2.159) (39,1.678) (41,2.367) (43,2.513) (45,2.598) (47,2.780) (49,2.720) (51,2.847) (53,2.806) (55,2.517) (57,2.809) (59,2.763) (61,2.825) (63,2.895) (65,2.842) (67,2.872) (69,2.817) (70,2.778)};
+\nextgroupplot[title={KL to reference (nats)}]
+\addplot[color=sysblue, draw=sysblue] coordinates {(1,0.000) (3,0.667) (5,1.510) (7,2.180) (9,3.668) (11,3.293) (13,3.440) (15,3.741) (17,3.386) (19,3.772) (21,3.507) (23,3.459) (25,3.700) (27,4.079) (29,3.859) (31,3.344) (33,3.445) (35,3.971) (37,3.583) (39,3.679) (41,3.685) (43,3.300) (45,3.263) (47,3.778) (49,3.503) (51,3.810) (53,3.663) (55,3.266) (57,3.579) (59,3.860) (61,3.546) (63,4.364) (65,3.537) (67,3.538) (69,4.072) (70,3.459)};
+\addplot[color=keygreen, draw=keygreen] coordinates {(1,0.000) (3,0.734) (5,1.839) (7,3.971) (9,4.959) (11,6.223) (13,7.008) (15,6.598) (17,6.575) (19,6.932) (21,7.969) (23,8.065) (25,8.717) (27,8.557) (29,8.902) (31,8.177) (33,9.334) (35,9.261) (37,9.199) (39,8.782) (41,8.768) (43,8.748) (45,7.567) (47,8.610) (49,8.303) (51,9.294) (53,9.647) (55,8.981) (57,8.809) (59,9.840) (61,9.030) (63,9.340) (65,9.537) (67,8.991) (69,9.065) (70,9.232)};
+\addplot[color=warnred, draw=warnred] coordinates {(1,0.000) (3,0.732) (5,1.953) (7,3.969) (9,4.928) (11,7.452) (13,9.868) (15,12.151) (17,14.199) (19,15.876) (21,18.551) (23,19.266) (25,19.523) (27,20.122) (29,21.653) (31,22.022) (33,20.865) (35,20.877) (37,22.752) (39,24.375) (41,22.244) (43,22.322) (45,22.035) (47,21.788) (49,22.219) (51,21.994) (53,22.754) (55,21.831) (57,22.708) (59,23.319) (61,23.361) (63,23.222) (65,23.237) (67,23.046) (69,23.352) (70,23.496)};
+\end{groupplot}
+\end{tikzpicture}
+\caption{PPO-RLHF on the synthetic preference task, measured on CPU in this environment (one seed;
+the three runs share the same SFT model and reward model). All three runs raise the learned reward. With
+$\beta=0.05$ the true score rises with it. With $\beta=0$ the policy spends over 20 nats of KL: the proxy
+keeps climbing while the true score peaks at iteration 11 and then falls. With $\beta=0.2$ the policy
+stays close to the reference and improves less.}
+\label{fig:rlhf:curves}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.66\linewidth, height=5.4cm, xlabel={$\sqrt{\mathrm{KL}}$ to reference (nats$^{1/2}$)},
+  ylabel={score}, grid=major, grid style={black!8}, tick label style={font=\scriptsize},
+  legend style={font=\scriptsize, at={(1.03,0.5)}, anchor=west}, legend cell align=left]
+\addplot[color=sysblue, only marks, mark=o, mark size=1.1pt] coordinates {(0.000,1.188) (0.817,2.416) (1.229,3.095) (1.477,3.373) (1.915,3.927) (1.815,3.912) (1.855,3.904) (1.934,4.002) (1.840,3.945) (1.942,4.027) (1.873,3.950) (1.860,3.973) (1.923,4.086) (2.020,4.171) (1.964,4.094) (1.829,3.943) (1.856,4.042) (1.993,4.097) (1.893,4.117) (1.918,4.026) (1.920,4.107) (1.817,4.017) (1.806,3.995) (1.944,3.996) (1.872,4.079) (1.952,4.002) (1.914,4.137) (1.807,3.883) (1.892,4.097) (1.965,4.083) (1.883,3.949) (2.089,4.230) (1.881,4.082) (1.881,4.077) (2.018,4.196)};
+\addplot[color=keygreen, only marks, mark=o, mark size=1.1pt] coordinates {(0.000,1.188) (0.857,2.513) (1.356,3.233) (1.993,3.645) (2.227,4.021) (2.495,4.242) (2.647,4.344) (2.569,4.373) (2.564,4.355) (2.633,4.290) (2.823,4.546) (2.840,4.401) (2.952,4.566) (2.925,4.584) (2.984,4.568) (2.860,4.535) (3.055,4.623) (3.043,4.622) (3.033,4.634) (2.963,4.624) (2.961,4.598) (2.958,4.604) (2.751,4.557) (2.934,4.606) (2.881,4.599) (3.049,4.628) (3.106,4.608) (2.997,4.633) (2.968,4.565) (3.137,4.659) (3.005,4.639) (3.056,4.650) (3.088,4.670) (2.999,4.656) (3.011,4.639)};
+\addplot[color=warnred, only marks, mark=o, mark size=1.1pt] coordinates {(0.000,1.188) (0.855,2.541) (1.397,3.264) (1.992,3.639) (2.220,3.818) (2.730,4.212) (3.141,4.407) (3.486,4.510) (3.768,4.614) (3.985,4.604) (4.307,4.704) (4.389,4.705) (4.419,4.735) (4.486,4.773) (4.653,4.781) (4.693,4.796) (4.568,4.779) (4.569,4.809) (4.770,4.761) (4.937,4.674) (4.716,4.777) (4.725,4.802) (4.694,4.801) (4.668,4.766) (4.714,4.788) (4.690,4.795) (4.770,4.812) (4.672,4.529) (4.765,4.800) (4.829,4.810) (4.833,4.825) (4.819,4.821) (4.820,4.816) (4.801,4.829) (4.832,4.821)};
+\addplot[color=sysblue, only marks, mark=*, mark size=1.1pt] coordinates {(0.000,-0.048) (0.817,0.973) (1.229,1.973) (1.477,2.355) (1.915,3.122) (1.815,3.278) (1.855,2.880) (1.934,3.389) (1.840,3.061) (1.942,3.133) (1.873,2.858) (1.860,3.209) (1.923,3.350) (2.020,3.798) (1.964,3.291) (1.829,3.192) (1.856,2.880) (1.993,3.327) (1.893,3.542) (1.918,3.192) (1.920,3.327) (1.817,3.178) (1.806,3.145) (1.944,3.383) (1.872,3.620) (1.952,3.123) (1.914,3.164) (1.807,2.950) (1.892,3.228) (1.965,3.211) (1.883,3.017) (2.089,3.567) (1.881,3.281) (1.881,3.233) (2.018,3.730)};
+\addplot[color=keygreen, only marks, mark=*, mark size=1.1pt] coordinates {(0.000,-0.048) (0.857,1.055) (1.356,2.153) (1.993,2.488) (2.227,3.261) (2.495,3.827) (2.647,3.488) (2.569,3.952) (2.564,3.403) (2.633,3.923) (2.823,3.866) (2.840,3.778) (2.952,3.908) (2.925,4.030) (2.984,3.808) (2.860,4.159) (3.055,4.358) (3.043,4.189) (3.033,4.200) (2.963,4.531) (2.961,4.275) (2.958,4.414) (2.751,4.408) (2.934,4.502) (2.881,4.675) (3.049,4.442) (3.106,4.588) (2.997,4.591) (2.968,4.586) (3.137,4.242) (3.005,4.358) (3.056,4.405) (3.088,4.319) (2.999,4.638) (3.011,4.487)};
+\addplot[color=warnred, only marks, mark=*, mark size=1.1pt] coordinates {(0.000,-0.048) (0.855,1.044) (1.397,2.095) (1.992,2.845) (2.220,2.867) (2.730,3.614) (3.141,3.498) (3.486,3.280) (3.768,2.891) (3.985,2.392) (4.307,2.345) (4.389,1.803) (4.419,2.077) (4.486,2.055) (4.653,1.767) (4.693,1.859) (4.568,2.152) (4.569,2.247) (4.770,2.159) (4.937,1.678) (4.716,2.367) (4.725,2.513) (4.694,2.598) (4.668,2.780) (4.714,2.720) (4.690,2.847) (4.770,2.806) (4.672,2.517) (4.765,2.809) (4.829,2.763) (4.833,2.825) (4.819,2.895) (4.820,2.842) (4.801,2.872) (4.832,2.817)};
+\legend{{proxy, $\beta=0.2$},{proxy, $\beta=0.05$},{proxy, $\beta=0$},{true, $\beta=0.2$},{true, $\beta=0.05$},{true, $\beta=0$}}
+\end{axis}
+\end{tikzpicture}
+\caption{The same runs plotted against $\sqrt{\mathrm{KL}}$, as in Gao et al.\ (2023). Hollow markers are
+the proxy (reward-model) score and filled markers the true score. The proxy rises monotonically with KL;
+the true score rises, peaks around 3 nats$^{1/2}$ (about 9 nats), and falls beyond it. Up to that
+point the KL budget buys real quality; past it, it buys exploits.}
+\label{fig:rlhf:sqrtkl}
+\end{figure}
+
+
+Four observations, each of which recurs at scale:
+
+\begin{enumerate}
+  \item \textbf{PPO works.} In every run the proxy reward rises from $1.2$ to $4$--$4.8$ within
+        about 20 iterations, and responses grow from about 5 to about 7 words. For reference, the best
+achievable true score is $7.5$ (six distinct positive words including the topic word); no run gets
+close, which leaves room for the lab's stretch goals.
+  \item \textbf{The KL penalty sets the operating point.} At convergence the policy spends roughly 3.5,
+        9 and 23 nats per response for $\beta=0.2$, $0.05$ and $0$. The best true score comes from the
+        middle setting.
+  \item \textbf{Without the anchor, the policy over-optimises.} With $\beta=0$ the true score peaks at $3.6$
+        (iteration 11) and then decays to about $2.8$, while the proxy is the highest of the three runs.
+        \Cref{fig:rlhf:sqrtkl} shows the shape reported by Gao et al.\ (2023) for real reward models.
+  \item \textbf{The critic needs time.} Explained variance starts negative ($-0.2$) and climbs to
+        $0.6$--$0.9$ over the first 20--40 iterations; early updates rely mostly on the baseline effect.
+\end{enumerate}
+
+The final samples make the mechanism visible. For topic \texttt{t2}, the $\beta=0.05$ policy writes
+\texttt{p4 n6 p1 p2 p5 p3}: six distinct words, mostly positive, including the topic word \texttt{p2}.
+The $\beta=0$ policy has collapsed to one response for every prompt, \texttt{p5 n6 p1 p0 p3 p5 p5}.
+It repeats \texttt{p5} because the reward model never learned that repetition is bad, and it has
+dropped the topic word because a generic high-reward string is easier to find than a prompt-specific
+one. This loss of diversity is itself a symptom worth monitoring (entropy and distinct-$n$ metrics).
+
+\begin{systemslens}[Where the time went on a CPU]
+In these runs the learn phase took $87\%$ of each iteration, scoring $8\%$ and generation $5\%$, in
+line with the FLOP model of \cref{sec:rlhf:system}, which puts learning at about $83\%$ of FLOPs for
+$E=4$ epochs. A 45k-parameter model decodes at full speed on a CPU, because its weights fit in cache. Scale the
+policy to billions of parameters on a GPU and generation becomes memory-bound and serial, and the shares invert:
+generation is commonly reported as the majority of wall-clock time in PPO and GRPO training. The lab's
+measurement task asks you to reproduce the CPU breakdown and to predict the GPU one with the roofline
+model of \cref{ch:inference}.
+\end{systemslens}
+
+\section{Reward hacking and over-optimisation}\label{sec:rlhf:overopt}
+
+A reward model is a proxy, and optimisation pressure finds the places where the proxy and the
+target disagree, a direct instance of Goodhart's law. Gao et al.\ (2023) measured this systematically
+by training policies against a proxy reward model and scoring them with a larger ``gold'' reward model. As the KL
+from the initial policy grows, the gold score first rises with the proxy, then peaks and falls,
+while the proxy keeps rising. The gap widens faster for smaller reward models and less data.
+Measuring progress against $\sqrt{\KL}$ rather than steps makes these curves comparable across
+optimisers (PPO and best-of-$n$ sampling show the same shape).
+
+Common symptoms in real systems:
+\begin{itemize}
+  \item \textbf{Length and formatting inflation.} Annotators like thorough answers; the policy learns
+        that longer is always better. Responses fill with bullet points, headers and restatements.
+  \item \textbf{Sycophancy.} Agreeing with the user's stated view is rewarded more often than
+        correcting it.
+  \item \textbf{Degenerate exploits.} Repeated phrases, unusual tokens or formatting quirks that
+        happen to score highly, like the repetition exploit in our toy task.
+  \item \textbf{Calibration loss.} An RLHF-trained model's token probabilities no longer reflect its
+        accuracy, because PPO optimised them for reward, not for likelihood. A base model can be well
+        calibrated on multiple-choice questions while its RLHF version is overconfident.
+\end{itemize}
+
+Mitigations, in rough order of how often they are used: a KL penalty with a target budget; early
+stopping by KL or by a held-out gold evaluation; collecting fresh comparisons on the \emph{current}
+policy's samples and retraining the reward model (iterated RLHF, as in Llama~2's five rounds); reward-model ensembles
+whose disagreement down-weights uncertain rewards; explicit length penalties or length-controlled
+evaluation; and mixing in verifiable rewards (\cref{ch:grpo}) wherever a program can check the
+answer.
+
+\begin{keyidea}[Best-of-$n$ as a baseline]
+Before running PPO, sample $n$ responses from the SFT model and keep the one the reward model
+likes best. Its KL from the SFT policy is known in closed form, $\log n - \frac{n-1}{n}$
+(an upper bound, exact for continuous rewards), and it needs no training. If PPO cannot beat best-of-$n$ at the
+same KL, something is wrong. Rejection-sampling fine-tuning, which fine-tunes on the best-of-$n$
+samples (\cref{ch:pg}), is the training-time version and was used alongside PPO in Llama~2.
+\end{keyidea}
+
+\section{The four-model system}\label{sec:rlhf:system}
+
+\Cref{sec:grpo:rlhf} costed the four models at a glance. Here we plan them properly, because
+placement determines whether PPO-RLHF fits at all, and how fast it runs.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Policy size} & \textbf{policy (trained)} & \textbf{value (trained)} & \textbf{ref + RM (bf16)} & \textbf{total}\\
+\midrule
+1B  & 16\,GB   & 16\,GB   & 4\,GB   & 36\,GB\\
+8B  & 128\,GB  & 128\,GB  & 32\,GB  & 288\,GB\\
+70B & 1{,}120\,GB & 1{,}120\,GB & 280\,GB & 2{,}520\,GB\\
+\bottomrule
+\end{tabular}
+\caption{Static memory of PPO-RLHF when all four models are the policy's size (16 bytes per trained
+parameter for mixed-precision AdamW, 2 bytes per frozen parameter). This excludes activations, the KV
+cache for generation and communication buffers. Computed with \code{llmsys.rlhf.plan.state\_bytes}.}
+\label{tab:rlhf:memory}
+\end{table}
+
+\begin{napkinmath}[How many GPUs for an 8B PPO-RLHF run?]
+From \cref{tab:rlhf:memory}, 288\,GB of static state. With full sharding (ZeRO-3/FSDP,
+\cref{ch:sharding}) over 80\,GB GPUs at 70\% usable memory (56\,GB each), the minimum is
+$\lceil 288/56\rceil = 6$ GPUs, and in practice 8, which leaves headroom for activations and the
+rollout KV cache. That cache is substantial: for Qwen3-8B (36 layers, 8 KV heads of dimension 128, bf16) it is
+$2\cdot36\cdot8\cdot128\cdot2 = 147{,}456$ bytes per token. 512 responses of 1,024 tokens
+therefore need $512\cdot1024\cdot147{,}456\approx 77$\,GB of KV cache, about one more GPU's worth during
+the rollout phase alone. \code{plan.min\_gpus} and \code{plan.kv\_cache\_bytes} reproduce these numbers.
+\end{napkinmath}
+
+\begin{napkinmath}[Where the FLOPs go in one iteration]
+Take $B=512$ responses of $T=1{,}024$ tokens (prompt plus response), $N$ parameters in each of the
+four models, and $E=2$ PPO epochs. With the $2N$/$6N$ rule (\cref{ch:pretrain}):
+generation $\approx 2NBT$; scoring $\approx 4\cdot 2NBT = 8NBT$; learning $\approx E\cdot 6\cdot 2N\cdot BT = 24NBT$.
+Learning dominates the FLOPs (about 70\%), yet in wall-clock terms generation is often the largest phase,
+because it runs at a small fraction of peak FLOP/s (\cref{ch:inference}). This is why every serious RLHF
+system replaces the trainer's \code{generate()} with an inference engine (\cref{ch:serving}).
+\end{napkinmath}
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  gpu/.style={draw, rounded corners=2pt, minimum width=21mm, minimum height=24mm, fill=black!3},
+  m/.style={draw, rounded corners=1pt, minimum width=18mm, minimum height=4.5mm, font=\tiny},
+  >={Stealth[length=2mm]}]
+\node[font=\small\bfseries] at (2.4,2.0) {(a) colocated, time-sliced};
+\foreach \g in {0,1} {
+  \node[gpu] (A\g) at (1.2+2.4*\g,0) {};
+  \node[font=\tiny] at (1.2+2.4*\g,-1.45) {GPU \g};
+  \node[m, fill=fcompute!35] at (1.2+2.4*\g,0.8) {policy shard};
+  \node[m, fill=fcompute!20] at (1.2+2.4*\g,0.25) {value shard};
+  \node[m, fill=black!12] at (1.2+2.4*\g,-0.3) {ref shard};
+  \node[m, fill=napkin!30] at (1.2+2.4*\g,-0.85) {RM shard};
+}
+\node[font=\small\bfseries] at (10.2,2.0) {(b) split placement};
+\foreach \g/\lbl/\c in {0/{policy}/fcompute!35, 1/{policy}/fcompute!35, 2/{value}/fcompute!20, 3/{ref + RM}/napkin!30} {
+  \node[gpu] (B\g) at (7.0+2.3*\g,0) {};
+  \node[m, fill=\c, minimum height=14mm, text width=16mm, align=center] at (7.0+2.3*\g,0) {\lbl};
+  \node[font=\tiny] at (7.0+2.3*\g,-1.45) {GPU \the\numexpr\g+2\relax};
+}
+\node[draw, rounded corners, fill=fmemory!25, font=\scriptsize, align=center] (eng) at (7.0,-2.4)
+  {rollout engine\\(vLLM / SGLang)};
+\draw[->, dashed] (B0.south) -- node[right, font=\tiny]{weight sync} (eng.north);
+\node[font=\scriptsize, text width=48mm, align=left] at (2.4,-2.6) {All models sharded on all GPUs;
+phases run one after another; idle models can be offloaded to CPU memory between phases.};
+\node[font=\scriptsize, text width=50mm, align=left] at (12.0,-2.6) {Each model on its own GPU group;
+scoring and learning can be pipelined, but some groups idle while others work.};
+\end{tikzpicture}}
+\caption{Two ways to place the four models. Colocation (a) maximises memory per model and avoids
+idle hardware; it needs fast switching between phases (offload, resharding). Split placement (b),
+as in Ray-based frameworks such as OpenRLHF, scales each role independently; the
+trade-offs are analysed in \cref{sec:rlsys:placement}.}
+\label{fig:rlhf:placement}
+\end{figure}
+
+\begin{systemslens}[Tricks that shrink the four-model tax]
+\begin{itemize}
+  \item \textbf{Reference via LoRA.} If the policy is trained with LoRA adapters (\cref{sec:instruct:lora}),
+        the reference model is the same network with the adapters disabled, so no second copy is needed.
+  \item \textbf{Precompute the reference.} $\log\piref$ depends only on the sampled tokens, so it is computed
+        once per rollout (phase 2) and never again; the reference can live on CPU or another node.
+  \item \textbf{Shared trunk critic.} One trunk with two heads halves the trained state, at a
+        stability cost (\cref{sec:rlhf:value}).
+  \item \textbf{Smaller reward and value models.} InstructGPT's 6B reward model for a 175B policy is the
+        canonical example.
+  \item \textbf{Drop the critic.} GRPO and RLOO replace $V_\psi$ with group statistics
+        (\cref{ch:grpo}), which removes 16 bytes per parameter of trained state.
+  \item \textbf{Drop the reward model.} Verifiable rewards (RLVR) replace $r_\phi$ with a program.
+\end{itemize}
+\end{systemslens}
+
+\begin{lstlisting}[caption={Planning helpers (\ident{llmsys/rlhf/plan.py}).},label={lst:rlhf:plan}]
+TRAINED_BYTES, FROZEN_BYTES = 16, 2
+
+def state_bytes(m, offload_frozen=False, zero_shards=1):
+    frozen = 0.0 if offload_frozen else FROZEN_BYTES
+    out = {"policy": m.policy * TRAINED_BYTES / zero_shards,
+           "value": m.value * TRAINED_BYTES / zero_shards,
+           "reward": m.reward * frozen / zero_shards,
+           "reference": m.reference * frozen / zero_shards}
+    out["total"] = sum(out.values())
+    return out
+
+>>> state_bytes(RLHFModels(8e9, 8e9, 8e9, 8e9))["total"] / 1e9
+288.0
+\end{lstlisting}
+
+\section{RL from AI feedback}\label{sec:rlhf:rlaif}
+
+Human comparisons are slow, expensive and inconsistent. \emph{RL from AI feedback} (RLAIF) replaces
+some or all of the annotators with an LLM judge. Two variants are common:
+
+\begin{enumerate}
+  \item \textbf{AI-labelled preferences, then a reward model.} A strong model compares two responses
+        under written instructions and produces the pairwise labels; the rest of the pipeline is unchanged.
+        Constitutional AI (Bai et al., 2022) wrote those instructions as a short list of principles
+        (the ``constitution''). It also added a supervised stage in which the model critiques and revises its own
+        responses according to sampled principles.
+  \item \textbf{Direct scoring.} Skip the reward model and ask the judge for a score at PPO time. This is
+        simpler but expensive: a judge call per rollout, in the training loop's critical path.
+\end{enumerate}
+
+LLM judges agree with humans about as often as humans agree with each other on many
+general-domain tasks, but they bring systematic biases: preferring the first-listed response
+(position bias), preferring their own model family, and preferring longer answers. The mitigations are
+those of \cref{sec:eval:judge}: evaluate both orders and average, use rubrics, calibrate against a
+human-labelled subset, and track agreement over time. The systems benefit is large: an AI labeller
+is a batch inference job that can produce millions of comparisons on demand, so preference data can
+be refreshed every RLHF round on the current policy's samples.
+
+\section{Agentic RL with milestone rewards}\label{sec:rlhf:agentic}
+
+When the policy is an agent (calling tools, browsing, editing files over many turns), the episode
+is a multi-turn trajectory and a single terminal reward is extremely sparse: did a 40-step
+coding session end with passing tests? \emph{Milestone rewards} add intermediate credit for verifiable
+sub-goals, for example: the repository was cloned, the failing test was located, a patch compiles, the
+target test passes, no other test broke. Each milestone is checked by a program, and its reward is
+attached to the token that completed the corresponding action, which turns the shaped-reward
+machinery of \cref{eq:rlhf:shaped} into a natural fit.
+
+\begin{itemize}
+  \item \textbf{Mask what the policy did not write.} Tool outputs and environment observations are part of
+        the context but not actions; their tokens get mask 0 in every loss (\cref{sec:rlsys:agentic}).
+  \item \textbf{Values per turn or per token.} A critic can still value every token, but GAE across
+        long tool outputs is wasteful; some systems compute advantages per turn.
+  \item \textbf{Guard against milestone farming.} Pay each milestone at most once per episode, and keep the
+        final-success reward dominant, or the agent will learn to collect easy milestones and stop.
+\end{itemize}
+
+\begin{lstlisting}[caption={Milestone rewards attached to the tokens that completed them.},label={lst:rlhf:milestones}]
+MILESTONES = {"tests_located": 0.1, "patch_compiles": 0.2, "target_passes": 0.5,
+              "suite_green": 1.0}
+
+def milestone_rewards(events, n_tokens):
+    """events: (milestone, token_index) pairs from the environment checker."""
+    r, seen = torch.zeros(n_tokens), set()
+    for name, t in events:
+        if name in MILESTONES and name not in seen:   # pay each one once
+            r[t] += MILESTONES[name]
+            seen.add(name)
+    return r          # add to the KL-shaped per-token reward before GAE
+\end{lstlisting}
+
+\section{Case studies}\label{sec:rlhf:cases}
+
+\paragraph{InstructGPT (2022).} SFT on about 13k demonstrations; a 6B reward model on about 33k prompts ranked with $K=4$--$9$
+responses; PPO with a per-token KL penalty and PPO-ptx. Labellers preferred the 1.3B InstructGPT model
+to the 175B GPT-3, which showed that RLHF can be worth more than a 100$\times$ increase in parameters
+for following instructions.
+
+\paragraph{Llama~2 (2023).} Two separate reward models, one for helpfulness and one for safety, with
+a margin term from the annotators' preference strength. Five rounds of iterated RLHF, each collecting new comparisons on
+the latest model; the early rounds used rejection-sampling fine-tuning (best-of-$n$ under the reward
+model), later combined with PPO. The two reward scores were combined with a rule that prioritises
+safety on prompts likely to be unsafe.
+
+\paragraph{After Llama~2.} Many recent open models replace PPO with offline or online DPO-style
+objectives (\cref{ch:dpo}) for general chat, and use RL with verifiable rewards (\cref{ch:grpo}) for
+maths and code. Meta's Llama~4 announcement, for example, described a lightweight SFT, then online RL, then lightweight DPO
+sequence. Treat such summaries as descriptions of a recipe's shape rather than of its details.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXXXX@{}}
+\toprule
+& \textbf{PPO-RLHF} & \textbf{GRPO / RLVR} & \textbf{DPO} & \textbf{Best-of-$n$ / RFT}\\
+\midrule
+Data & prompts + RM & prompts + verifier & fixed preference pairs & prompts + RM\\
+Online sampling & yes & yes (groups) & no (offline) & yes (at inference or once)\\
+Models in memory & 4 (2 trained) & 1--2 (1 trained) & 2 (1 trained) & 1 + RM\\
+Baseline & learned critic & group mean & implicit & none\\
+Credit assignment & per token (GAE) & per sequence & per sequence & per sequence\\
+Main risk & instability, cost & sparse reward & off-distribution data & inference cost\\
+Chapter & this one & \ref{ch:grpo}--\ref{ch:grpo2} & \ref{ch:dpo} & \ref{ch:pg}, \ref{ch:scaling}\\
+\bottomrule
+\end{tabularx}
+\caption{The main post-training optimisers side by side.}
+\label{tab:rlhf:compare}
+\end{table}
+
+\section{Summary}\label{sec:rlhf:summary}
+\begin{itemize}
+  \item RLHF optimises a learned reward under a KL anchor to the SFT model,
+        \cref{eq:rlhf:objective}. The anchor is what keeps a proxy reward useful.
+  \item A reward model is the policy architecture with a scalar head, trained with the Bradley--Terry loss
+        on comparisons. Read the score at each row's last real token, group $K$-way rankings by prompt,
+        and expect held-out accuracy near annotator agreement.
+  \item PPO-RLHF turns one terminal score into per-token learning signals: KL-shaped rewards,
+        a learned critic, and GAE's backward scan, $\hat A_t=\delta_t+\gamma\lambda\hat A_{t+1}$.
+  \item The update is the clipped surrogate for the actor plus a (clipped) regression for the critic,
+        for a few epochs over each rollout batch, with rollout-time log-probabilities held fixed.
+  \item Over-optimisation is the default outcome of optimising a proxy hard enough. Watch true-quality
+        evaluations against KL, not reward against steps.
+  \item The system cost is four models, two of them trained, plus autoregressive generation. Memory planning,
+        placement, and offloading the reference and reward models decide feasibility; generation usually decides speed.
+\end{itemize}
+
+\section{Exercises}\label{sec:rlhf:exercises}
+
+\begin{exercise}[BT from Gumbel noise]
+Show that if $u_w = r_w + \epsilon_w$ and $u_l = r_l + \epsilon_l$ with independent standard Gumbel noise,
+then $\Pr[u_w > u_l] = \sigma(r_w - r_l)$. What changes if the noise is Gaussian?
+\end{exercise}
+
+\begin{exercise}[The gradient of the BT loss]
+Compute $\partial\mathcal{L}_{\text{RM}}/\partial r_w$ for a single pair and interpret it. Which pairs
+dominate the gradient late in training? How does a margin $m$ change this?
+\end{exercise}
+
+\begin{exercise}[Grouped rankings]
+For $K=6$ ranked responses, how many forward passes does the grouped ranking loss need per prompt, and how
+many would independent pairs need? Over one epoch, how many gradient steps does each response contribute
+to in each case?
+\end{exercise}
+
+\begin{exercise}[GAE limits]
+Using \cref{eq:rlhf:gae}, show that $\lambda=1,\gamma=1$ gives $\hat A_t=\sum_{k\ge t}r_k-V(s_t)$ and that
+$\lambda=0$ gives $\hat A_t=\delta_t$. Recompute the $\lambda=0.5$ row of \cref{tab:rlhf:gae} by hand,
+then check it with \code{gae()}.
+\end{exercise}
+
+\begin{exercise}[KL estimators]
+For $\piold$ and $\piref$ both Bernoulli, compute the exact $\KL(\piold\|\piref)$ and the expectations and
+variances of the $k_1$, $k_2$ and $k_3$ estimators under samples from $\piold$, for
+$p_{\text{old}}=0.6$ and $p_{\text{ref}}\in\{0.5,0.2\}$. Which estimators are unbiased?
+\end{exercise}
+
+\begin{exercise}[Off-by-one critic]
+Modify the trainer to read values at positions $P,\dots,P+T-1$ instead of $P-1,\dots,P+T-2$. Predict
+what happens to explained variance and to the reward curve, then run it and compare.
+\end{exercise}
+
+\begin{exercise}[Memory planning]
+Using \code{plan.state\_bytes}, compute the static memory for a 32B policy with a 7B reward model, a
+critic initialised from that reward model, and a LoRA reference. How many 80\,GB GPUs are needed with full
+sharding at 70\% usable memory?
+\end{exercise}
+
+\begin{exercise}[Best-of-$n$ KL]
+Show that the KL between the best-of-$n$ distribution and the base policy is at most $\log n-\frac{n-1}{n}$.
+For which $n$ does best-of-$n$ spend the same KL as the PPO run in the lab?
+\end{exercise}
+
+\begin{exercise}[Adaptive KL]
+Run the lab with \code{target\_kl} set to 1, 3 and 10 nats per response. Plot true score against final
+KL. Where does over-optimisation set in?
+\end{exercise}
+
+\begin{exercise}[Design: RLAIF judge in the loop]
+A judge model of 70B parameters scores every rollout of an 8B policy directly (no reward model).
+Estimate the judge's share of each iteration's FLOPs and wall time for $B=512$ responses of 512 tokens with a
+256-token rubric prompt. Propose two system changes that remove it from the critical path.
+\end{exercise}
+
+\section{Lab 25: PPO-RLHF from scratch}\label{sec:rlhf:lab}
+
+\begin{labbox}{25}{PPO-RLHF from scratch}
+\labdir{lab25_rlhf_ppo}
+\labsection{Goals}
+Implement the mathematical core of RLHF as small functions, plug them into the provided four-model trainer,
+and train a policy against a learned reward model on a laptop CPU. Then watch PPO raise the proxy
+reward, and push it hard enough to over-optimise.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+LAB_IMPL=starter  python -m pytest labs/lab25_rlhf_ppo -q   # your code
+LAB_IMPL=solution python -m pytest labs/lab25_rlhf_ppo -q   # reference
+python labs/lab25_rlhf_ppo/run.py all --iters 70   # pipeline + plots
+\end{lstlisting}
+The tests use the synthetic preference task of \cref{sec:rlhf:results} and tiny models (untied
+embeddings), so the full suite runs in under a minute on a CPU.
+
+\labsection{Tasks}
+\begin{enumerate}
+  \item \code{masked\_mean}, \code{whiten}: statistics over real tokens only.
+  \item \code{bt\_loss}, \code{rm\_accuracy}: the Bradley--Terry loss, with an optional margin.
+  \item \code{ranking\_loss}: the grouped $K$-way loss; it must equal \code{bt\_loss} when $K=2$.
+  \item \code{kl\_shaped\_rewards}: per-token KL tolls plus the score on each row's last real token.
+  \item \code{gae}: the backward scan with masking; tested against a brute-force sum of discounted TD residuals.
+  \item \code{ppo\_policy\_loss}: the clipped surrogate with \code{clipfrac} and \code{approx\_kl} statistics.
+  \item \code{value\_loss}: the (optionally clipped) critic loss.
+  \item \code{explained\_variance} and \code{AdaptiveKLController.update}.
+  \item Run \code{train\_pipeline()} with your functions: SFT, preference sampling and labelling, reward-model
+        training, then PPO. The smoke test checks that the reward model beats chance on held-out pairs and
+        that the reward rises.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{itemize}
+  \item Plot RM score, true score, KL, explained variance and response length against iteration for
+        $\beta\in\{0.2, 0.05, 0\}$. Find the iteration where true score peaks for $\beta=0$.
+  \item Compare $\lambda\in\{0, 0.95, 1\}$: the speed of reward improvement and the critic's explained variance.
+  \item Time each phase (rollout, score, learn) and compare the shares with the FLOP model of
+        \cref{sec:rlhf:system}. On the CPU, which phase dominates, and why might it differ on a GPU?
+\end{itemize}
+
+\labsection{Deliverables}
+Passing tests; a figure like \cref{fig:rlhf:curves} for your own runs; a paragraph explaining the
+over-optimisation you observe in terms of what the reward model never saw.
+
+\labsection{Stretch goals}
+Train a reward-model ensemble and penalise disagreement; add PPO-ptx with the SFT data; replace the reward
+model with the hidden score (an ``oracle'' run) and compare learning speed; implement per-sequence loss
+aggregation and compare length dynamics.
+\end{labbox}

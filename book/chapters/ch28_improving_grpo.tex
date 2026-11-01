@@ -1,0 +1,1131 @@
+\chapter{Improving GRPO: Diagnostics, Stability and Its Descendants}\label{ch:grpo2}
+
+\Cref{ch:grpo} ended with a working GRPO loop and a warning: plain GRPO is fine for a few
+dozen steps but can become unstable over hundreds. This chapter is about the difference
+between an algorithm that works in a notebook and one you can run for a week. Three skills
+are involved. The first is \emph{reading} a run: which metrics to log, what healthy and
+unhealthy curves look like, and why the loss is the least informative number on the
+dashboard. The second is \emph{stabilising} it with the two mechanisms of the original GRPO
+objective we skipped so far, clipped importance ratios and a KL penalty, and with auxiliary
+rewards. The third is knowing the \emph{design space} that has opened up since DeepSeek-R1:
+DAPO, Dr.~GRPO, GSPO, CISPO, GDPO and the DeepSeek-V3.2 corrections each change one
+specific term of \cref{eq:grpo:full}, and each has a cost that a systems person should be
+able to estimate.
+
+Every experiment in this chapter is a run of \code{labs/lab18\_grpo\_plus/run.py} on the toy
+addition task of \cref{ch:grpo}, from the same SFT-warm-started model, with two seeds per
+configuration, measured on a CPU in this book's build environment. The toy cannot reproduce
+every failure of a 0.6B model on MATH. When it fails to, we say so and explain what the real
+run does and why. As with any RL result, single runs are noisy: treat differences smaller
+than the seed-to-seed spread as noise.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[t/.style={draw,rounded corners=3pt,minimum width=34mm,minimum height=12mm,
+  align=center,font=\small},num/.style={circle,fill=#1,text=white,font=\scriptsize\bfseries,inner sep=1.4pt},
+  >={Stealth[length=2mm]}]
+\node[font=\small\bfseries,keygreen] at (0,1.25) {observe};
+\node[font=\small\bfseries,sysblue] at (4.2,1.25) {constrain};
+\node[font=\small\bfseries,napkin] at (8.4,1.25) {shape \& extend};
+\node[t,fill=keygreen!10,draw=keygreen] (a) at (0,0) {basic metrics\\{\scriptsize reward, length, eval}};
+\node[t,fill=keygreen!10,draw=keygreen] (b) at (0,-1.7) {advanced metrics\\{\scriptsize advantages, entropy}};
+\node[t,fill=sysblue!10,draw=sysblue] (c) at (4.2,0) {clipped ratios\\{\scriptsize trust region per step}};
+\node[t,fill=sysblue!10,draw=sysblue] (d) at (4.2,-1.7) {KL to a reference\\{\scriptsize leash over the run}};
+\node[t,fill=napkin!12,draw=napkin] (e) at (8.4,0) {format reward\\{\scriptsize \texttt{<think>} tags}};
+\node[t,fill=napkin!12,draw=napkin] (f) at (8.4,-1.7) {GRPO descendants\\{\scriptsize DAPO, Dr.\,GRPO, GSPO, \dots}};
+\foreach \n/\c/\i in {a/keygreen/1,b/keygreen/2,c/sysblue/3,d/sysblue/4,e/napkin/5,f/napkin/6}
+  \node[num=\c] at (\n.north west) {\i};
+\draw[->,thick,gray] (a)--(b); \draw[->,thick,gray] (b.east)--(c.west);
+\draw[->,thick,gray] (c)--(d); \draw[->,thick,gray] (d.east)--(e.west); \draw[->,thick,gray] (e)--(f);
+\node[draw=labpurple,dashed,rounded corners,fit=(a)(f),inner sep=7pt,
+  label={[font=\scriptsize,labpurple]below:Chapter 27's GRPO loop is the starting point; Lab 28 ablates every box}] {};
+\end{tikzpicture}}
+\caption{Roadmap. We first learn to observe a run (1--2), then constrain how far each
+update and the whole run may move the policy (3--4), and finally shape the reward and
+survey the family of algorithms that grew out of GRPO (5--6).}
+\label{fig:grpo2:roadmap}
+\end{figure}
+
+% ======================================================================
+\section{From a working loop to a robust one}\label{sec:grpo2:intro}
+
+It helps to name what we implemented in \cref{ch:grpo}. With summed log-probabilities, no
+ratio, no clipping and no KL, the update is REINFORCE with a group-normalised baseline. Its
+weaknesses are well known from classical RL. Nothing limits the size of one update except
+the learning rate, so a single unlucky group with extreme advantages can move the policy a
+long way. Nothing anchors the policy over the long run, so it can drift into degenerate text
+once rewards stop carrying signal. And every rollout is used exactly once, which is wasteful
+when rollouts are the expensive part. PPO's two devices, ratio clipping and a KL anchor,
+address the first two weaknesses and make the third (reusing rollouts) safe. The rest of this
+chapter adds them one at a time and watches what changes.
+
+% ======================================================================
+\section{Tracking GRPO performance metrics}\label{sec:grpo2:metrics}
+
+\subsection{Executing a training run}\label{sec:grpo2:exec}
+
+Long RL runs belong in scripts, not notebooks. A script survives a dropped SSH session
+(run it under \code{tmux} or a job scheduler), writes structured logs that can be plotted
+while the run is still going, and makes the configuration explicit. The lab's driver takes
+the variant name and seeds on the command line and writes one CSV row per step:
+
+\begin{lstlisting}[style=shell,caption={Running GRPO variants from the terminal.},label={lst:grpo2:run}]
+cd code/labs/lab28_grpo_plus
+python run.py --list                                  # show all variants
+python run.py --variants baseline,clip_reuse --seeds 0,1 --steps 150 --out out18
+\end{lstlisting}
+
+The CSV columns are produced by \code{GRPOTrainer.step} and are the vocabulary of the rest
+of the chapter: \code{loss}, \code{reward\_avg}, \code{correct\_avg}, \code{format\_avg},
+\code{adv\_avg}, \code{adv\_std}, \code{entropy\_avg}, \code{resp\_len},
+\code{zero\_var\_frac}, \code{policy\_ratio}, \code{clip\_frac}, \code{kl}, the per-phase
+wall-clock times \code{t\_rollout}, \code{t\_logprob}, \code{t\_update}, and periodically
+\code{eval\_acc}. Writing a row per step is cheap. Recomputing a missing metric afterwards
+means re-running the experiment.
+
+\begin{systemslens}[logging is part of the system]
+At scale, metrics come from hundreds of ranks. Reduce them \emph{before} logging: all-reduce
+the per-rank sums and counts of reward, tokens and entropy, never the per-rank means, which
+are biased when ranks hold different numbers of tokens. Log asynchronously so a slow
+metrics backend never stalls the trainer. Also log the \emph{throughput} metrics (tokens
+generated per second, tokens trained per second, sampler idle fraction). An RL run that
+learns correctly but uses its GPUs at 15\% is a bug too, just a more expensive one.
+\end{systemslens}
+
+\subsection{Inspecting the run}\label{sec:grpo2:inspect}
+
+RL metrics are noisy step to step, so we always plot the raw series faintly and a trailing
+moving average on top:
+
+\begin{lstlisting}[caption={Trailing moving average and a multi-panel metrics plot (\texttt{llmsys/rl/metrics.py}).},label={lst:grpo2:plot}]
+def moving_average(values, window):
+    out, s = [], 0.0
+    for i, v in enumerate(values):
+        s += v
+        if i >= window:
+            s -= values[i - window]
+        out.append(s / min(i + 1, window))   # shorter window at the start
+    return out
+
+plot_metrics("out18/baseline_s0.csv",
+             ["reward_avg", "adv_std", "entropy_avg", "zero_var_frac"])
+\end{lstlisting}
+
+What should a healthy run look like? Four series carry most of the information:
+\begin{itemize}
+\item \textbf{Loss.} A sanity check, nothing more. GRPO's loss is a weighted
+log-likelihood whose weights average to zero within every group. It is \emph{not} expected
+to decrease, and its magnitude reflects how much groups disagreed, not how good the
+model is. What \emph{is} alarming is a sudden order-of-magnitude jump, or frequent spikes
+late in a run.
+\item \textbf{Average reward.} Should trend upwards. A reward that sits at 1.0 is good news
+with a catch: every group is then zero-variance (\cref{sec:grpo:adv}) and the run has stopped
+learning. Stop it, or move to harder prompts (curriculum).
+\item \textbf{Response length.} On real reasoning tasks it typically \emph{grows} as the
+model learns to think longer. A length pinned at the token budget means rollouts are being
+truncated, so they earn no reward and push the policy in confusing directions. A collapsing
+length can mean the policy found a shortcut.
+\item \textbf{Held-out accuracy.} The quantity we care about, measured rarely because it is
+expensive (\cref{ch:eval}). A reward that keeps rising while held-out accuracy falls is the
+signature of reward hacking or overfitting to the training prompts.
+\end{itemize}
+A typical long run of plain GRPO on Qwen3-0.6B with MATH looks like this: reward and held-out
+accuracy both rise for the first few dozen steps. Over the following hundreds of steps the loss
+begins to spike more often, response length first grows and then falls, and MATH-500
+accuracy declines from its peak, even though it is measured on the same 500 problems
+throughout. A decline on a fixed evaluation set cannot be explained by later training
+prompts being harder. It points at the algorithm.
+
+\begin{napkinmath}[the cost of watching]
+Evaluating on MATH-500 with a 2048-token budget is 500 rollouts, about $10^6$ generated
+tokens. For a 0.6B model in an engine at about \num{10000} output tokens/s that is around 100\,s,
+cheap if done every 50 steps. With an in-loop, unbatched HF-style generator at about 30 tokens/s
+it is roughly 9 hours, which is why naive \code{--eval\_every} flags slow training to a crawl.
+Batch the evaluation (\cref{ch:serving}), run it on a separate replica from saved
+checkpoints, or evaluate on a fixed random subset of 100 problems and accept wider error
+bars ($\pm$10 points at 95\% confidence for accuracies near 50\%).
+\end{napkinmath}
+
+% ======================================================================
+\section{Tracking more advanced metrics}\label{sec:grpo2:advanced}
+
+Two quantities computed inside the GRPO step are worth logging even though they never
+appear in the loss: summary statistics of the advantages, and the entropy of the policy's
+next-token distributions.
+
+\subsection{Advantage statistics}\label{sec:grpo2:advstats}
+
+\begin{lstlisting}[caption={Advantage statistics.},label={lst:grpo2:advstats}]
+def advantage_stats(rewards):
+    r = torch.as_tensor(rewards, dtype=torch.float32)
+    adv = (r - r.mean()) / (r.std() + 1e-4)
+    return adv, adv.mean().item(), adv.std().item()
+\end{lstlisting}
+
+\emph{The mean is zero by construction.} Each group's advantages are mean-centred, so their
+mean is zero up to floating-point error. Logging it is a free unit test: a drifting
+\code{adv\_avg} means advantages are being normalised over the wrong axis (for example,
+across the whole batch instead of within groups) or masked incorrectly.
+
+\emph{The standard deviation measures the learning signal.} For a group with mixed rewards
+the std of the normalised advantages is $\approx1$. For a zero-variance group it is 0.
+Averaged over a batch, \code{adv\_std} therefore tracks roughly the fraction of groups that
+carry signal. Values near 1 mean healthy, well-scaled updates; values falling towards 0 mean
+the signal is vanishing (rewards all 0 or all 1); erratic spikes mean a few groups dominate.
+In practice it is clearer to log the fraction directly, which our trainer does as
+\code{zero\_var\_frac}. Read it together with the average reward: zero variance at reward 0
+means ``too hard'', at reward 1 ``solved''.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.7\linewidth,height=4.6cm,xlabel={per-prompt success rate $p$},
+  ylabel={$P(\text{zero-variance group})$},xmin=0,xmax=1,ymin=0,ymax=1,grid=major,grid style={gray!15},
+  legend style={font=\scriptsize,at={(0.5,0.97)},anchor=north},tick label style={font=\scriptsize}]
+\addplot[very thick,warnred,domain=0:1,samples=101] {x^4+(1-x)^4}; \addlegendentry{$G=4$}
+\addplot[very thick,sysblue,domain=0:1,samples=101] {x^8+(1-x)^8}; \addlegendentry{$G=8$}
+\addplot[very thick,keygreen,domain=0:1,samples=101] {x^16+(1-x)^16}; \addlegendentry{$G=16$}
+\end{axis}
+\end{tikzpicture}
+\caption{Probability that a group of $G$ binary-reward rollouts carries no gradient,
+$p^G+(1-p)^G$. Very easy and very hard prompts waste their rollouts. Larger groups help in
+the middle of the range but not at the ends, which is why prompt selection (curricula,
+DAPO's dynamic sampling) matters as much as $G$.}
+\label{fig:grpo2:zerovar}
+\end{figure}
+
+\subsection{Entropy}\label{sec:grpo2:entropy}
+
+Entropy measures how spread out the policy's next-token distribution is,
+\begin{equation}
+H(\pi(\cdot\mid s))=-\sum_{v\in\mathcal V}\pi(v\mid s)\log\pi(v\mid s)\in[0,\log|\mathcal V|].
+\end{equation}
+It is 0 when one token has all the mass and $\log|\mathcal V|$ when the distribution is
+uniform. RL needs \emph{some} entropy, since rollouts in a group only differ if the policy
+is uncertain somewhere, and every policy-gradient update tends to reduce it, since it
+concentrates mass on rewarded choices. Logging entropy shows which of the two forces is
+winning.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[ybar,width=0.75\linewidth,height=4.6cm,bar width=11pt,
+  symbolic x coords={7,8,6,9,1},xtick=data,xlabel={candidate next token after \texttt{\textbackslash boxed\{}},
+  ymin=0,ymax=0.7,legend style={font=\scriptsize,at={(0.98,0.97)},anchor=north east},
+  nodes near coords,every node near coord/.append style={font=\tiny},tick label style={font=\scriptsize},
+  enlarge x limits=0.15]
+\addplot[fill=sysblue!55,draw=none] coordinates {(7,0.603) (8,0.222) (6,0.135) (9,0.030) (1,0.011)};
+\addplot[fill=napkin!70,draw=none] coordinates {(7,0.305) (8,0.334) (6,0.270) (9,0.105) (1,0.050)};
+\legend{$p_v$,$-p_v\log p_v$}
+\end{axis}
+\end{tikzpicture}
+\caption{Entropy of one next-token distribution (a 5-token toy vocabulary, logits
+$2,1,0.5,-1,-2$). The entropy is the sum of the orange bars, $H=1.06$ nats, out of a maximum
+of $\log5=1.61$. Note that the most likely token does not contribute the most: the term
+$-p\log p$ peaks at $p=1/e$.}
+\label{fig:grpo2:entropybar}
+\end{figure}
+
+For orientation, with natural logarithms: per-token entropies near 0--0.5 mean the model is
+almost deterministic at that step; 1--2 means a handful of plausible tokens, which is typical
+of healthy text; values approaching $\log|\mathcal V|$ (11.9 for Qwen3) mean noise. Averaged
+over a reasoning trace, most tokens are near-deterministic and a few ``forking'' tokens carry
+most of the entropy. Two failure modes show up in the average:
+\emph{entropy collapse} (the policy stops exploring, groups become identical, learning stalls)
+and \emph{entropy explosion} (updates have damaged the model and it emits random tokens).
+
+Since \code{log\_softmax} already gives all log-probabilities, entropy costs one extra
+elementwise product and reduction. \Cref{lst:grpo2:entropy} extends the sequence log-prob
+function of \cref{ch:grpo} to return both.
+
+\begin{lstlisting}[caption={Sequence log-probability and mean per-step entropy in one pass.},label={lst:grpo2:entropy}]
+def sequence_logprob_and_entropy(model, token_ids, prompt_len):
+    logits = model(token_ids[None])[0].float()
+    logp = torch.log_softmax(logits, dim=-1)
+    picked = logp[:-1].gather(1, token_ids[1:, None]).squeeze(-1)[prompt_len-1:]
+    steps = logp[:-1][prompt_len - 1:]           # (|y|, V): one row per answer step
+    if steps.shape[0] == 0:                      # model emitted nothing
+        return picked.sum(), picked.new_tensor(0.0)
+    ent = -(steps.exp() * steps).sum(-1)         # H at every answer step
+    return picked.sum(), ent.mean().detach()     # entropy is a metric, not a loss
+\end{lstlisting}
+
+\begin{systemslens}[entropy is a full-vocabulary reduction]
+The log-probability of the sampled token needs one element per row; entropy needs \emph{all}
+$|\mathcal V|$ of them. In a trainer that uses a fused ``linear + cross-entropy'' kernel to
+avoid materialising logits, adding an entropy metric can silently bring back the
+$(N\cdot T)\times|\mathcal V|$ float32 tensor: $8\times1024\times\num{151936}\times4$\,B
+$\approx5$\,GB. Compute it in row chunks (\code{chunked\_logprob\_entropy} in the lab bounds
+the temporary to \code{chunk}$\times|\mathcal V|$), under \code{no\_grad}, and only on the
+``old log-prob'' pass that runs anyway, as \code{GRPOTrainer} does. Some trainers sample a
+subset of positions for entropy, which is fine for a metric.
+\end{systemslens}
+
+\subsection{Plotting the additional metrics}\label{sec:grpo2:plotadv}
+
+\Cref{fig:grpo2:baseline} shows the advanced metrics of our baseline run (\cref{ch:grpo}'s
+algorithm, seed 0). The average advantage stays at zero throughout, as it must. The other
+three curves tell one story. At the start about half the groups are zero-variance because
+all eight rollouts are \emph{wrong} (mostly unboxed). Within twenty steps the format is
+learned, the zero-variance fraction drops to about 15\%, and the advantage std peaks near
+0.87. From then on more and more prompts are solved by \emph{all} eight rollouts, the
+zero-variance fraction climbs back above 50\%, and the advantage std declines. By the end,
+half of every step's rollouts produce no gradient. Entropy decays smoothly from 0.53 to 0.09
+nats per token, a policy sharpening on a task with exactly one right answer per prompt. That
+is healthy here, but it would be a warning sign on open-ended reasoning, where exploration
+must survive.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 2,horizontal sep=1.5cm,vertical sep=1.1cm},
+  width=0.48\linewidth,height=4cm,xmin=0,xmax=150,grid=major,grid style={gray!15},
+  tick label style={font=\scriptsize},label style={font=\small}]
+\nextgroupplot[ylabel={advantage mean},ymin=-0.5,ymax=0.5]
+\addplot[sysblue!35,thin] coordinates {(1,0.000) (2,-0.000) (3,0.000) (4,0.000) (5,0.000) (6,0.000) (7,-0.000) (8,0.000) (9,-0.000) (10,-0.000) (11,0.000) (12,-0.000) (13,0.000) (14,-0.000) (15,0.000) (16,0.000) (17,-0.000) (18,-0.000) (19,-0.000) (20,-0.000) (21,-0.000) (22,0.000) (23,0.000) (24,0.000) (25,0.000) (26,0.000) (27,-0.000) (28,0.000) (29,-0.000) (30,0.000) (31,0.000) (32,-0.000) (33,0.000) (34,-0.000) (35,0.000) (36,-0.000) (37,-0.000) (38,0.000) (39,-0.000) (40,-0.000) (41,-0.000) (42,-0.000) (43,0.000) (44,-0.000) (45,0.000) (46,0.000) (47,-0.000) (48,-0.000) (49,-0.000) (50,-0.000) (51,0.000) (52,-0.000) (53,0.000) (54,0.000) (55,-0.000) (56,-0.000) (57,-0.000) (58,-0.000) (59,-0.000) (60,0.000) (61,0.000) (62,-0.000) (63,-0.000) (64,0.000) (65,-0.000) (66,-0.000) (67,0.000) (68,0.000) (69,0.000) (70,-0.000) (71,-0.000) (72,-0.000) (73,0.000) (74,-0.000) (75,0.000) (76,-0.000) (77,-0.000) (78,-0.000) (79,-0.000) (80,-0.000) (81,0.000) (82,0.000) (83,-0.000) (84,-0.000) (85,0.000) (86,0.000) (87,-0.000) (88,-0.000) (89,0.000) (90,0.000) (91,0.000) (92,-0.000) (93,-0.000) (94,-0.000) (95,-0.000) (96,-0.000) (97,0.000) (98,0.000) (99,-0.000) (100,-0.000) (101,0.000) (102,0.000) (103,0.000) (104,0.000) (105,-0.000) (106,-0.000) (107,-0.000) (108,-0.000) (109,0.000) (110,-0.000) (111,-0.000) (112,-0.000) (113,-0.000) (114,-0.000) (115,-0.000) (116,-0.000) (117,0.000) (118,-0.000) (119,-0.000) (120,-0.000) (121,0.000) (122,-0.000) (123,-0.000) (124,-0.000) (125,0.000) (126,-0.000) (127,-0.000) (128,0.000) (129,-0.000) (130,-0.000) (131,0.000) (132,-0.000) (133,-0.000) (134,-0.000) (135,0.000) (136,-0.000) (137,-0.000) (138,-0.000) (139,-0.000) (140,-0.000) (141,0.000) (142,0.000) (143,0.000) (144,0.000) (145,-0.000) (146,0.000) (147,0.000) (148,0.000) (149,-0.000) (150,0.000)};
+\addplot[sysblue,very thick] coordinates {(1,0.000) (3,0.000) (5,0.000) (7,0.000) (9,0.000) (11,0.000) (13,0.000) (15,0.000) (17,0.000) (19,0.000) (21,-0.000) (23,-0.000) (25,-0.000) (27,-0.000) (29,-0.000) (31,-0.000) (33,-0.000) (35,-0.000) (37,-0.000) (39,-0.000) (41,-0.000) (43,-0.000) (45,-0.000) (47,-0.000) (49,-0.000) (51,-0.000) (53,-0.000) (55,-0.000) (57,-0.000) (59,-0.000) (61,-0.000) (63,-0.000) (65,-0.000) (67,-0.000) (69,-0.000) (71,-0.000) (73,-0.000) (75,-0.000) (77,-0.000) (79,-0.000) (81,-0.000) (83,-0.000) (85,-0.000) (87,-0.000) (89,-0.000) (91,-0.000) (93,-0.000) (95,-0.000) (97,-0.000) (99,-0.000) (101,-0.000) (103,-0.000) (105,-0.000) (107,-0.000) (109,-0.000) (111,-0.000) (113,-0.000) (115,-0.000) (117,-0.000) (119,-0.000) (121,-0.000) (123,-0.000) (125,-0.000) (127,-0.000) (129,-0.000) (131,-0.000) (133,-0.000) (135,-0.000) (137,-0.000) (139,-0.000) (141,-0.000) (143,-0.000) (145,-0.000) (147,-0.000) (149,-0.000)};
+\nextgroupplot[ylabel={advantage std},ymin=0,ymax=1.1]
+\addplot[sysblue!35,thin] coordinates {(1,0.667) (2,0.667) (3,0.816) (4,0.943) (5,0.882) (6,0.816) (7,0.882) (8,0.943) (9,0.882) (10,0.882) (11,0.943) (12,0.943) (13,0.943) (14,0.745) (15,0.943) (16,0.943) (17,0.943) (18,0.882) (19,0.816) (20,0.882) (21,0.816) (22,0.882) (23,0.745) (24,0.943) (25,0.882) (26,0.745) (27,0.816) (28,0.882) (29,0.943) (30,0.745) (31,0.943) (32,0.577) (33,0.816) (34,0.667) (35,0.882) (36,0.667) (37,0.745) (38,0.882) (39,0.882) (40,0.882) (41,0.882) (42,0.745) (43,0.745) (44,0.816) (45,0.816) (46,0.882) (47,0.816) (48,0.882) (49,0.816) (50,0.816) (51,0.816) (52,0.943) (53,0.882) (54,0.745) (55,0.943) (56,0.816) (57,0.666) (58,0.816) (59,0.882) (60,0.745) (61,0.577) (62,0.816) (63,0.882) (64,0.745) (65,0.943) (66,0.745) (67,0.816) (68,0.816) (69,0.816) (70,0.745) (71,0.667) (72,0.745) (73,0.577) (74,0.816) (75,0.577) (76,0.816) (77,0.667) (78,0.882) (79,0.816) (80,0.667) (81,0.745) (82,0.745) (83,0.667) (84,0.882) (85,0.745) (86,0.667) (87,0.816) (88,0.667) (89,0.816) (90,0.577) (91,0.816) (92,0.816) (93,0.333) (94,0.577) (95,0.666) (96,0.816) (97,0.577) (98,0.745) (99,0.667) (100,0.667) (101,0.816) (102,0.745) (103,0.667) (104,0.816) (105,0.745) (106,0.816) (107,0.882) (108,0.816) (109,0.471) (110,0.667) (111,0.816) (112,0.745) (113,0.667) (114,0.745) (115,0.816) (116,0.577) (117,0.667) (118,0.577) (119,0.577) (120,0.816) (121,0.471) (122,0.577) (123,0.333) (124,0.666) (125,0.882) (126,0.667) (127,0.667) (128,0.745) (129,0.667) (130,0.577) (131,0.577) (132,0.666) (133,0.667) (134,0.577) (135,0.333) (136,0.667) (137,0.745) (138,0.666) (139,0.577) (140,0.666) (141,0.816) (142,0.667) (143,0.577) (144,0.577) (145,0.471) (146,0.577) (147,0.667) (148,0.745) (149,0.577) (150,0.667)};
+\addplot[sysblue,very thick] coordinates {(1,0.667) (3,0.716) (5,0.795) (7,0.810) (9,0.833) (11,0.847) (13,0.862) (15,0.860) (17,0.869) (19,0.867) (21,0.875) (23,0.883) (25,0.883) (27,0.876) (29,0.876) (31,0.869) (33,0.844) (35,0.837) (37,0.814) (39,0.817) (41,0.820) (43,0.813) (45,0.804) (47,0.811) (49,0.804) (51,0.802) (53,0.823) (55,0.830) (57,0.834) (59,0.830) (61,0.808) (63,0.819) (65,0.821) (67,0.815) (69,0.811) (71,0.800) (73,0.775) (75,0.761) (77,0.761) (79,0.761) (81,0.765) (83,0.751) (85,0.748) (87,0.744) (89,0.736) (91,0.735) (93,0.727) (95,0.719) (97,0.715) (99,0.700) (101,0.704) (103,0.704) (105,0.701) (107,0.711) (109,0.702) (111,0.706) (113,0.719) (115,0.735) (117,0.728) (119,0.715) (121,0.705) (123,0.680) (125,0.679) (127,0.661) (129,0.667) (131,0.651) (133,0.647) (135,0.614) (137,0.623) (139,0.627) (141,0.637) (143,0.654) (145,0.629) (147,0.624) (149,0.620)};
+\nextgroupplot[ylabel={entropy (nats)},ymin=0,ymax=0.7,xlabel={GRPO step}]
+\addplot[sysblue!35,thin] coordinates {(1,0.527) (2,0.499) (3,0.478) (4,0.480) (5,0.436) (6,0.425) (7,0.422) (8,0.421) (9,0.353) (10,0.342) (11,0.412) (12,0.357) (13,0.439) (14,0.303) (15,0.372) (16,0.308) (17,0.347) (18,0.346) (19,0.369) (20,0.320) (21,0.312) (22,0.303) (23,0.334) (24,0.317) (25,0.286) (26,0.296) (27,0.297) (28,0.288) (29,0.275) (30,0.304) (31,0.280) (32,0.197) (33,0.224) (34,0.203) (35,0.293) (36,0.214) (37,0.194) (38,0.263) (39,0.276) (40,0.298) (41,0.224) (42,0.237) (43,0.235) (44,0.280) (45,0.224) (46,0.274) (47,0.298) (48,0.278) (49,0.184) (50,0.196) (51,0.197) (52,0.239) (53,0.172) (54,0.249) (55,0.261) (56,0.237) (57,0.163) (58,0.223) (59,0.250) (60,0.175) (61,0.169) (62,0.186) (63,0.226) (64,0.216) (65,0.229) (66,0.155) (67,0.126) (68,0.226) (69,0.157) (70,0.156) (71,0.198) (72,0.173) (73,0.119) (74,0.214) (75,0.086) (76,0.224) (77,0.146) (78,0.194) (79,0.159) (80,0.150) (81,0.171) (82,0.160) (83,0.149) (84,0.132) (85,0.206) (86,0.151) (87,0.102) (88,0.167) (89,0.161) (90,0.118) (91,0.157) (92,0.089) (93,0.080) (94,0.135) (95,0.145) (96,0.179) (97,0.128) (98,0.161) (99,0.139) (100,0.094) (101,0.144) (102,0.115) (103,0.132) (104,0.157) (105,0.125) (106,0.111) (107,0.110) (108,0.136) (109,0.104) (110,0.159) (111,0.174) (112,0.165) (113,0.129) (114,0.102) (115,0.157) (116,0.086) (117,0.127) (118,0.091) (119,0.100) (120,0.125) (121,0.080) (122,0.073) (123,0.064) (124,0.111) (125,0.169) (126,0.105) (127,0.099) (128,0.093) (129,0.116) (130,0.082) (131,0.087) (132,0.094) (133,0.144) (134,0.105) (135,0.077) (136,0.123) (137,0.079) (138,0.085) (139,0.104) (140,0.104) (141,0.132) (142,0.084) (143,0.070) (144,0.035) (145,0.064) (146,0.065) (147,0.107) (148,0.085) (149,0.078) (150,0.091)};
+\addplot[sysblue,very thick] coordinates {(1,0.527) (3,0.501) (5,0.484) (7,0.467) (9,0.449) (11,0.436) (13,0.430) (15,0.418) (17,0.407) (19,0.402) (21,0.387) (23,0.370) (25,0.354) (27,0.342) (29,0.331) (31,0.323) (33,0.304) (35,0.295) (37,0.283) (39,0.274) (41,0.268) (43,0.260) (45,0.255) (47,0.254) (49,0.249) (51,0.239) (53,0.239) (55,0.240) (57,0.239) (59,0.236) (61,0.227) (63,0.224) (65,0.221) (67,0.206) (69,0.203) (71,0.201) (73,0.195) (75,0.184) (77,0.183) (79,0.177) (81,0.175) (83,0.170) (85,0.165) (87,0.164) (89,0.161) (91,0.157) (93,0.151) (95,0.150) (97,0.147) (99,0.144) (101,0.140) (103,0.137) (105,0.134) (107,0.132) (109,0.128) (111,0.131) (113,0.137) (115,0.136) (117,0.131) (119,0.126) (121,0.124) (123,0.119) (125,0.119) (127,0.118) (129,0.116) (131,0.108) (133,0.105) (135,0.101) (137,0.101) (139,0.101) (141,0.102) (143,0.103) (145,0.094) (147,0.093) (149,0.090)};
+\nextgroupplot[ylabel={zero-variance fraction},ymin=0,ymax=1.05,xlabel={GRPO step}]
+\addplot[sysblue!35,thin] coordinates {(1,0.500) (2,0.500) (3,0.250) (4,0.000) (5,0.125) (6,0.250) (7,0.125) (8,0.000) (9,0.125) (10,0.125) (11,0.000) (12,0.000) (13,0.000) (14,0.375) (15,0.000) (16,0.000) (17,0.000) (18,0.125) (19,0.250) (20,0.125) (21,0.250) (22,0.125) (23,0.375) (24,0.000) (25,0.125) (26,0.375) (27,0.250) (28,0.125) (29,0.000) (30,0.375) (31,0.000) (32,0.625) (33,0.250) (34,0.500) (35,0.125) (36,0.500) (37,0.375) (38,0.125) (39,0.125) (40,0.125) (41,0.125) (42,0.375) (43,0.375) (44,0.250) (45,0.250) (46,0.125) (47,0.250) (48,0.125) (49,0.250) (50,0.250) (51,0.250) (52,0.000) (53,0.125) (54,0.375) (55,0.000) (56,0.250) (57,0.500) (58,0.250) (59,0.125) (60,0.375) (61,0.625) (62,0.250) (63,0.125) (64,0.375) (65,0.000) (66,0.375) (67,0.250) (68,0.250) (69,0.250) (70,0.375) (71,0.500) (72,0.375) (73,0.625) (74,0.250) (75,0.625) (76,0.250) (77,0.500) (78,0.125) (79,0.250) (80,0.500) (81,0.375) (82,0.375) (83,0.500) (84,0.125) (85,0.375) (86,0.500) (87,0.250) (88,0.500) (89,0.250) (90,0.625) (91,0.250) (92,0.250) (93,0.875) (94,0.625) (95,0.500) (96,0.250) (97,0.625) (98,0.375) (99,0.500) (100,0.500) (101,0.250) (102,0.375) (103,0.500) (104,0.250) (105,0.375) (106,0.250) (107,0.125) (108,0.250) (109,0.750) (110,0.500) (111,0.250) (112,0.375) (113,0.500) (114,0.375) (115,0.250) (116,0.625) (117,0.500) (118,0.625) (119,0.625) (120,0.250) (121,0.750) (122,0.625) (123,0.875) (124,0.500) (125,0.125) (126,0.500) (127,0.500) (128,0.375) (129,0.500) (130,0.625) (131,0.625) (132,0.500) (133,0.500) (134,0.625) (135,0.875) (136,0.500) (137,0.375) (138,0.500) (139,0.625) (140,0.500) (141,0.250) (142,0.500) (143,0.625) (144,0.625) (145,0.750) (146,0.625) (147,0.500) (148,0.375) (149,0.625) (150,0.500)};
+\addplot[sysblue,very thick] coordinates {(1,0.500) (3,0.417) (5,0.275) (7,0.250) (9,0.208) (11,0.182) (13,0.154) (15,0.158) (17,0.140) (19,0.145) (21,0.131) (23,0.119) (25,0.119) (27,0.131) (29,0.131) (31,0.144) (33,0.188) (35,0.200) (37,0.244) (39,0.237) (41,0.231) (43,0.244) (45,0.263) (47,0.250) (49,0.263) (51,0.269) (53,0.231) (55,0.219) (57,0.212) (59,0.219) (61,0.256) (63,0.237) (65,0.231) (67,0.244) (69,0.250) (71,0.269) (73,0.312) (75,0.338) (77,0.338) (79,0.338) (81,0.331) (83,0.356) (85,0.362) (87,0.369) (89,0.381) (91,0.381) (93,0.388) (95,0.400) (97,0.406) (99,0.431) (101,0.425) (103,0.425) (105,0.431) (107,0.412) (109,0.425) (111,0.419) (113,0.406) (115,0.381) (117,0.394) (119,0.412) (121,0.425) (123,0.456) (125,0.456) (127,0.487) (129,0.481) (131,0.506) (133,0.512) (135,0.556) (137,0.544) (139,0.537) (141,0.525) (143,0.506) (145,0.544) (147,0.550) (149,0.556)};
+\end{groupplot}
+\end{tikzpicture}
+\caption{Advanced metrics of the baseline (Chapter~27) GRPO run on the toy task, seed 0,
+measured on CPU. The advantage mean is zero by construction (a free correctness check). The
+advantage std and the zero-variance fraction mirror each other: as more prompts are solved
+by all 8 rollouts, fewer groups carry signal. Entropy falls as the policy sharpens.}
+\label{fig:grpo2:baseline}
+\end{figure}
+
+% ======================================================================
+\section{Stabilising updates with clipped policy ratios}\label{sec:grpo2:clip}
+
+\subsection{Where the ratio comes from}\label{sec:grpo2:ratio}
+
+The policy-gradient estimator of \cref{eq:grpo:pg} assumes the rollouts were sampled from the
+\emph{current} policy $\pitheta$. After one optimiser step that is no longer true: the
+rollouts came from the snapshot $\piold$ that generated them. If we want to reuse a batch
+of expensive rollouts for several updates, or if the sampler runs a few steps behind the
+trainer (\cref{ch:rlsys}), we must correct for the mismatch. Importance sampling does this:
+\begin{equation}
+\E_{y\sim\pitheta}\!\big[A\,\nabla\log\pitheta(y)\big]
+=\E_{y\sim\piold}\!\Big[\frac{\pitheta(y)}{\piold(y)}A\,\nabla\log\pitheta(y)\Big]
+=\E_{y\sim\piold}\!\big[A\,\nabla\rho(y)\big],\qquad \rho=\frac{\pitheta(y)}{\piold(y)},
+\end{equation}
+so maximising the \emph{surrogate} $\E_{\piold}[\rho A]$ has the right gradient. The ratio
+equals 1 on the first update after sampling (which is why the summed-log-prob loss of
+\cref{ch:grpo} gives the same gradient) and drifts away from 1 with every further update on
+the same data. Unchecked, the surrogate can be pushed arbitrarily high by making $\rho$ huge
+on positive-advantage samples. The estimate is then dominated by a few samples and the
+policy leaves the region where the old samples say anything about it.
+
+PPO's answer is to clip the ratio to a trust region $[1-\varepsilon,1+\varepsilon]$ and take
+the pessimistic minimum:
+\begin{equation}
+\ell^{\text{clip}}(\rho,A)=\min\big(\rho A,\ \clip(\rho,1-\varepsilon,1+\varepsilon)A\big).
+\label{eq:grpo2:clip}
+\end{equation}
+\Cref{fig:grpo2:clipobj} shows what the minimum does. For a good sample ($A>0$) the
+objective stops increasing once $\rho>1+\varepsilon$: there is no reward for making it
+\emph{even} more likely in this update, so its gradient is zero. For a bad sample ($A<0$) the
+objective stops improving once $\rho<1-\varepsilon$. In the opposite directions, a good sample
+whose probability has \emph{dropped} or a bad sample whose probability has \emph{risen}, the
+unclipped term is the smaller one and the gradient stays on to correct the mistake.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1,horizontal sep=1.6cm},width=0.47\linewidth,height=4.4cm,
+  xmin=0,xmax=2,xlabel={ratio $\rho=\pitheta/\piold$},grid=major,grid style={gray!15},
+  tick label style={font=\scriptsize},label style={font=\small},title style={font=\small}]
+\nextgroupplot[title={$A=+1$},ymin=-0.1,ymax=2.1,ylabel={$\ell^{\text{clip}}$}]
+\addplot[gray,dashed,domain=0:2] {x};
+\addplot[very thick,keygreen,domain=0:1.2] {x};
+\addplot[very thick,keygreen,domain=1.2:2] {1.2};
+\addplot[fill=keygreen!12,draw=none] coordinates {(1.2,-0.1)(2,-0.1)(2,2.1)(1.2,2.1)} \closedcycle;
+\node[font=\scriptsize,align=center,keygreen!70!black] at (axis cs:1.6,0.55) {flat:\\no gradient};
+\node[font=\scriptsize,gray] at (axis cs:1.75,1.9) {$\rho A$};
+\nextgroupplot[title={$A=-1$},ymin=-2.1,ymax=0.1]
+\addplot[gray,dashed,domain=0:2] {-x};
+\addplot[very thick,warnred,domain=0:0.8] {-0.8};
+\addplot[very thick,warnred,domain=0.8:2] {-x};
+\addplot[fill=warnred!10,draw=none] coordinates {(0,-2.1)(0.8,-2.1)(0.8,0.1)(0,0.1)} \closedcycle;
+\node[font=\scriptsize,align=center,warnred!70!black] at (axis cs:0.4,-1.4) {flat:\\no gradient};
+\end{groupplot}
+\end{tikzpicture}
+\caption{The clipped surrogate of \cref{eq:grpo2:clip} with $\varepsilon=0.2$ (solid) versus
+the unclipped $\rho A$ (dashed). Shaded regions are where the clip binds and the sample's
+gradient is zero: moving further in the direction the advantage wants brings no further
+credit within this update. Moving the wrong way is never clipped.}
+\label{fig:grpo2:clipobj}
+\end{figure}
+
+A worked example on the four rollouts of \cref{fig:grpo:step} makes this concrete. Suppose
+that after some updates the current policy's sequence log-probabilities are
+$(-2.269,-3.059,-1.299,-3.400)$, while the snapshot that sampled them had
+$(-2.469,-2.659,-1.299,-3.100)$. Then
+
+\begin{center}\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+rollout & $A_i$ & $\rho_i=e^{\Delta\log\pi}$ & $\clip(\rho_i,0.8,1.2)$ & $\min(\rho A,\clip(\rho)A)$\\
+\midrule
+\verb|\boxed{7}|              & $+0.866$ & 1.221 & 1.200 & $1.039$ (clipped)\\
+\verb|<think>..\boxed{7}| & $+0.866$ & 0.670 & 0.800 & $0.581$ (unclipped)\\
+\verb|7|                      & $-0.866$ & 1.000 & 1.000 & $-0.866$\\
+\verb|\boxed{8}|              & $-0.866$ & 0.741 & 0.800 & $-0.693$ (clipped)\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The clipped loss is $-\frac14\sum\ell^{\text{clip}}_i=-0.0152$, against $-0.0327$
+unclipped. Two rollouts no longer contribute gradient. The first boxed answer has already
+been made 22\% more likely, and the wrong boxed answer 26\% less likely, so both are
+``done'' for this batch. The second correct answer became \emph{less} likely, an error
+the unclipped branch keeps correcting.
+
+\begin{lstlisting}[caption={Policy ratios and the clipped loss (sequence level, as in this section).},label={lst:grpo2:clip}]
+def clipped_policy_loss(new_logps, old_logps, advantages,
+                        eps_low=0.2, eps_high=0.2):
+    ratio = torch.exp(new_logps - old_logps.detach())
+    adv = advantages.detach()
+    unclipped = ratio * adv
+    clipped = torch.clamp(ratio, 1 - eps_low, 1 + eps_high) * adv
+    obj = torch.minimum(unclipped, clipped)
+    clip_frac = (clipped < unclipped).float().mean().item()  # clip binds
+    return -obj.mean(), ratio.mean().item(), clip_frac
+\end{lstlisting}
+
+\paragraph{Choosing $\varepsilon$.} Classic PPO for RLHF uses $\varepsilon\in[0.1,0.2]$,
+which is aggressive clipping and small per-update changes. Reasoning-RL recipes span a wide
+range, and some large runs reportedly used very loose clipping, where $\varepsilon$ is so large
+that only extreme ratios are touched. The right value depends on how many times each rollout
+is reused and how stale the sampler is. Two refinements are common. \emph{Asymmetric} clipping
+($\varepsilon_{\text{low}}<\varepsilon_{\text{high}}$, DAPO's ``clip-higher'') lets rare good
+tokens grow faster than common ones shrink, which counteracts entropy collapse.
+\emph{Sequence-level} versus \emph{token-level} ratios is the other choice: this section's
+listing clips the ratio of whole-sequence probabilities, while the GRPO paper clips every
+token's ratio $\rho_{i,t}$ separately (\cref{eq:grpo:full}). Token-level ratios are numerically
+tamer, because a sequence ratio is a product of thousands of per-token ratios. GSPO
+(\cref{sec:grpo2:more}) goes back to the sequence level but takes a geometric mean.
+
+\begin{keyidea}[log the ratio, not just the loss]
+Two cheap diagnostics come with clipping: the mean ratio (should hover near 1; persistent
+drift means the policy is moving faster than the batch can support) and the
+\emph{clip fraction} (fraction of tokens where the clip binds). A clip fraction near 0
+means clipping is idle and $\varepsilon$ or the reuse can be increased. One above 0.2--0.3
+means most of the batch is being ignored and updates are too aggressive.
+\end{keyidea}
+
+\subsection{Training with clipped ratios: three snapshots of one policy}\label{sec:grpo2:clipstrain}
+
+Clipping only does something if the same rollouts are seen by more than one optimiser step,
+so implementing it forces an explicit choice about \emph{which version} of the policy each
+quantity comes from. A GRPO implementation juggles three snapshots (\cref{fig:grpo2:snapshots}):
+\begin{itemize}
+\item $\pitheta$, the live weights, changed by every optimiser step;
+\item $\piold$, the weights that generated the current rollout batch, refreshed every time a
+new batch is sampled. Its log-probabilities are computed once per batch under \code{no\_grad}
+and stored as numbers, not as a model copy;
+\item $\piref$, the frozen anchor for the KL term (\cref{sec:grpo2:kl}), usually the
+initial model, refreshed rarely if ever.
+\end{itemize}
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[>={Stealth[length=2mm]},font=\small]
+\draw[->,thick] (0,0)--(13.2,0) node[right,font=\scriptsize]{optimiser steps};
+\foreach \x in {0.5,1.2,...,12.5} \draw (\x,-0.07)--(\x,0.07);
+\node[anchor=east,font=\scriptsize] at (-0.1,0) {$\pitheta$};
+% batches
+\foreach \b/\xa/\xb in {1/0.3/4.4,2/4.5/8.6,3/8.7/12.8} {
+  \draw[fill=fcompute!15,draw=fcompute,rounded corners=2pt] (\xa,0.45) rectangle (\xb,1.05);
+  \node[font=\scriptsize] at ({(\xa+\xb)/2},0.75) {batch \b: $\piold$ fixed, $k$ updates};
+  \draw[->,fcompute] (\xa+0.05,1.05) -- (\xa+0.05,1.45);
+}
+\node[anchor=east,font=\scriptsize] at (-0.1,0.75) {$\piold$};
+\node[font=\scriptsize,fcompute] at (0.6,1.65) {sample};
+\node[font=\scriptsize,fcompute] at (4.8,1.65) {sample};
+\node[font=\scriptsize,fcompute] at (9.0,1.65) {sample};
+\draw[fill=gray!15,draw=gray,rounded corners=2pt] (0.3,-0.55) rectangle (12.8,-1.1);
+\node[font=\scriptsize] at (6.5,-0.82) {$\piref$: frozen initial model (or refreshed every few hundred steps)};
+\node[anchor=east,font=\scriptsize] at (-0.1,-0.82) {$\piref$};
+\end{tikzpicture}}
+\caption{Three snapshots of one policy. Each rollout batch fixes $\piold$ (stored as
+log-probabilities). The live $\pitheta$ takes several minibatch steps on that batch, and the
+ratio $\pitheta/\piold$ measures how far it has moved; clipping bounds that. $\piref$
+anchors the whole run through the KL term.}
+\label{fig:grpo2:snapshots}
+\end{figure}
+
+DeepSeek-R1-style training samples one large rollout pool per iteration (thousands of
+completions), then walks through it in many minibatches, each an optimiser step, before
+sampling again. Later minibatches therefore see ratios well away from 1, and clipping does
+real work. Our trainer exposes the same structure through two knobs of
+\code{GRPOConfig}: \code{minibatches} (how many optimiser steps one batch is split into) and
+\code{inner\_epochs} (how many passes over the batch). With \code{inner\_epochs=1} and
+\code{minibatches=1}, every ratio is exactly 1, the clipped loss reduces to
+\cref{ch:grpo}'s gradient, and the clip never binds. (In that setting the logged loss is also
+exactly zero, a computational artefact, because $\rho\equiv1$ and the advantages are
+mean-zero.)
+
+\begin{systemslens}[rollout reuse is a throughput knob]
+Reusing each rollout batch for $k$ optimiser steps divides the sampling cost per step by
+$k$. Since sampling dominates (\cref{sec:grpo:loop}), $k=2$--4 can nearly halve wall-clock time
+per update. The price is off-policyness, and clipping is what makes it affordable. The same
+mathematics covers \emph{asynchronous} RL, where the sampler generates batch $n{+}1$ with
+weights from step $n-s$ while the trainer is at step $n$. To the loss, a stale sampler looks
+exactly like rollout reuse, and the ratio and clip absorb it, up to a point (\cref{ch:rlsys}).
+\end{systemslens}
+
+\paragraph{What the toy shows.} We ran two reuse settings from the same SFT start
+(\cref{fig:grpo2:clipruns}). With \emph{moderate} reuse, four full passes over each rollout
+batch at the base learning rate, the unclipped run stalled at a reward near 0.5 and ended
+with greedy accuracy 0.62 and 0.50 (two seeds). The clipped run ($\varepsilon=0.2$) matched
+the no-reuse baseline: 0.88 and 0.95, against 0.89 and 0.96. Its clip fraction was only
+2--3\%. A few runaway tokens per batch are enough to derail the unclipped run, and these
+are precisely the ones clipping silences. With \emph{aggressive} reuse, eight optimiser steps
+per batch at three times the learning rate, \emph{both} runs collapsed: entropy fell to
+0.01--0.06, every group became uniformly wrong (zero-variance fraction $\approx1$), and greedy
+accuracy ended at 0.07--0.16. The lesson is about what clipping does and does not bound. It
+bounds the drift \emph{within} one batch relative to $\piold$. Every new batch opens a new
+trust region, so clipping is no substitute for a sensible learning rate.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1,horizontal sep=1.5cm},width=0.48\linewidth,height=4.3cm,
+  xmin=0,xmax=150,xlabel={GRPO step},grid=major,grid style={gray!15},tick label style={font=\scriptsize},label style={font=\small}]
+\nextgroupplot[ylabel={reward (train)},ymin=0,ymax=1.0,legend to name=cliplegend,legend columns=3,legend style={font=\scriptsize,draw=none}]
+\addplot[gray,very thick] coordinates {(1,0.102) (4,0.195) (7,0.241) (10,0.293) (13,0.332) (16,0.391) (19,0.437) (22,0.483) (25,0.504) (28,0.522) (31,0.528) (34,0.545) (37,0.574) (40,0.590) (43,0.598) (46,0.609) (49,0.630) (52,0.624) (55,0.641) (58,0.643) (61,0.653) (64,0.654) (67,0.652) (70,0.649) (73,0.655) (76,0.654) (79,0.658) (82,0.689) (85,0.701) (88,0.737) (91,0.756) (94,0.781) (97,0.772) (100,0.781) (103,0.782) (106,0.786) (109,0.796) (112,0.804) (115,0.822) (118,0.835) (121,0.834) (124,0.824) (127,0.824) (130,0.809) (133,0.799) (136,0.806) (139,0.817) (142,0.814) (145,0.837) (148,0.836) (150,0.831)};
+\addlegendentry{baseline (no reuse)}
+\addplot[warnred,very thick] coordinates {(1,0.102) (4,0.328) (7,0.348) (10,0.392) (13,0.377) (16,0.435) (19,0.457) (22,0.466) (25,0.441) (28,0.486) (31,0.457) (34,0.456) (37,0.459) (40,0.500) (43,0.480) (46,0.518) (49,0.503) (52,0.503) (55,0.496) (58,0.487) (61,0.473) (64,0.504) (67,0.513) (70,0.512) (73,0.523) (76,0.499) (79,0.473) (82,0.466) (85,0.457) (88,0.450) (91,0.508) (94,0.550) (97,0.552) (100,0.535) (103,0.555) (106,0.506) (109,0.463) (112,0.486) (115,0.506) (118,0.529) (121,0.564) (124,0.591) (127,0.588) (130,0.594) (133,0.587) (136,0.554) (139,0.527) (142,0.494) (145,0.530) (148,0.523) (150,0.526)};
+\addlegendentry{4 passes, no clip}
+\addplot[keygreen,very thick] coordinates {(1,0.102) (4,0.242) (7,0.335) (10,0.398) (13,0.427) (16,0.512) (19,0.578) (22,0.605) (25,0.631) (28,0.659) (31,0.624) (34,0.632) (37,0.656) (40,0.685) (43,0.698) (46,0.725) (49,0.750) (52,0.746) (55,0.740) (58,0.737) (61,0.753) (64,0.761) (67,0.771) (70,0.760) (73,0.767) (76,0.753) (79,0.749) (82,0.760) (85,0.778) (88,0.794) (91,0.820) (94,0.828) (97,0.802) (100,0.784) (103,0.791) (106,0.791) (109,0.783) (112,0.822) (115,0.830) (118,0.818) (121,0.805) (124,0.816) (127,0.807) (130,0.805) (133,0.809) (136,0.786) (139,0.766) (142,0.770) (145,0.790) (148,0.792) (150,0.811)};
+\addlegendentry{4 passes, clip $\varepsilon=0.2$}
+\addplot[warnred!50,dashed,very thick] coordinates {(1,0.102) (4,0.281) (7,0.251) (10,0.255) (13,0.218) (16,0.208) (19,0.161) (22,0.160) (25,0.131) (28,0.129) (31,0.131) (34,0.118) (37,0.111) (40,0.118) (43,0.130) (46,0.140) (49,0.169) (52,0.144) (55,0.130) (58,0.111) (61,0.086) (64,0.074) (67,0.083) (70,0.078) (73,0.086) (76,0.095) (79,0.088) (82,0.099) (85,0.099) (88,0.094) (91,0.090) (94,0.133) (97,0.117) (100,0.133) (103,0.133) (106,0.150) (109,0.108) (112,0.100) (115,0.083) (118,0.096) (121,0.075) (124,0.062) (127,0.071) (130,0.067) (133,0.056) (136,0.068) (139,0.084) (142,0.080) (145,0.101) (148,0.098) (150,0.111)};
+\addlegendentry{8 steps/batch, lr$\times3$, no clip}
+\addplot[keygreen!60!black,dashed,very thick] coordinates {(1,0.102) (4,0.293) (7,0.271) (10,0.278) (13,0.282) (16,0.281) (19,0.250) (22,0.245) (25,0.236) (28,0.222) (31,0.229) (34,0.226) (37,0.233) (40,0.247) (43,0.246) (46,0.225) (49,0.235) (52,0.211) (55,0.185) (58,0.166) (61,0.177) (64,0.167) (67,0.201) (70,0.205) (73,0.227) (76,0.221) (79,0.221) (82,0.213) (85,0.214) (88,0.204) (91,0.205) (94,0.196) (97,0.166) (100,0.156) (103,0.148) (106,0.166) (109,0.191) (112,0.209) (115,0.207) (118,0.211) (121,0.199) (124,0.179) (127,0.146) (130,0.154) (133,0.138) (136,0.121) (139,0.121) (142,0.146) (145,0.130) (148,0.152) (150,0.161)};
+\addlegendentry{8 steps/batch, lr$\times3$, clip}
+\nextgroupplot[ylabel={entropy (nats)},ymin=0,ymax=0.6]
+\addplot[gray,very thick] coordinates {(1,0.532) (4,0.500) (7,0.467) (10,0.446) (13,0.435) (16,0.409) (19,0.384) (22,0.365) (25,0.351) (28,0.331) (31,0.319) (34,0.292) (37,0.275) (40,0.263) (43,0.250) (46,0.243) (49,0.246) (52,0.240) (55,0.230) (58,0.228) (61,0.219) (64,0.210) (67,0.203) (70,0.194) (73,0.185) (76,0.178) (79,0.173) (82,0.171) (85,0.171) (88,0.163) (91,0.160) (94,0.153) (97,0.151) (100,0.146) (103,0.144) (106,0.140) (109,0.137) (112,0.137) (115,0.132) (118,0.127) (121,0.120) (124,0.120) (127,0.114) (130,0.110) (133,0.113) (136,0.113) (139,0.110) (142,0.109) (145,0.102) (148,0.096) (150,0.096)};
+\addplot[warnred,very thick] coordinates {(1,0.532) (4,0.438) (7,0.384) (10,0.343) (13,0.318) (16,0.278) (19,0.228) (22,0.191) (25,0.172) (28,0.154) (31,0.144) (34,0.126) (37,0.123) (40,0.114) (43,0.104) (46,0.093) (49,0.093) (52,0.088) (55,0.082) (58,0.079) (61,0.079) (64,0.077) (67,0.072) (70,0.068) (73,0.068) (76,0.068) (79,0.073) (82,0.073) (85,0.073) (88,0.073) (91,0.067) (94,0.060) (97,0.064) (100,0.065) (103,0.067) (106,0.068) (109,0.068) (112,0.065) (115,0.061) (118,0.055) (121,0.053) (124,0.058) (127,0.052) (130,0.055) (133,0.054) (136,0.052) (139,0.049) (142,0.057) (145,0.052) (148,0.056) (150,0.059)};
+\addplot[keygreen,very thick] coordinates {(1,0.532) (4,0.457) (7,0.402) (10,0.365) (13,0.334) (16,0.285) (19,0.235) (22,0.203) (25,0.179) (28,0.160) (31,0.163) (34,0.151) (37,0.140) (40,0.132) (43,0.126) (46,0.116) (49,0.110) (52,0.105) (55,0.104) (58,0.103) (61,0.097) (64,0.092) (67,0.091) (70,0.087) (73,0.083) (76,0.085) (79,0.086) (82,0.085) (85,0.079) (88,0.073) (91,0.064) (94,0.057) (97,0.055) (100,0.053) (103,0.056) (106,0.056) (109,0.056) (112,0.051) (115,0.053) (118,0.052) (121,0.051) (124,0.051) (127,0.054) (130,0.051) (133,0.050) (136,0.056) (139,0.059) (142,0.059) (145,0.056) (148,0.055) (150,0.051)};
+\addplot[warnred!50,dashed,very thick] coordinates {(1,0.532) (4,0.305) (7,0.218) (10,0.179) (13,0.160) (16,0.123) (19,0.099) (22,0.096) (25,0.099) (28,0.090) (31,0.080) (34,0.064) (37,0.053) (40,0.043) (43,0.039) (46,0.038) (49,0.046) (52,0.048) (55,0.043) (58,0.048) (61,0.049) (64,0.044) (67,0.047) (70,0.046) (73,0.042) (76,0.037) (79,0.034) (82,0.026) (85,0.023) (88,0.020) (91,0.019) (94,0.017) (97,0.016) (100,0.019) (103,0.018) (106,0.018) (109,0.018) (112,0.019) (115,0.019) (118,0.018) (121,0.019) (124,0.021) (127,0.019) (130,0.019) (133,0.024) (136,0.025) (139,0.026) (142,0.029) (145,0.029) (148,0.026) (150,0.025)};
+\addplot[keygreen!60!black,dashed,very thick] coordinates {(1,0.532) (4,0.355) (7,0.273) (10,0.251) (13,0.222) (16,0.174) (19,0.141) (22,0.125) (25,0.101) (28,0.091) (31,0.089) (34,0.078) (37,0.076) (40,0.082) (43,0.082) (46,0.079) (49,0.070) (52,0.061) (55,0.051) (58,0.053) (61,0.053) (64,0.059) (67,0.059) (70,0.054) (73,0.045) (76,0.043) (79,0.040) (82,0.047) (85,0.050) (88,0.055) (91,0.057) (94,0.064) (97,0.065) (100,0.065) (103,0.062) (106,0.058) (109,0.047) (112,0.046) (115,0.048) (118,0.053) (121,0.056) (124,0.061) (127,0.066) (130,0.063) (133,0.057) (136,0.055) (139,0.053) (142,0.044) (145,0.040) (148,0.038) (150,0.034)};
+\end{groupplot}
+\node at ($(group c1r1.south)!0.5!(group c2r1.south)+(0,-1.25)$) {\pgfplotslegendfromname{cliplegend}};
+\end{tikzpicture}
+\caption{Rollout reuse with and without clipping on the toy task (mean of two seeds, 15-step
+moving average, measured on CPU). With four passes over each batch, the unclipped run stalls near a reward of 0.5
+while the clipped run tracks the baseline. With eight
+optimiser steps per batch at three times the learning rate, both runs collapse: entropy
+falls towards zero and every group becomes uniformly wrong. Clipping bounds the drift
+\emph{within} a batch, not the step size across batches.}
+\label{fig:grpo2:clipruns}
+\end{figure}
+
+% ======================================================================
+\section{Controlling drift with a KL penalty}\label{sec:grpo2:kl}
+
+If you know classical RL you will recognise what we have so far. The update of \cref{ch:grpo}
+is REINFORCE with a group baseline, and with the ratio and clip it becomes PPO without a
+critic. The last ingredient of the original GRPO objective is a penalty on the
+Kullback--Leibler divergence between the current policy and a fixed reference policy, usually
+the model we started from:
+\begin{equation}
+\KL(\pitheta\,\|\,\piref)=\E_{y\sim\pitheta}\Big[\log\frac{\pitheta(y\mid x)}{\piref(y\mid x)}\Big]\ \ge 0.
+\end{equation}
+Clipping and KL are complementary leashes. Clipping limits how far the policy moves
+\emph{within one batch}, relative to the snapshot that sampled it. The KL term limits how far it
+moves \emph{over the whole run}, relative to where it started. The motivation in RLHF was
+protection against reward hacking, keeping the policy in the region where the reward model is
+trustworthy. With verifiable rewards there is no reward model to fool, which is one reason
+recent work questions the term (below).
+
+\subsection{Implementing the KL term}\label{sec:grpo2:klimpl}
+
+We can only evaluate the KL on the samples we have, so we need a Monte Carlo
+\emph{estimator}. Writing $r=\piref(y_t)/\pitheta(y_t)$ for a sampled token, three estimators
+are in common use (\cref{fig:grpo2:klest}):
+\begin{equation}
+k_1=-\log r,\qquad k_2=\tfrac12(\log r)^2,\qquad k_3=r-1-\log r .
+\end{equation}
+$k_1$ is unbiased (its expectation under $\pitheta$ is exactly the KL) but has high variance
+and is negative for half the samples. $k_2$ is always non-negative and low-variance but
+biased. $k_3$, popularised by John Schulman's note on KL approximation and adopted by GRPO,
+is unbiased (since $\E_{\pitheta}[r]=1$) \emph{and} always non-negative, because
+$r-1\ge\log r$. GRPO applies $k_3$ per token, averages it like the policy term, and adds
+$\beta\,\mathbb{D}_{i,t}$ to the per-token loss with $\beta$ around 0.001--0.05.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.7\linewidth,height=4.8cm,xmin=0.2,xmax=3,ymin=-1.2,ymax=1.7,
+  xlabel={$r=\piref(y_t)/\pitheta(y_t)$},ylabel={per-sample estimate},grid=major,grid style={gray!15},
+  legend style={font=\scriptsize,at={(0.5,0.98)},anchor=north,legend columns=3},tick label style={font=\scriptsize}]
+\addplot[very thick,warnred,domain=0.2:3,samples=80] {-ln(x)}; \addlegendentry{$k_1=-\log r$}
+\addplot[very thick,napkin,domain=0.2:3,samples=80] {0.5*ln(x)^2}; \addlegendentry{$k_2$}
+\addplot[very thick,sysblue,domain=0.2:3,samples=80] {x-1-ln(x)}; \addlegendentry{$k_3$}
+\draw[gray,dashed] (axis cs:1,-1.2)--(axis cs:1,1.7);
+\end{axis}
+\end{tikzpicture}
+\caption{Three per-sample KL estimators as functions of the likelihood ratio. All are zero
+when policy and reference agree ($r=1$). $k_1$ goes negative whenever the policy is more
+confident than the reference; $k_3$ is non-negative and has zero slope at $r=1$, so small
+deviations are penalised gently.}
+\label{fig:grpo2:klest}
+\end{figure}
+
+The most direct implementation, our \code{kl\_kind="seq\_simple"}, is the
+simplest possible \emph{sequence-level} surrogate: $\beta\cdot\operatorname{mean}_i\big(\log\pitheta(y_i)-\log\piref(y_i)\big)$
+with summed log-probabilities, i.e.\ $k_1$ summed over the sequence. It needs one extra
+forward pass of a frozen model copy per batch:
+
+\begin{lstlisting}[caption={Adding a KL term (sequence surrogate and the importance-weighted variant).},label={lst:grpo2:kl}]
+ref_model = copy.deepcopy(model).eval()    # frozen anchor: +1 weight copy
+for p in ref_model.parameters():
+    p.requires_grad_(False)
+...
+with torch.no_grad():
+    ref_logp = sequence_logprob(ref_model, ids, prompt_len)  # per rollout
+...
+pg_loss = -(adv.detach() * logps).mean()
+kl_loss = kl_coeff * (logps - ref_logps).mean()      # simple surrogate
+# importance-weighted (rollouts came from pi_old, not pi_theta):
+w = torch.exp(logps - old_logps).detach()
+kl_loss_is = kl_coeff * (w * (logps - ref_logps)).mean()
+loss = pg_loss + kl_loss
+\end{lstlisting}
+
+\begin{napkinmath}[what the reference model costs]
+Memory: one more bf16 copy of the weights (1.2\,GB for 0.6B, 16\,GB for 8B, 140\,GB for 70B).
+Compute: one more forward pass over every rollout, $2N$ FLOPs per token, about one third of a
+training step's $6N$. For large models, reference log-probs are often computed by the
+\emph{rollout} workers or a dedicated reference worker (\cref{ch:rlsys}). With LoRA training
+(\cref{ch:instruct}) the reference is free: it is the same weights with the adapter
+disabled.
+\end{napkinmath}
+
+\subsection{Training with a KL term}\label{sec:grpo2:kltrain}
+
+This simple surrogate can fail instructively when it is added to a long GRPO run on a small
+model such as Qwen3-0.6B (with $\beta$ around $0.02$). Accuracy first improves as usual. Then the loss explodes,
+rewards collapse to zero, MATH-500 accuracy follows, and inspecting the samples shows random
+code-like token salad. Understanding \emph{why} is more useful than the fix:
+\begin{enumerate}
+\item \textbf{Wrong distribution.} The KL is an expectation under $\pitheta$, but the rollouts
+were sampled from $\piold$. On those fixed samples, with $\log\piref$ a constant, minimising
+$\log\pitheta(y)-\log\piref(y)$ simply means making the sampled sequences \emph{less likely}.
+That is not ``stay close to the reference''. It is ``move away from whatever you just did''.
+\item \textbf{No length normalisation.} Summed log-probabilities make the term scale with
+response length, so long rollouts dominate it.
+\item \textbf{It is the last gradient standing.} Once rewards collapse (all groups wrong),
+every advantage is zero and the policy term vanishes. The KL surrogate is then the
+\emph{only} source of gradient, and it keeps pushing probability away from sampled tokens,
+which flattens the distributions and raises entropy. That feeds more garbage into the next
+batch, a self-reinforcing collapse.
+\end{enumerate}
+
+Several remedies follow from that diagnosis: a much smaller $\beta$ (often not enough on its own); length-normalised (per-token) log-probabilities; the
+unbiased $k_3$ estimator computed per token; the importance-weighted form of DeepSeek-V3.2,
+$\beta\,\E_{\piold}[\rho\cdot(\log\pitheta-\log\piref)]$, which corrects for sampling from
+$\piold$; or a small auxiliary reward (\cref{sec:grpo2:format}) so the policy term never
+vanishes entirely. Or remove the term. For math RLVR, Dr.~GRPO, the OLMo~3 team and
+DeepSeek-V3.2 all report equal or better results with the KL weight at or near zero, and
+dropping it also removes the reference model's memory and compute.
+
+\paragraph{What the toy shows.} Neither KL variant destabilised our short runs.
+With $\beta=0.02$, the sequence surrogate reached greedy accuracy 0.93 and 0.98 and per-token
+$k_3$ (inside the token-level clipped loss) 0.91 and 0.97, both statistically
+indistinguishable from the baseline's 0.89 and 0.96. That is consistent with the diagnosis
+above. The surrogate is only dangerous once rewards collapse and it becomes the sole
+gradient, and on the toy task rewards rise monotonically, so mechanism (3) never fires.
+Exercise~28.5 isolates the mechanism directly by training on a batch with zero advantages.
+Two systems observations from these runs: the reference forward pass doubled the measured
+no-grad log-prob phase (from about 0.3 to 0.6 times the update phase), roughly 13\% of a
+whole step on this workload, close to the one-third-of-a-training-step estimate above; and the logged KL values differ by a factor of 4--5 between estimators
+(about 2.5 nats per \emph{sequence} for the summed surrogate, 0.5--0.6 nats per \emph{token}
+for $k_3$), so a $\beta$ tuned for one estimator means something very different for
+another.
+
+
+% ======================================================================
+\section{Adding an explicit format reward}\label{sec:grpo2:format}
+
+So far the only reward has been correctness, with the \verb|\boxed{}| requirement as an
+implicit format check. That is sufficient for training reasoning models. Most recipes also add
+\emph{auxiliary} rewards: a format reward, a length penalty, a language-consistency reward
+(DeepSeek-R1 penalised mixing languages within a chain of thought). The canonical format
+reward asks the model to put its reasoning between \verb|<think>| and \verb|</think>| and the
+final answer after it.
+
+\subsection{Thinking tokens}\label{sec:grpo2:think}
+
+\verb|<think>| and \verb|</think>| are ordinary vocabulary entries that delimit the
+reasoning. They are useful because they let a serving system hide, truncate, or budget the
+reasoning separately from the answer, and because evaluation can parse the answer reliably.
+They only work well as \emph{single} tokens. The Qwen3 \emph{base} tokenizer splits
+\verb|<think>| into three sub-word pieces, while the Qwen3 reasoning tokenizer maps
+\verb|<think>| and \verb|</think>| to the dedicated ids \num{151667} and \num{151668}. Like
+most modern tokenizers, the base vocabulary reserves unused slots: its embedding matrix has
+\num{151936} rows, more than the number of tokens the base tokenizer emits, so the special
+tokens can be registered with the tokenizer (\code{add\_special\_tokens}) without resizing the
+model. Their embeddings, however, are untrained in the base model. A base model has never seen
+these ids and will not produce them reliably until some SFT or the reasoning variant's
+training has taught it to. Our toy tokenizer (\code{ToyTokenizer}) has \verb|<think>| and
+\verb|</think>| as single tokens from the start, and its SFT data uses them in 20\% of
+demonstrations.
+
+The reward itself is a two-line check on token ids: 1 if \verb|<think>| occurs and is
+followed later by \verb|</think>|, else 0.
+
+\begin{lstlisting}[caption={A token-level format reward and its combination with correctness.},label={lst:grpo2:format}]
+def reward_format(token_ids, prompt_len, start_id, end_id):
+    gen = token_ids[prompt_len:].tolist()
+    try:
+        return float(gen.index(start_id) < gen.index(end_id))
+    except ValueError:                       # one of the tags is missing
+        return 0.0
+
+def total_reward(correct, fmt, weight=1.0, conditional=False):
+    if conditional and correct <= 0:
+        return correct                       # no format credit for wrong answers
+    return correct + weight * fmt
+\end{lstlisting}
+
+The prompt should also ask for the format, for example: ``Write your reasoning between
+\verb|<think>| and \verb|</think>|, then give the final result as \verb|\boxed{ANSWER}|.''
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[c/.style={draw=gray!60,minimum height=6.5mm,font=\scriptsize},>={Stealth[length=1.6mm]}]
+\node[font=\small\bfseries] at (4.3,0.7) {rollout};
+\node[font=\small\bfseries] at (9.0,0.7) {correct};
+\node[font=\small\bfseries] at (10.5,0.7) {format};
+\node[font=\small\bfseries,align=center] at (12.4,0.7) {sum\\{\scriptsize $w=1$}};
+\node[font=\small\bfseries,align=center] at (14.4,0.7) {conditional\\{\scriptsize $w=1$}};
+\foreach \y/\t/\c/\f/\s/\cs/\cc/\fc in {
+ 0/{<think>4+3=7</think>\textbackslash boxed\{7\}}/1/1/2/2/keygreen!25/napkin!30,
+ -0.75/{\textbackslash boxed\{7\}}/1/0/1/1/keygreen!25/napkin!4,
+ -1.5/{<think>4+3=8</think>\textbackslash boxed\{8\}}/0/1/1/0/keygreen!4/napkin!30,
+ -2.25/{8}/0/0/0/0/keygreen!4/napkin!4} {
+  \node[c,minimum width=56mm,font=\scriptsize\ttfamily] at (4.3,\y) {\t};
+  \node[c,minimum width=10mm,fill=\cc] at (9.0,\y) {\c};
+  \node[c,minimum width=10mm,fill=\fc] at (10.5,\y) {\f};
+  \node[c,minimum width=14mm] at (12.4,\y) {\s};
+  \node[c,minimum width=14mm] at (14.4,\y) {\cs};
+}
+\node[font=\scriptsize,warnred,align=left,anchor=west] at (15.3,-1.5) {format credit\\for a wrong answer};
+\draw[->,warnred] (15.3,-1.5)--(12.95,-1.5);
+\end{tikzpicture}}
+\caption{Combining a correctness reward with a format reward on four rollouts of the toy
+prompt. Plain summation gives the wrong-but-well-formatted third rollout the same total as
+the correct-but-unformatted second one, so their advantages are equal. Conditioning the
+format credit on correctness removes that incentive.}
+\label{fig:grpo2:formatfig}
+\end{figure}
+
+\subsection{Training a model to emit thinking tokens}\label{sec:grpo2:formattrain}
+
+Two practical caveats come first. You cannot reasonably RL-train a model to emit tokens it
+has never produced. If the probability of \verb|<think>| is $10^{-9}$, no rollout will contain it,
+the format reward is always 0 and its gradient is always zero. Format rewards therefore
+\emph{reinforce} a behaviour the model already has at some rate, from SFT or from its reasoning
+variant's training. Format-reward experiments are therefore best run on the
+Qwen3 reasoning variant, not the base model.
+
+Second, every auxiliary reward is a new way to be rewarded without being right. With weight 1,
+a well-formatted wrong answer earns as much as an unformatted right one
+(\cref{fig:grpo2:formatfig}). A run of this kind on the reasoning variant can show the failure clearly: the format
+reward climbs to near-saturation while MATH-500 accuracy falls and responses get shorter: the
+model learns that the tags were the cheapest reward on offer. Three fixes are standard:
+\begin{itemize}
+\item \textbf{Down-weight} the auxiliary reward (e.g.\ $w=0.1$) so it breaks ties without
+competing with correctness.
+\item \textbf{Make it conditional}: format credit only for correct answers.
+\item \textbf{Normalise each component separately} (GDPO, \cref{sec:grpo2:more}): standardise
+correctness and format within the group \emph{before} combining them, so a high-variance
+format signal cannot drown a low-variance correctness signal in the shared advantage.
+\end{itemize}
+Note also an artefact visible in such runs: with one inner update and no KL, every ratio is 1
+and the advantages average to zero, so the logged scalar loss is identically zero. Monitor
+\code{reward\_avg}, the per-component averages, \code{adv\_std} and entropy instead.
+
+\paragraph{What the toy shows.} Because 20\% of the SFT demonstrations already used
+\verb|<think>| tags, every format variant drove \code{format\_avg} to about 0.99 within
+roughly 30 steps, and responses grew from about 4.5 to 12 tokens to carry the scratchpad. The
+interesting quantity is what happened to \emph{correctness}. With weight 1 the late-run
+correct rate was 0.72--0.76 (greedy accuracy 0.84--0.87), below the baseline's 0.82--0.83
+(0.89--0.96). Weight 0.1 was no better (0.74, greedy 0.83--0.84): even a small weight breaks
+ties between otherwise equal rollouts, and on this task the tags are much easier to learn
+than arithmetic. Conditioning the format credit on correctness recovered the baseline
+(correct rate 0.80--0.86, greedy accuracy 0.91--0.96). GDPO's per-component normalisation
+landed in between (0.75, greedy 0.87--0.91). Its logged ``reward'' is identically zero,
+because the combined signal is a sum of z-scores, a reminder to log raw components alongside
+whatever the optimiser sees.
+
+
+\subsection{More GRPO modifications}\label{sec:grpo2:more}
+
+We now have the original GRPO objective in full: clipped ratios, a KL term and composite
+rewards. Since DeepSeek-R1, a stream of papers has modified almost every term of
+\cref{eq:grpo:full}. The changes are easiest to keep straight by asking \emph{which part of the
+objective} each one touches (\cref{fig:grpo2:taxonomy}). In the list below, the parentheses
+name the work that proposed or popularised each change, and the code column of
+\cref{tab:grpo2:mods} points to its implementation in \code{llmsys.rl}.
+
+\begin{figure}[ht]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[cat/.style={draw,rounded corners=3pt,font=\small\bfseries,text width=34mm,minimum height=9mm,align=center},
+  it/.style={draw=gray!40,rounded corners=2pt,font=\small,align=left,text width=105mm,minimum height=9mm,anchor=west}]
+\foreach \y/\c/\t/\i in {
+ 0/fdata/{which data get gradient}/{(1) drop zero-variance groups \quad (2) active / dynamic sampling},
+ -1.15/keygreen/{advantages \& rewards}/{(7) no std scaling \quad (12) keep std scaling \quad (13) per-reward normalisation},
+ -2.3/fcompute/{loss aggregation}/{(3) token-level mean instead of per-sequence mean},
+ -3.45/sysblue/{ratios, clipping, IS weights}/{(5) clip-higher \quad (6) truncated IS for engine mismatch \quad (10) mask off-policy sequences\\(11) keep the sampling mask \quad (14) sequence-level ratio \quad (15) clip the IS weight},
+ -4.6/gray/{KL term}/{(4) drop it \quad (8) per-domain $\beta$ \quad (9) importance-weighted KL}} {
+  \node[cat,fill=\c!15,draw=\c] (c) at (0,\y) {\t};
+  \node[it] at (2.2,\y) {\i};
+}
+\end{tikzpicture}}
+\caption{Fifteen post-R1 modifications of GRPO, grouped by the part of the objective they
+change. Numbers refer to the list in the text.}
+\label{fig:grpo2:taxonomy}
+\end{figure}
+
+\begin{enumerate}
+\item \textbf{Filter zero-gradient groups} (DAPO). Drop prompts whose $G$ rollouts all
+received the same reward. They contribute nothing to the gradient but still dilute averages
+and occupy the batch.
+\item \textbf{Active (dynamic) sampling} (DAPO). Instead of merely dropping such prompts,
+over-sample and keep drawing until the batch is full of mixed groups, so every step has a
+full batch of signal.
+\item \textbf{Token-level loss} (DAPO). Average the per-token loss over \emph{all tokens in
+the batch} rather than first within each sequence and then over sequences. With per-sequence
+averaging each token of a 2000-token rollout weighs 100 times less than a token of a 20-token
+rollout, so long wrong answers are under-penalised (and long right ones under-rewarded).
+\item \textbf{Drop the KL term} (DAPO, Dr.~GRPO). For verifiable rewards the anchor mostly
+slows learning, and dropping it saves a model copy.
+\item \textbf{Clip-higher} (DAPO). Use $\varepsilon_{\text{high}}>\varepsilon_{\text{low}}$
+(e.g.\ 0.28 vs.\ 0.2) so low-probability tokens with positive advantage can grow faster,
+which counteracts entropy collapse.
+\item \textbf{Truncated importance sampling} (verl). Rollout engines (vLLM, SGLang) compute
+probabilities with different kernels, precision and batching than the trainer, so even ``on-policy''
+samples come from a slightly different distribution $\pi_{\text{rollout}}\neq\piold$. Weight
+each token by $\min(\piold/\pi_{\text{rollout}},C)$ to correct for it without letting rare
+tokens explode the update.
+\item \textbf{No std normalisation of advantages} (Dr.~GRPO). Dividing by the group std
+up-weights prompts that are nearly always solved or nearly always failed (small std), a
+difficulty bias. Dr.~GRPO uses $A_i=r_i-\bar r$ and also replaces the per-sequence length
+normalisation by a constant, removing a length bias.
+\item \textbf{Per-domain KL strength} (DeepSeek-V3.2). Keep the KL for domains where drift is
+harmful and set $\beta=0$ for math.
+\item \textbf{Importance-weighted KL} (DeepSeek-V3.2). Multiply the KL estimate by
+$\pitheta/\piold$ because the samples come from $\piold$. This is exactly the bias diagnosed in
+\cref{sec:grpo2:kltrain}.
+\item \textbf{Mask badly off-policy sequences} (DeepSeek-V3.2). Exclude negative-advantage
+sequences whose average $\log\piold-\log\pitheta$ exceeds a threshold. Pushing down
+samples the current policy would hardly generate anyway is mostly noise.
+\item \textbf{Keep the sampling mask} (DeepSeek-V3.2). If rollouts used top-$p$/top-$k$,
+compute $\piold$ and $\pitheta$ over the \emph{same truncated support}, so the ratio compares
+like with like.
+\item \textbf{Keep the original advantage normalisation} (DeepSeek-V3.2). A counterpoint to
+(7): standard group-normalised advantages worked well in their setting, so ablate before
+removing.
+\item \textbf{Normalise each reward component before aggregation} (GDPO). Standardise each
+reward type within the group, then combine, so components with different scales and variances
+contribute comparably.
+\item \textbf{Sequence-level ratio and clipping} (GSPO). Use the length-normalised sequence
+ratio $s_i=\exp\big(\frac1{|y_i|}\sum_t\log\rho_{i,t}\big)$ with a tight clip (around
+$3$--$4\times10^{-4}$). This matches the sequence-level reward and is reported to be more
+stable, notably for MoE models where token-level ratios are noisy.
+\item \textbf{Clip importance weights, not updates} (CISPO, MiniMax-M1). Use
+$-\operatorname{sg}(\min(\rho_{i,t},1+\varepsilon))\,A_i\log\pitheta(y_{i,t})$: every token
+keeps a gradient (PPO-clip silences clipped tokens entirely, which can drop rare but
+important ``reflection'' tokens), but its weight is bounded.
+\end{enumerate}
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+\# & One-line summary & \code{GRPOConfig} / function\\
+\midrule
+1, 2 & spend gradient only on mixed groups & \code{filter\_zero\_std}\\
+3 & mean over all tokens, not per sequence & \code{agg="token\_mean"}\\
+4, 8 & KL optional / per domain & \code{kl\_coeff=0}\\
+5 & asymmetric clip & \code{eps\_low}, \code{eps\_high}\\
+6 & engine/trainer mismatch weights & \code{truncated\_is\_weights}\\
+7 & centre but don't scale & \code{adv\_scale="none"}, \code{agg="seq\_mean\_token\_sum\_norm"}\\
+9 & IS-weighted KL & \code{kl\_is\_weighted=True}\\
+10 & drop very off-policy negatives & \code{offpolicy\_delta}\\
+11 & same support for both policies & \code{top\_p\_renormalized\_logprob}\\
+13 & per-component normalisation & \code{gdpo=True}\\
+14 & geometric-mean sequence ratio & \code{loss="gspo"}\\
+15 & bounded, gradient-stopped IS weight & \code{loss="cispo"}\\
+\bottomrule
+\end{tabularx}
+\caption{Where each modification lives in the companion code.}
+\label{tab:grpo2:mods}
+\end{table}
+
+\begin{lstlisting}[caption={Token-level clipped GRPO loss with the main options (abridged from \texttt{llmsys/rl/losses.py}).},label={lst:grpo2:token}]
+def token_clipped_loss(lp_new, lp_old, adv, mask, eps_low=0.2, eps_high=0.2,
+                       lp_ref=None, kl_coeff=0.0, kl_kind="k3",
+                       kl_is_weighted=False, agg="seq_mean_token_mean"):
+    ratio = torch.exp((lp_new - lp_old.detach()) * mask)        # (N, T)
+    a = adv.detach()[:, None]
+    obj = torch.minimum(ratio * a,
+                        torch.clamp(ratio, 1 - eps_low, 1 + eps_high) * a)
+    per_tok = -obj
+    if lp_ref is not None and kl_coeff > 0:
+        kl = kl_estimate(lp_new, lp_ref, kl_kind)               # k1 / k2 / k3
+        if kl_is_weighted:                                      # DeepSeek-V3.2
+            kl = kl * ratio.detach()
+        per_tok = per_tok + kl_coeff * kl
+    return aggregate(per_tok, mask, agg)    # GRPO / DAPO / Dr. GRPO reductions
+\end{lstlisting}
+
+\paragraph{What the toy shows.} \Cref{fig:grpo2:ablation} collects every variant. The four
+descendants we ran with the trainer's defaults (DAPO-style token-level loss with clip-higher
+and zero-variance filtering, Dr.~GRPO, GSPO and CISPO) all landed within noise of the
+baseline: greedy accuracy 0.91--0.96 against 0.93. That is the expected outcome, not a
+disappointment. These modifications target failure modes that a 76k-parameter model on
+five-token answers never reaches: long-sequence length bias, entropy collapse over thousands
+of steps, MoE routing noise, and stale samplers. Their value shows up in long runs on real
+models, which is where to evaluate them (Lab~28's stretch goal). The toy's job here is to
+verify that each implementation is \emph{neutral when it should be}. A modification that hurt
+on a problem this easy would be a bug.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[xbar,width=0.82\linewidth,height=10.5cm,bar width=4pt,xmin=0,xmax=1.05,
+  ytick={14,13,12,11,10,9,8,7,6,5,4,3,2,1,0},yticklabels={{baseline (Ch.~27)},{4 passes, no clip},{4 passes, clip},{8 steps, lr$\times$3, no clip},{8 steps, lr$\times$3, clip},{KL: sequence surrogate},{KL: per-token $k_3$},{format $w{=}1$},{format $w{=}0.1$},{format, conditional},{format, GDPO},{DAPO-style},{Dr.~GRPO},{GSPO},{CISPO}},y tick label style={font=\scriptsize},
+  x tick label style={font=\scriptsize},xlabel={score},enlarge y limits=0.04,
+  legend style={font=\scriptsize,at={(0.5,1.01)},anchor=south,legend columns=2,draw=none},
+  xmajorgrids,grid style={gray!20}]
+\addplot[fill=sysblue!60,draw=none,error bars/.cd,x dir=both,x explicit] coordinates {(0.925,14) +- (0.035,0) (0.560,13) +- (0.060,0) (0.915,12) +- (0.035,0) (0.085,11) +- (0.015,0) (0.145,10) +- (0.015,0) (0.955,9) +- (0.025,0) (0.940,8) +- (0.030,0) (0.855,7) +- (0.015,0) (0.835,6) +- (0.005,0) (0.935,5) +- (0.025,0) (0.890,4) +- (0.020,0) (0.910,3) +- (0.040,0) (0.950,2) +- (0.020,0) (0.930,1) +- (0.040,0) (0.955,0) +- (0.015,0)};
+\addplot[fill=keygreen!55,draw=none,error bars/.cd,x dir=both,x explicit] coordinates {(0.826,14) +- (0.007,0) (0.550,13) +- (0.015,0) (0.803,12) +- (0.008,0) (0.087,11) +- (0.029,0) (0.145,10) +- (0.007,0) (0.855,9) +- (0.002,0) (0.847,8) +- (0.015,0) (0.739,7) +- (0.020,0) (0.743,6) +- (0.001,0) (0.827,5) +- (0.029,0) (0.747,4) +- (0.001,0) (0.825,3) +- (0.005,0) (0.853,2) +- (0.005,0) (0.846,1) +- (0.001,0) (0.838,0) +- (0.030,0)};
+\legend{greedy accuracy after 150 steps,late-run train correct rate}
+\draw[gray,dashed] (axis cs:0.925,-1) -- (axis cs:0.925,15);
+\end{axis}
+\end{tikzpicture}
+\caption{Every GRPO variant of this chapter on the toy task: mean over two seeds, with the bars'
+whiskers spanning the two seeds; 150 steps from the same SFT start; measured on CPU. Dashed
+line: baseline mean greedy accuracy. With only two seeds, differences under about 0.05 are noise.
+Clear effects: unclipped rollout reuse hurts, clipping fixes moderate reuse but not an
+excessive step size, and an unconditional format reward costs correctness while a conditional
+one does not.}
+\label{fig:grpo2:ablation}
+\end{figure}
+
+% ======================================================================
+\section{The systems cost of each knob}\label{sec:grpo2:costs}
+
+Algorithm papers report accuracy. Whoever runs the job also has to pay for it.
+\Cref{tab:grpo2:costs} summarises how each mechanism of this chapter changes memory, compute
+and scheduling. Most of the changes have a positive effect.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Mechanism & Cost / effect on the system\\
+\midrule
+entropy metric & full-vocabulary reduction; compute in chunks on the no-grad pass, otherwise
+$(NT)\times|\mathcal V|$ fp32 memory\\
+clipping + rollout reuse & \emph{saves} sampling: $k$ updates per batch divide sampling cost per
+update by $k$; enables asynchronous samplers\\
+KL to reference & +1 model copy in memory, +1 forward ($\approx$\,33\% of a training step);
+free with LoRA (disable adapter)\\
+dropping KL & removes both of the above\\
+format/aux rewards & negligible (string or id checks on CPU); code-execution rewards need a
+sandbox fleet\\
+zero-variance filtering & wasted rollouts: a fraction $p^G+(1-p)^G$ of sampling is discarded\\
+dynamic sampling & over-samples by $\approx1/(1-\text{waste})$ and makes step time
+\emph{variable}, which complicates synchronous pipelines\\
+token-level aggregation & none (a different reduction); changes effective learning rate per
+token, so retune lr\\
+truncated IS (engine mismatch) & needs the sampler to return per-token log-probs (cheap) and
+the trainer to recompute them (already done)\\
+sampling-mask preservation & needs the top-$p$ support per token, either stored (huge) or
+recomputed from the trainer's own logits (approximate)\\
+GSPO / CISPO & none beyond the base loss; GSPO's sequence ratio needs all tokens of a sequence
+in one micro-batch\\
+\bottomrule
+\end{tabularx}
+\caption{What the stabilisation mechanisms cost. ``Saves'' entries are why clipping-based
+off-policy training underlies essentially all high-throughput RL systems (\cref{ch:rlsys}).}
+\label{tab:grpo2:costs}
+\end{table}
+
+\begin{napkinmath}[the price of dynamic sampling]
+Suppose half of a math dataset's prompts are solved with $p\approx0.9$ by the current policy
+and half with $p\approx0.3$. With $G=16$, zero-variance probabilities are
+$0.9^{16}+0.1^{16}\approx0.185$ and $0.3^{16}+0.7^{16}\approx0.003$, so about 9.4\% of groups
+are wasted. To fill a batch of 512 mixed groups, dynamic sampling must generate about
+$512/0.906\approx565$ groups, or $\approx\num{9000}$ rollouts. As the policy improves, the easy
+half drifts to $p\approx0.97$ ($0.97^{16}\approx0.61$) and the waste rises to about 30\%, so the
+over-sampling factor grows to 1.45. Curricula that retire mastered prompts keep this
+factor near 1.
+\end{napkinmath}
+
+% ======================================================================
+\section{Summary}\label{sec:grpo2:summary}
+\begin{itemize}
+\item Read a GRPO run through several metrics together: moving-average reward, response length,
+held-out accuracy, advantage mean (sanity) and std (signal), zero-variance fraction, entropy,
+ratio and clip fraction. The loss is mainly a sanity check.
+\item Reward stuck at 1 or 0 means no signal. Entropy collapse means no exploration. Entropy
+explosion means a damaged model.
+\item Importance ratios correct for training on samples from an older snapshot, and clipping
+keeps each batch's updates inside a trust region. Together they make rollout reuse and
+asynchronous sampling safe, which is a throughput win.
+\item The KL penalty anchors the run to a reference policy. A naive sampled surrogate can
+destabilise training once rewards collapse. Per-token $k_3$, importance weighting, or simply
+$\beta=0$ (common for math) avoid it.
+\item Auxiliary rewards such as \verb|<think>| formatting are cheap but hackable. Down-weight
+them, condition them on correctness, or normalise components separately (GDPO).
+\item Post-R1 variants each change one term: what data gets gradient (DAPO filtering and dynamic
+sampling), advantage scaling (Dr.~GRPO), loss aggregation (token-level), ratio and clipping
+(clip-higher, GSPO, CISPO, truncated IS), and KL handling (DeepSeek-V3.2).
+\item Every knob has a systems cost. The cheapest stabiliser, clipping, is also the one that
+unlocks most of the throughput.
+\end{itemize}
+
+% ======================================================================
+\section{Exercises}\label{sec:grpo2:exercises}
+
+\begin{exercise}[testing the format reward]
+Run \code{reward\_format} on a completion with both tags in order and confirm it returns 1.
+Then introduce a typo in one tag, reverse their order, and delete one tag; each should give
+0. Which of these edits would a \emph{string}-based check (\code{think\_format\_ok}) also catch?
+Which tokenisation edge case can break the id-based check but not the string-based one?
+\end{exercise}
+
+\begin{exercise}[conditional format reward]
+Run the four format variants (\code{format\_w1}, \code{format\_w0.1}, \code{format\_cond},
+\code{format\_gdpo}) with seeds 0, 1 and 2. Report final greedy accuracy, late-run \code{correct\_avg} and \code{format\_avg}. Does
+conditioning change which behaviour the policy adopts first? Explain the result with the
+advantages of \cref{fig:grpo2:formatfig}.
+\end{exercise}
+
+\begin{exercise}[the clip fraction]
+For the \code{clip\_reuse4} variant, plot \code{clip\_frac} and \code{policy\_ratio} over
+training. Vary \code{inner\_epochs} from 1 to 8 and find the value where the clip fraction
+exceeds 0.2. Relate this to the wall-clock saving of rollout reuse.
+\end{exercise}
+
+\begin{exercise}[unbiasedness of $k_3$]
+Show that $\E_{y\sim p}[k_3]=\KL(p\,\|\,q)$ where $k_3=r-1-\log r$ and $r=q(y)/p(y)$, and
+that $k_3\ge0$ pointwise. Verify numerically for a random pair of categoricals over 1000
+outcomes, and compare the empirical variance of $k_1$, $k_2$ and $k_3$ with 64 samples.
+\end{exercise}
+
+\begin{exercise}[diagnose the KL collapse]
+On a fixed batch where all advantages are zero, take 50 optimiser steps on the
+sequence-level KL surrogate alone. Plot the mean entropy and the probability of the sampled
+tokens. Repeat with per-token $k_3$. Explain the difference in terms of what each loss's
+gradient does to the sampled tokens.
+\end{exercise}
+
+\begin{exercise}[aggregation and length]
+Construct a group of two rollouts with $A=(+1,-1)$ and lengths 10 and 1000. Compute, under
+each of the three aggregations of \code{aggregate\_token\_loss}, the total gradient weight
+received by each rollout and by each of its tokens. Which rule lets a long wrong answer off
+lightly?
+\end{exercise}
+
+\begin{exercise}[Dr.~GRPO's difficulty bias]
+For binary rewards and $G=8$, compute the gradient-weight multiplier
+$\sum_i|A_i|$ as a function of $p$ with and without std scaling. Which prompts does std
+scaling up-weight? Argue whether that is a feature (focus on edge cases) or a bug.
+\end{exercise}
+
+\begin{exercise}[chunked entropy]
+Measure peak memory of \code{token\_entropy} on a $(4096, \num{151936})$ bf16 logits tensor
+versus \code{chunked\_logprob\_entropy} with chunk sizes 256 and 1024 (use
+\code{torch.cuda.}\allowbreak\code{max\_memory\_allocated} or \code{tracemalloc}). Plot memory and time against
+chunk size.
+\end{exercise}
+
+\begin{exercise}[napkin: reference-model placement]
+For a 32B policy trained with FSDP on 16 GPUs, compare three placements of the KL
+reference: (a) a full bf16 copy on every trainer GPU, (b) FSDP-sharded alongside the policy,
+(c) computed by the rollout workers. Estimate memory per GPU and extra communication per step
+for each.
+\end{exercise}
+
+\begin{exercise}[engine mismatch]
+Simulate an inference engine by sampling rollouts from the toy model with its weights cast to
+bf16 while the trainer uses fp32. Measure the distribution of $\log\piold-\log\pi_{\text{rollout}}$
+per token. Train with and without \code{truncated\_is\_weights} and compare stability.
+\end{exercise}
+
+% ======================================================================
+\section{Lab 28: making GRPO robust}\label{sec:grpo2:lab}
+
+\begin{labbox}{28}{Diagnostics, clipping, KL, format rewards and GRPO's descendants}
+\labdir{lab28_grpo_plus}
+\labsection{Goals}
+Implement the diagnostics and stabilisers of this chapter as small, testable functions, then
+use the library trainer to ablate them on the toy task and interpret the results like a
+practitioner.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+LAB_IMPL=starter python -m pytest -q labs/lab28_grpo_plus
+python labs/lab28_grpo_plus/run.py --list
+\end{lstlisting}
+
+\labsection{Tasks} (functions in \code{starter.py})
+\begin{enumerate}
+\item Diagnostics: \code{token\_entropy}, \code{sequence\_logprob\_and\_entropy},
+\code{chunked\_logprob\_entropy}, \code{advantage\_stats}.
+\item Clipping: \code{policy\_ratios}, \code{clipped\_policy\_loss} (returning the clip
+fraction). The tests check both the value and \emph{which} samples receive gradient.
+\item KL: \code{kl\_k1}, \code{kl\_k2}, \code{kl\_k3}, \code{kl\_sequence\_surrogate},
+\code{kl\_importance\_weighted}.
+\item Rewards: \code{reward\_format}, \code{total\_reward} (weighted and conditional).
+\item Descendants: \code{dr\_grpo\_advantages}, \code{aggregate\_token\_loss} (three
+reductions), \code{zero\_variance\_keep}, \code{expected\_wasted\_fraction}.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{enumerate}
+\item Run all variants with three seeds (about 30\,s per run on one CPU core):
+pass every name from \code{run.py --list} to \code{--variants} with \code{--seeds 0,1,2}. Reproduce \cref{fig:grpo2:ablation} with
+error bars.
+\item For \code{baseline}, \code{noclip\_reuse4} and \code{clip\_reuse4}, plot reward, entropy
+and zero-variance fraction against step and against \emph{wall-clock time}. Rollout reuse
+should win on the second axis if it is stable.
+\item Record \code{t\_rollout}, \code{t\_logprob}, \code{t\_update} per variant and attribute
+the overhead of the KL variants to the reference forward pass.
+\end{enumerate}
+
+\labsection{Deliverables}
+Passing tests; an ablation table (mean $\pm$ std over seeds); a half-page ``run review'' that
+diagnoses one failed configuration from its metrics alone, before looking at its samples.
+
+\labsection{Stretch goals}
+\begin{itemize}
+\item Implement DAPO's \emph{active} sampling (keep sampling until the batch has $P$ mixed groups)
+and measure the over-sampling factor over training (compare with the napkin math above).
+\item Add DAPO's soft overlong penalty (\code{llmsys.rl.rewards.overlong\_penalty}) and a
+length-capped toy variant that requires long \verb|<think>| traces.
+\item Port the best configuration to Qwen3-0.6B on MATH with Lab~27's \code{run.py qwen3}
+path and evaluate on MATH-500.
+\end{itemize}
+\end{labbox}

@@ -1,0 +1,83 @@
+\subsection*{Chapter 25: RLHF: Reward Models, Value Functions, and PPO}
+
+\paragraph{Exercise 25.1} The difference of two independent standard Gumbel variables is
+standard logistic, with CDF $\sigma(z)$. Hence $\Pr[u_w>u_l]=\Pr[\epsilon_l-\epsilon_w<r_w-r_l]=\sigma(r_w-r_l)$.
+With Gaussian noise of variance $s^2$ each, the difference is $\mathcal N(0,2s^2)$ and the choice
+probability is $\Phi\big((r_w-r_l)/(\sqrt2 s)\big)$, the Thurstone (probit) model. The fitted rewards
+change only by an approximately constant rescaling, because the logistic and probit curves are close after
+scaling by about $1.7$.
+
+\paragraph{Exercise 25.2} With $\Delta=r_w-r_l$, $\partial(-\log\sigma(\Delta))/\partial r_w=-(1-\sigma(\Delta))=-\sigma(-\Delta)$
+and $\partial/\partial r_l=+\sigma(-\Delta)$. Gradient descent raises $r_w$ and lowers $r_l$ in
+proportion to the probability the model currently assigns to the \emph{wrong} ordering. Late in training,
+correctly ranked pairs with large margins contribute almost nothing, so the gradient is dominated by
+mis-ranked and borderline pairs (including label noise). A margin $m$ replaces $\Delta$ by $\Delta-m$: pairs
+must be separated by at least $m$ before their gradient fades, which keeps strong-preference pairs active longer.
+
+\paragraph{Exercise 25.3} Grouped: $K=6$ forward passes per prompt, producing all
+$\binom{6}{2}=15$ pair terms in one step. Independent pairs: $15$ pairs $\times$ 2 responses $=30$ forward
+passes. Each response appears in $K-1=5$ pairs, so with independent shuffling it contributes to 5
+separate gradient steps per epoch, versus one step when grouped. That repetition is what drives the
+one-epoch overfitting InstructGPT reported.
+
+\paragraph{Exercise 25.4} With $\gamma=\lambda=1$, $\hat A_t=\sum_{l\ge0}\delta_{t+l}=\sum_{l}\big(r_{t+l}+V_{t+l+1}-V_{t+l}\big)$,
+which telescopes to $\sum_{k\ge t}r_k-V_t$ since $V_{T+1}=0$. With $\lambda=0$ only $l=0$ survives,
+so $\hat A_t=\delta_t$. For $\lambda=0.5$, with $\delta=(0.28,0.40,0.45,0.39)$:
+$\hat A_4=0.39$, $\hat A_3=0.45+0.5\cdot0.39=0.645$, $\hat A_2=0.40+0.5\cdot0.645=0.7225$,
+$\hat A_1=0.28+0.5\cdot0.7225=0.64125$.
+
+\paragraph{Exercise 25.5} With $r=\pi/\piref$ and samples from $\pi=\mathrm{Bern}(0.6)$:
+\begin{center}\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+$p_{\text{ref}}$ & exact KL & $\E[k_1]$ & $\E[k_2]$ & $\E[k_3]$ & $\mathrm{Var}[k_1]$ / $\mathrm{Var}[k_2]$ / $\mathrm{Var}[k_3]$\\
+\midrule
+0.5 & 0.02014 & 0.02014 & 0.01993 & 0.02014 & 0.0395 / 0.000016 / 0.000030\\
+0.2 & 0.38191 & 0.38191 & 0.45818 & 0.38191 & 0.770 / 0.0317 / 0.0038\\
+\bottomrule
+\end{tabular}
+\end{center}
+$k_1$ and $k_3$ are unbiased because $\E_\pi[\piref/\pi-1]=0$; $k_2$ is biased, slightly low when the
+distributions are close and substantially high when they are far apart. $k_3$ combines unbiasedness
+with low variance and is never negative. $k_1$ is unbiased but noisy and takes negative values on
+individual samples.
+
+\paragraph{Exercise 25.6} The critic now values the state \emph{after} token $t$, i.e.\ it has seen the token whose
+advantage is being estimated. Its targets become easier to fit (explained variance can rise), but the
+advantages $\delta_t=r_t+V(s_{t+1})-V(s_t)$ are computed with mismatched states. With $\gamma=1$ the
+telescoping sum no longer cancels correctly at the boundaries. The typical result is a slower and noisier reward
+curve, or a policy that improves early and then stalls. Running the lab with the modified slice shows
+this. The general lesson is to assert the alignment of logits and values in a unit test.
+
+\paragraph{Exercise 25.7} Assume the policy is trained with LoRA so the reference is free (adapters
+disabled). Policy base weights frozen in bf16: $32\times10^9\cdot2=64$\,GB, plus adapter states
+(negligible for small ranks). Critic initialised from the 7B reward model and fully trained:
+$7\times10^9\cdot16=112$\,GB. Reward model frozen: $14$\,GB. Total $\approx190$\,GB, so
+$\lceil190/56\rceil=4$ GPUs with full sharding. If instead the policy is fully fine-tuned with a separate
+bf16 reference, the total is $512+112+14+64=702$\,GB, which needs 13 GPUs. LoRA is what makes this
+configuration fit on a single 8-GPU node.
+
+\paragraph{Exercise 25.8} The best-of-$n$ distribution assigns the $i$-th ranked sample
+probability proportional to the chance that it beats $n-1$ others; integrating
+$\log\big(n F(r)^{n-1}\big)$ against its density gives $\log n-\frac{n-1}{n}$ for continuous rewards, and
+ties can only reduce it, hence the upper bound. The lab's $\beta=0.2$ run settles near
+$3.5$\,nats, which corresponds to $\log n-1\approx3.5$, i.e.\ $n\approx e^{4.5}\approx90$. A run at 8 nats
+corresponds to $n\approx e^9\approx8{,}000$ samples per prompt, impractical at inference time, which is why
+PPO's KL ``budget'' is cheaper to spend through training.
+
+\paragraph{Exercise 25.9} Expected outcome: with a small target (1 nat) the controller raises $\beta$ until the
+policy barely moves; the true score improves a little and never degrades. With 3 nats the true score is near
+its best. With 10 nats the controller lets the policy spend KL on the repetition exploit, and the
+true score peaks and then falls while the RM score keeps rising. Plotting true score against final KL
+traces the rise-then-fall curve of Gao et al.
+
+\paragraph{Exercise 25.10} With prompt plus rubric $\approx288$ tokens and responses of $512$, each judge call
+processes $\approx800$ tokens: $2\cdot70\times10^9\cdot800\cdot512\approx5.7\times10^{16}$ FLOPs per iteration.
+For the 8B policy ($T\approx768$ tokens per sequence): generation $\approx6.3\times10^{15}$, scoring with
+policy, reference and value $\approx1.9\times10^{16}$, and two PPO epochs over actor and critic
+$\approx7.5\times10^{16}$. The judge is therefore about $36\%$ of the FLOPs, and since it sits between
+generation and learning it adds directly to the iteration time. Two remedies: (i) score
+asynchronously, sending each response to a separate judge pool as soon as it finishes so judging overlaps
+with ongoing generation (and with the previous iteration's learning, at one step of staleness,
+\cref{sec:rlsys:async}); (ii) distil the judge into a small reward model trained on its labels, and call the
+judge only on a sample to monitor drift.

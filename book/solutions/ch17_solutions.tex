@@ -1,100 +1,85 @@
-\subsection*{Chapter 17: Reinforcement Learning with Verifiable Rewards: GRPO}
+\subsection*{Chapter 17: Instruction Fine-Tuning and Parameter-Efficient Adaptation}
 
-\paragraph{Exercise 17.1} With partial credit the rewards of \cref{fig:grpo:step} become
-$(1,1,0.5,0)$: mean $0.625$, unbiased std $0.479$, advantages
-$(+0.783,+0.783,-0.261,-1.305)$. The unboxed ``7'' is still pushed down, but by a third of
-its previous weight, and the wrong boxed ``8'' is now pushed down hardest. The loss is
-$-\frac14[0.783(-2.269)+0.783(-3.059)-0.261(-1.299)-1.305(-3.400)]=-0.151$. Partial credit
-makes \emph{correctness} the dominant signal early (correct-but-unboxed answers are no longer
-lumped with wrong ones), which helps when the model is rarely correct. It weakens the
-pressure to adopt the format, since an unboxed correct answer is only mildly penalised, so
-format adoption is slower. A common compromise is to anneal the partial credit to 0.
+\paragraph{Exercise 17.1.} Replace \code{format\_alpaca} by \code{format\_phi3} in both the
+dataset and the generation prompt, and extract responses by splitting on
+\code{<|assistant|>} instead of the Alpaca header. The Phi-3 template removes roughly
+25--30 tokens per example, so total training tokens drop by roughly a quarter to a
+third and epoch time falls accordingly. Judge scores are usually similar. Note that
+\code{<|user|>} is not a special token for GPT-2 and is split into several BPE pieces,
+which is harmless but slightly less compact than the name suggests.
 
-\paragraph{Exercise 17.2} With identical rewards, $r-\bar r=0$ for every rollout, the
-advantages are exactly 0, the loss is $-0\cdot\sum\log\pi=0$ and autograd propagates zeros to
-every parameter (the optimiser step is still taken; AdamW's weight decay is the only change,
-and it is zero in our loop). This is desirable because the group carries no information about
-\emph{which} behaviour is better. For $p\sim U[0,1]$,
-$\E[p^G+(1-p)^G]=\frac2{G+1}$: 40\% wasted for $G=4$ and 11.8\% for $G=16$.
+\paragraph{Exercise 17.2.} Losses averaged over response tokens only are not comparable
+with losses averaged over all tokens, because prompt tokens (especially the fixed
+preamble) are easy to predict and pull the full-sequence average down. Evaluate both
+models on the same response-only target set. Response-only training usually matches or
+slightly beats full-sequence training on judge score. Full-sequence loss can win when
+responses are very short and prompts carry useful in-domain text, because it then
+provides much more gradient signal per example.
 
-\paragraph{Exercise 17.3} With $k$ correct rollouts, $\bar r=p=k/G$ and
-$\sum_i(r_i-\bar r)^2=k(1-p)^2+(G-k)p^2=Gp(1-p)$, so $s^2=\frac{G}{G-1}p(1-p)$, giving
-$A^+=(1-p)/s$ and $A^-=-p/s$. Then $\sum_iA_i=[k(1-p)-(G-k)p]/s=G(p-p)/s=0$, and
-$\frac1{G-1}\sum_iA_i^2=\frac{Gp(1-p)}{(G-1)s^2}=1$ exactly (ignoring $\epsilon$). As $p\to1/G$
-with $G$ large, $A^+=(1-p)/s\approx\sqrt{(1-p)/p}\approx\sqrt{G}$: a single success in a large
-group receives an advantage of order $\sqrt G$.
+\paragraph{Exercise 17.3.} Two microbatches with $n_1=10$ and $n_2=90$ target tokens and
+mean losses $\bar\ell_1,\bar\ell_2$: averaging the means gives
+$\tfrac12(\bar\ell_1+\bar\ell_2)$, so each token of microbatch 1 has weight $1/20$ and
+each token of microbatch 2 has weight $1/180$. The per-token mean of the full step gives
+every token weight $1/100$. Fix: compute \code{F.cross\_entropy(..., reduction="sum")}
+per microbatch, count non-ignored targets, and divide the accumulated sum by the total
+count before \code{backward} (or scale each microbatch's sum by $1/n_{\text{total}}$,
+which requires knowing $n_{\text{total}}$ in advance, for example by pre-counting the
+step's targets).
 
-\paragraph{Exercise 17.4} $b_i$ is a function of the other samples only, which are independent
-of $y_i$ given $x$, so $\E[b_i\nabla\log\pi(y_i)]=\E[b_i]\,\E[\nabla\log\pi(y_i)]=0$ and the
-estimator is unbiased. Algebra: $r_i-b_i=r_i-\frac{G\bar r-r_i}{G-1}=\frac{G}{G-1}(r_i-\bar r)$.
-So GRPO's mean-centred advantage equals the RLOO advantage times $\frac{G-1}{G}$, a constant
-that the learning rate absorbs. The ``bias'' of including $r_i$ in its own baseline is
-therefore only a rescaling. Dividing by the std adds a genuine per-prompt reweighting.
+\paragraph{Exercise 17.4.} Random batches with dynamic padding typically waste 30--50\% on
+instruction data with a long-tailed length distribution; bucketing reduces this to a few
+percent; FFD packing into 512- or 1{,}024-token rows leaves only the tail of the last
+rows empty, usually below 2\%. For attention, a dense row mask costs $T^2$ per row
+regardless of content. A varlen kernel costs $\sum_i\ell_i^2$, which for documents of
+about 100 tokens packed into $T=1024$ is about 10 documents $\times\,100^2 = 10^5$
+versus $1024^2\approx10^6$, a $10\times$ reduction in attention FLOPs.
 
-\paragraph{Exercise 17.5} (a) Summed loss: every token of rollout $i$ has gradient weight
-$A_i/G$, independent of length. (b) Per-sequence mean: each token has weight
-$A_i/(G|y_i|)$. For correct answers of lengths 20 and 2000, the per-token push ratio is
-$1:1$ under (a) and $100:1$ under (b). Under (a) the total push on a sequence's log-likelihood
-is the same for both, but because $\log\pi$ of the long sequence is a sum of 100 times more
-terms, raising it is ``harder''. In practice the summed objective most efficiently increases
-the probability of the \emph{short} correct answer. Under (b), long sequences are barely
-pushed per token, so long \emph{wrong} answers are barely penalised. That is the length bias
-DAPO and Dr.~GRPO criticise (\cref{ch:grpo2}).
+\paragraph{Exercise 17.5.} Probe: fix document 2, vary document 1 in the same packed row,
+and compare the logits at a position in document 2. With naive packing they change.
+With the block-diagonal mask and position reset they are identical up to floating-point
+error. After fine-tuning on naively packed data the model learns to use the preceding
+documents, for example by copying formatting or answers from the previous example.
+The effect is visible as degraded single-example performance at inference time, where
+no preceding documents exist.
 
-\paragraph{Exercise 17.6} PyTorch raises \emph{``Inference tensors cannot be saved for
-backward''} when the sampled ids (created inside inference mode) are fed through
-\code{nn.Embedding} in the differentiable pass. The embedding saves its index input for
-backward. Fixes: sample under \code{no\_grad}; or keep inference mode for sampling but
-\code{.clone()} the ids outside it (cloning outside inference mode produces a normal tensor).
+\paragraph{Exercise 17.6.} Reference answers should score near the top of the scale and
+wrong answers near the bottom; deviations reveal judge bias or prompt problems.
+Correlations between two different judges are typically high (Pearson 0.7--0.9) on
+clearly separable answers but lower among mediocre ones, and mean absolute differences
+of 5--15 points are common. A single reported score therefore has an uncertainty of
+several points from the judge alone, on top of sampling uncertainty from 110 test
+items (standard error $\approx\sigma/\sqrt{110}$).
 
-\paragraph{Exercise 17.7} $16\times4096\times\num{151936}\times4\,\text{B}\approx39.8$\,GB for
-the log-softmax, and the same again for its gradient, so $\approx80$\,GB. Chunked version:
-\begin{lstlisting}
-def sequence_logprob_chunked(model, ids, prompt_len, C=512):
-    h = model_hidden_states(model, ids)          # (T, d) before the LM head
-    total = 0.0
-    for s in range(prompt_len - 1, ids.numel() - 1, C):
-        logits = model.out_head(model.final_norm(h[s:s+C])).float()
-        lp = torch.log_softmax(logits, -1)
-        total = total + lp.gather(1, ids[s+1:s+1+C, None]).sum()
-    return total
-\end{lstlisting}
-Peak memory scales with $C\cdot|\mathcal V|$ instead of $T\cdot|\mathcal V|$. With
-activation checkpointing per chunk the backward is bounded the same way. (Exposing hidden
-states requires a small model hook; \code{llmsys.rl.logprobs.token\_logprobs(chunk=...)} chunks
-after the LM head, which bounds the float32 copy but not the bf16 logits.)
+\paragraph{Exercise 17.7.} With $\alpha=2r$, the effective update scale $\alpha/r=2$ is
+constant, so the magnitude of $\Delta W$ produced by a given learning rate is roughly
+independent of $r$, and one learning rate works across ranks. With fixed $\alpha=16$,
+$\alpha/r$ shrinks as $r$ grows (16 at $r=1$, 0.25 at $r=64$), so large ranks
+effectively train with a smaller step and appear worse unless the learning rate is
+re-tuned. Quality usually saturates by $r=8$--$16$ for a task of this size.
 
-\paragraph{Exercise 17.8} Sequentially, $t_{\text{sample}}$ grows linearly in both $G$ and $T$
-(one forward per token per rollout); on CPU the toy gives $a$ of the order of milliseconds per
-token. $t_{\text{train}}$ is also linear in $G\cdot T$ but with a smaller constant per token,
-since a prefill-style forward processes all tokens in parallel. With \code{sample\_rollouts}
-the $G$ rollouts share each decode step, so $t_{\text{sample}}\approx a'\,T$ with $a'$ almost
-independent of $G$ until the batch stops being memory-bound. This is the decode roofline:
-weights are streamed once per step regardless of batch size.
+\paragraph{Exercise 17.8.} For a fixed parameter budget, adapting all linear layers
+(with a smaller $r$) usually wins on SFT, because MLP layers hold much of the
+task-relevant capacity. The spam task is easy enough that most placements reach
+similar accuracy. Attention-only placements are slightly weaker on SFT.
 
-\paragraph{Exercise 17.9} Qwen3-4B: 36 layers, 8 KV heads, head dim 128, so the KV cache is
-$2\cdot36\cdot8\cdot128\cdot2=147$\,KB per token. (i) $256$ sequences $\times4352$ tokens
-$\approx1.11\times10^6$ tokens, about 164\,GB. (ii) Weights $\approx8.0$\,GB in bf16. Each of the
-4096 decode steps streams the weights plus a cache that grows from 9.7\,GB to 164\,GB, about
-95\,GB on average, so roughly $4096\times95\,\text{GB}/3.35\,\text{TB/s}\approx116$\,s.
-(iii) Training FLOPs $6\cdot4.0\times10^9\cdot1.11\times10^6\approx2.7\times10^{16}$, about 68\,s at
-40\% MFU. The cache does not fit next to the weights on one 80\,GB GPU ($\approx72$\,GB free).
-It needs $\lceil164/72\rceil=3$ waves (or 3+ GPUs), which roughly preserves total sampling
-time, since each wave streams the weights 4096 times.
+\paragraph{Exercise 17.9.} In full fine-tuning the weight-gradient GEMMs are about a third
+of matmul time. With LoRA they disappear for frozen weights, while the adapter GEMMs
+are tiny but numerous (two extra small matmuls per adapted layer in each direction).
+On small models these extra kernels and the optimizer step can eat most of the
+theoretical $1.5\times$ saving, so measured speed-ups are often smaller than predicted.
+On large models the prediction is approached.
 
-\paragraph{Exercise 17.10} Examples: (1) ``\verb|\boxed{7}| \ldots\ actually \verb|\boxed{8}|''
-(first-box readers accept the wrong final answer); (2) ``\verb|\boxed{17}|'' with truth 7
-(substring match accepts); (3) ``\verb|\boxed{7.0}|'' (no normalisation rejects a correct
-answer); (4) ``\verb|\boxed{\frac{14}{2}}|'' (rejected without fraction handling);
-(5) ``\verb|\boxed{1, 2, 3, 4, 5, 6, 7}|'' (substring or ``contains'' accepts). Harden by
-taking the last box, comparing normalised values exactly, and rejecting boxed lists when a
-scalar is expected. RL is most likely to discover the cheap ones (many boxes, lists), because
-they increase reward on \emph{every} prompt without solving anything.
+\paragraph{Exercise 17.10.} Block-normalised GPT-2 weights are roughly bell-shaped but
+heavier-tailed than a Gaussian, with occasional outlier channels. NF4 gives lower
+reconstruction error than uniform int4 for the bulk of the weights, because its
+levels are denser near zero, and typically a smaller perplexity increase. Uniform int4
+does relatively better on blocks dominated by an outlier, where the absmax scale
+squeezes the remaining weights into a few levels for both schemes.
 
-\paragraph{Exercise 17.11} With 20 held-out facts, GRPO transfers the \emph{format} almost
-perfectly (boxing is prompt-independent behaviour). Correctness on held-out facts improves
-little, because a 76k-parameter model trained on 80 facts has not learned an addition
-algorithm, and RL with an outcome reward cannot teach a fact it never produces. This mirrors
-the MATH/MATH-500 split: RLVR mostly improves how existing knowledge is deployed (format,
-persistence, self-checking), and held-out evaluation is what separates that from memorising
-the training prompts.
+\paragraph{Exercise 17.11.} With one adapter, the gather is a broadcast and the cost is
+close to the base model plus two small matmuls. With 8 or 64 distinct adapters, the
+gather materialises per-row copies of $\mat{A}$ and $\mat{B}$ ($B\times r\times d$
+elements), which adds memory traffic proportional to the batch size. That is where
+throughput drops. Fused kernels (Punica's BGMV/SGMV) read each row's adapter directly
+from the adapter pool inside the matmul, never materialising the gathered copies, and
+group rows that share an adapter (segmented GEMM) to recover tensor-core efficiency.

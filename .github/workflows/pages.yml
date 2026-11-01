@@ -1,0 +1,46 @@
+name: Build book and website
+
+on:
+  push:
+    branches: [main]
+    paths: ["book/**", "web/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: texlive/texlive:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pandoc, poppler and python
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends pandoc poppler-utils python3 git ca-certificates
+
+      - name: Build the PDF
+        working-directory: book
+        run: |
+          latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+          cp main.pdf ../LLM-Systems-from-Scratch.pdf
+
+      - name: Build the website
+        run: python3 web/build_site.py --book book --aux book --pdf book/main.pdf --out site
+
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          force_orphan: true
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
+          commit_message: "Publish website"

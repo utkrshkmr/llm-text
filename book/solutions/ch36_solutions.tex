@@ -1,0 +1,32 @@
+\subsection*{Chapter 36: Project 5: Reasoning RL and Alignment}
+
+\paragraph{Exercise 36.1.} One configuration-seed is $200\times40\,\text{s}=8000$\,s on two GPUs.
+Four variants $\times$ four seeds give $16\times8000\,\text{s}\times2\,\text{GPUs}\approx71$
+GPU-hours. Pruning 30\% of the 14\,s training phase saves 4.2\,s per step, a step of 35.8\,s, or
+about 64 GPU-hours (10\% less). Generation dominates, so pruning helps much less than its 30\%
+suggests.
+
+\paragraph{Exercise 36.2.} Per rollout batch: 26\,s of generation, then $32\times0.5=16$\,s of
+training (ignoring grading and sync). The cycle is 42\,s; GPU~1 is idle for $16/42\approx38\%$ of it
+and GPU~0 for $26/42\approx62\%$. Optimizer steps per hour rise from $3600/40=90$ to
+$32\times3600/42\approx2700$, a $30\times$ increase in update frequency for the same rollouts. Whether
+this helps depends on how stale updates behave; that is what the experiment measures.
+
+\paragraph{Exercise 36.3.} With independent misses at rate $m=0.04$, an observed success occurs with
+probability $0.5\times0.96=0.48$. Correct-but-missed responses receive the advantage of a failure
+(about $-0.48$ instead of $+0.52$), so their tokens are pushed down. On average this scales the
+useful signal and adds noise, but it does not bias the direction. If misses concentrate in long
+responses, the noise becomes a systematic penalty on long correct reasoning: the policy learns to
+shorten or reformat answers for the parser rather than to be right. Inspect misses by length before
+trusting length trends.
+
+\paragraph{Exercise 36.4.} Colocated: $26+14+5=45$\,s per step on one GPU, versus about 40\,s on two
+GPUs. Wall-clock is 12.5\% slower, but GPU-seconds per step drop from $80$ to $45$, so colocation is
+about $1.8\times$ more efficient per GPU-hour whenever the phases cannot overlap anyway.
+
+\paragraph{Exercise 36.5.} Policy GPU: bf16 weights 16\,GB, bf16 gradients 16\,GB, RMSprop square
+averages in fp32 32\,GB, and optionally fp32 master weights 32\,GB, for 64--96\,GB. Activations for
+one pair of 512-token sequences are a few GB with FlashAttention, and the logits are about
+$2\times512\times128{,}256\times4\,\text{B}\approx0.5$\,GB in fp32. The reference GPU needs about 16\,GB of
+weights plus small activations. To fit in 80\,GB, first drop the fp32 master copy (or keep RMSprop
+state in bf16), then use activation checkpointing. Sharding is the next step if that is not enough.

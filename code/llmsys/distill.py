@@ -1,4 +1,4 @@
-"""Distillation for reasoning models (Chapter 20).
+"""Distillation for reasoning models (Chapter 30).
 
 Hard distillation  = supervised fine-tuning on teacher-generated text (answer-only CE).
 Soft distillation  = match the teacher's per-token distribution (KL), optionally from a
@@ -319,7 +319,7 @@ def generate_teacher_dataset(problems: Sequence[Dict], teacher_fn: Callable[[str
 def normalize_record(rec: Dict) -> Dict:
     """Map common teacher-trace layouts onto {problem, gtruth, reasoning, answer}.
 
-    Handles e.g. the public ``rasbt/math_distill`` JSON layout
+    Accepts both our own field names and a common chat-export layout
     (problem / gtruth_answer / message_thinking / message_content).
     """
     return dict(problem=rec["problem"],
