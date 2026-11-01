@@ -2,8 +2,7 @@
 
 **Building, Training, Serving, and Teaching Language Models to Reason: a systems-first textbook with labs.**
 
-🌐 **Read online: <https://utkrshkmr.github.io/llm-text/>** (light and dark mode, search)  
-📕 **[LLM-Systems-from-Scratch.pdf](LLM-Systems-from-Scratch.pdf)**
+🌐 **Read online: <https://utkrshkmr.github.io/llm-text/>**
 
 This book follows a language model from raw text to a deployed reasoning system, and asks at
 every step what the machine underneath is doing. Each chapter pairs the modelling ideas with their
@@ -27,12 +26,17 @@ code/    llmsys package, labs (starter / solution / tests / bench scripts), proj
 web/     generator for the online edition (GitHub Pages)
 ```
 
-## Build the book
+## Build the online book
+The book is written in LaTeX (`book/`) and published only as a website. A draft LaTeX pass produces
+the cross-reference numbers; `web/build_site.py` renders every TikZ figure to SVG and converts each
+chapter to HTML (pandoc + MathJax).
 ```
-cd book && latexmk -pdf main.tex
+(cd book && for i in 1 2; do pdflatex -draftmode -interaction=nonstopmode main.tex; done)
+python3 web/build_site.py --book book --aux book --out site
+python3 -m http.server -d site 8000        # preview at http://localhost:8000
 ```
-Requires TeX Live with tcolorbox, listings, tikz, pgfplots and cleveref. No shell-escape is needed.
-To compile a single chapter: `CHNUM=4 ./check_chapter.sh chapters/ch04_attention.tex`.
+Requires TeX Live (tikz, pgfplots, tcolorbox, preview), pandoc >= 3 and poppler. To check a single
+chapter compiles: `CHNUM=4 ./book/check_chapter.sh chapters/ch04_attention.tex`.
 
 ## Run the labs
 ```
@@ -47,9 +51,6 @@ holds the experiments that need real hardware or checkpoints (GPT-2, Qwen3-0.6B,
 Appendix C explains how to set those up. The capstone project kits in `code/projects/` provide setup
 tooling and acceptance tests, but the projects themselves are yours to build.
 
-## Build the website
-```
-python3 web/build_site.py --book book --aux book --pdf book/main.pdf --out site
-```
-A GitHub Actions workflow rebuilds the PDF and the website on every push to `main` and publishes
-the site to the `gh-pages` branch (see `web/README.md`).
+A GitHub Actions workflow rebuilds the website on every push to `main` and publishes it to the
+`gh-pages` branch (see `web/README.md`). The plan for the next edition is in [`docs/PLAN.md`](docs/PLAN.md)
+and the GPU test plan in [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).

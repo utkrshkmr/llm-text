@@ -1,4 +1,4 @@
-name: Build book and website
+name: Build the online book
 
 on:
   push:
@@ -25,14 +25,14 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends pandoc poppler-utils python3 git ca-certificates
 
-      - name: Build the PDF
+      - name: Resolve cross-references (draft LaTeX pass, no PDF)
         working-directory: book
         run: |
-          latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
-          cp main.pdf ../LLM-Systems-from-Scratch.pdf
+          for i in 1 2; do pdflatex -draftmode -interaction=nonstopmode main.tex > /dev/null || true; done
+          test -f chapters/ch04_attention.aux
 
       - name: Build the website
-        run: python3 web/build_site.py --book book --aux book --pdf book/main.pdf --out site
+        run: python3 web/build_site.py --book book --aux book --out site
 
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4

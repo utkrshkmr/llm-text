@@ -12,8 +12,10 @@ Pipeline
   4. site    : pages are wrapped in a template with a sidebar, per-page contents,
                light/dark mode, search and a PDF download link.
 
-Usage (from the repository root, after `latexmk -pdf main.tex` or the equivalent in book/):
-    python3 web/build_site.py --book book --aux book --pdf book/main.pdf --out site
+Usage (from the repository root). The online book is the only published output; a draft-mode
+LaTeX pass is still needed once so that the .aux files (label numbers) exist:
+    (cd book && for i in 1 2; do pdflatex -draftmode -interaction=nonstopmode main.tex; done)
+    python3 web/build_site.py --book book --aux book --out site
 """
 from __future__ import annotations
 
@@ -604,6 +606,24 @@ def math_macros(book: Path) -> str:
 
 # ----------------------------------------------------------------------------- site
 
+def size_figures(body: str, out: Path, px_per_pt: float = 2.1) -> str:
+    """Give every TikZ figure an explicit display width: about 2x its typeset size so figure
+    text reads at body-text size, capped by the column width (CSS max-width: 100%)."""
+    def rep(m):
+        tag, src = m.group(0), m.group(1)
+        svg = out / src
+        try:
+            head = svg.open(encoding="utf-8", errors="ignore").read(600)
+            w = float(re.search(r'<svg[^>]*?\swidth="([\d.]+)(?:pt)?"', head).group(1))
+        except Exception:
+            return tag
+        width = int(round(w * px_per_pt))
+        if "style=" in tag:
+            return tag
+        return tag.replace("<img ", '<img style="width: %dpx" ' % width, 1)
+    return re.sub(r'<img [^>]*src="(figs/[^"]+\.svg)"[^>]*>', rep, body)
+
+
 def slug(src):
     return Path(src).name + ".html"
 
@@ -635,7 +655,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--book", default="book")
     ap.add_argument("--aux", default="book", help="directory containing the .aux files of a PDF build")
-    ap.add_argument("--pdf", default=None, help="compiled PDF to offer for download")
+    ap.add_argument("--pdf", default=None, help="unused (the PDF is no longer published)")
     ap.add_argument("--out", default="site")
     ap.add_argument("--work", default="_webbuild")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
@@ -707,20 +727,31 @@ def main():
 
     print("[3/3] assembling site")
     template = read(HERE / "template.html")
-    nav = []
-    cur_part = None
-    for it in items:
-        if it["part"] != cur_part and it["part"]:
-            cur_part = it["part"]
-            nav.append('<li class="part">%s</li>' % html.escape(cur_part))
+    chev = ('<svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
+            '<path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" '
+            'stroke-linecap="round"/></svg>')
+
+    def link(it):
         label = ("%s&nbsp; " % it["num"]) if it["num"] else ""
-        nav.append('<li><a href="%s" data-page="%s"><span class="num">%s</span>%s</a></li>' %
-                   (it["file"], it["file"], label, html.escape(it["title"])))
+        return ('<li><a href="%s" data-page="%s"><span class="num">%s</span>%s</a></li>' %
+                (it["file"], it["file"], label, html.escape(it["title"])))
+
+    nav = ['<ul class="nav-front">']
+    nav += [link(it) for it in items if not it["part"]]
+    nav.append("</ul>")
+    parts = []
+    for it in items:
+        if it["part"] and (not parts or parts[-1][0] != it["part"]):
+            parts.append((it["part"], []))
+        if it["part"]:
+            parts[-1][1].append(it)
+    for k, (name, its) in enumerate(parts):
+        nav.append('<div class="nav-part" data-part="p%d"><button class="part-toggle" type="button">%s<span>%s</span></button><ul>'
+                   % (k, chev, html.escape(name)))
+        nav += [link(it) for it in its]
+        nav.append("</ul></div>")
     nav_html = "\n".join(nav)
     pdf_name = None
-    if args.pdf and Path(args.pdf).exists():
-        pdf_name = "LLM-Systems-from-Scratch.pdf"
-        shutil.copy(args.pdf, out / pdf_name)
 
     for i, p in enumerate(pages):
         if p["body"] is None:
@@ -728,9 +759,11 @@ def main():
         toc_m = re.search(r"<!--TOC-->(.*?)<!--/TOC-->", p["body"], flags=re.S)
         toc = toc_m.group(1) if toc_m else ""
         # drop the chapter title level from the page contents
-        tm = re.match(r'\s*<nav[^>]*>\s*<ul>\s*<li><a[^>]*>.*?</a>\s*(<ul>.*</ul>)\s*</li>\s*</ul>\s*</nav>\s*$', toc, flags=re.S)
-        if tm:
-            toc = '<nav id="TOC" role="doc-toc">' + tm.group(1) + '</nav>'
+        inner = re.sub(r"^\s*<nav[^>]*>|</nav>\s*$", "", toc.strip())
+        tm = re.match(r'\s*<ul>\s*<li><a[^>]*>.*?</a>\s*(<ul>.*</ul>)\s*</li>\s*</ul>\s*$', inner, flags=re.S)
+        toc = '<nav id="TOC" role="doc-toc">' + (tm.group(1) if tm else inner) + '</nav>'
+        body = size_figures(p["body"], out)
+        p["body"] = body
 
         body = re.sub(r"<!--TOC-->.*?<!--/TOC-->", "", p["body"], flags=re.S)
         prev_l = ('<a class="prev" href="%s">&larr; %s</a>' % (pages[i - 1]["file"], html.escape(pages[i - 1]["title"]))) if i > 0 else "<span></span>"
