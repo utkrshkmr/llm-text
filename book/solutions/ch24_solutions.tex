@@ -1,63 +1,100 @@
-\subsection*{Chapter 24: Policy-Gradient Foundations for LLM Reinforcement Learning}
+\subsection*{Chapter 24: Fine-Tuning for Classification}
 
-\paragraph{Exercise 24.1.} $f(b)=\E[(r-b)^2\|g\|^2]=\E[r^2\|g\|^2]-2b\,\E[r\|g\|^2]+b^2\E[\|g\|^2]$
-is a convex quadratic, so $f'(b)=0$ gives $b^\star=\E[r\|g\|^2]/\E[\|g\|^2]$. Per coordinate,
-minimising $\E[(r-b_k)^2g_k^2]$ separately gives $b_k^\star=\E[r g_k^2]/\E[g_k^2]$. For an LLM this
-needs a running estimate of two statistics per parameter (two extra model-sized buffers), and
-it needs per-sample gradients rather than the batch-summed gradient autograd produces, so it
-is impractical. Group and critic baselines are per-prompt scalars instead.
+\paragraph{Exercise 24.1.} With global padding every batch is $8\times120$; with dynamic
+padding the mean batch width falls to roughly the batch's longest message (typically
+30--60 tokens for SMS), so epoch time drops roughly in proportion once the GPU is
+compute-bound. On CPU, or with tiny batches, the gain is smaller because fixed overheads
+dominate. Accuracy should be statistically indistinguishable \emph{if} the head reads
+the last real token. Padding to 1{,}024 multiplies linear-layer work by about
+$1024/120\approx8.5$ and attention-score work by about $73$. If the head reads position
+$-1$, it now reads a padding token that sits 900+ positions after the message. Its
+hidden state is still a function of the message, but a very different input
+distribution from the one seen in training, and accuracy typically drops sharply.
 
-\paragraph{Exercise 24.2.} $\pi=(0.506,0.307,0.186)$. The exact gradient with respect to the
-logits is $\sum_a\pi_a r_a(e_a-\pi)=\pi\odot r-\pi\,(\pi^\top r)=(0.219,-0.113,-0.106)$. The
-total variance at $b=0$ is $0.126$ and $b^\star=0.384$ (variance $0.036$), matching
-\cref{fig:pg:variance}.
+\paragraph{Exercise 24.2.} Per-step cost is predicted by $2N + 4N_{\text{tr}}$ per token:
+with $k$ trainable blocks out of 12, $N_{\text{tr}}\approx (k/12)N$, so time per step
+$\propto 2 + 4k/12$. That is $1.0$ ($k=0$, head only, up to a tiny head), $1.17$
+($k=1$), $1.33$ ($k=2$), $1.67$ ($k=4$) and $3.0$ ($k=12$) relative to a forward pass.
+Peak memory grows with $k$ through activations kept for backward (only blocks above the
+lowest trainable one store them) and through $14$ bytes per trainable parameter.
+Accuracy usually improves from $k=0$ to $k=1$ and changes little after that.
+Discrepancies come from fixed overheads (optimizer step, kernel launches) and from the
+embedding/head layers, which the block-count model ignores.
 
-\paragraph{Exercise 24.3.} $b_j=\frac{1}{G-1}\sum_{k\ne j}r_k$ is a function of samples
-independent of $y_j$, so conditioning on them and applying \cref{prop:pg:baseline} gives
-$\E[b_j\nabla\log\pi(y_j)]=\E[b_j]\cdot0=0$. Algebra:
-$r_j-\frac{S-r_j}{G-1}=\frac{Gr_j-S}{G-1}=\frac{G}{G-1}\big(r_j-\frac{S}{G}\big)$ with $S=\sum_k r_k$.
+\paragraph{Exercise 24.3.} Run blocks 1--11 under \code{torch.no\_grad()} once, storing
+$h_{11}$ of shape $(n, T, 768)$ in bf16 (about \SI{193}{MB} for 1{,}045 messages padded
+to 120). Train block 12, the final norm and the head on the cache. With dropout off,
+the forward computation is identical, so the loss curves match to floating-point
+tolerance. Measuring cost in units of one block's forward FLOPs (2 per parameter), an uncached step costs $12\times2 + 4 = 28$ (twelve forwards, one backward of block 12), a cached step $2+4=6$, so each epoch is about $28/6\approx4.7\times$ faster (less if data movement of the cache dominates).
 
-\paragraph{Exercise 24.4.} With $\kappa(\mu)=\mu$, the limit is $\eta(x)\nabla\eta(x)$, so
-$w(x)=\operatorname{sg}[\eta(x)]$: the weight grows linearly with the success rate. The scheme
-emphasises prompts the model already solves and nearly ignores hard ones, the opposite of the
-example in the text. Equivalently it ascends $\tfrac12\E_x[\eta(x)^2]$.
+\paragraph{Exercise 24.4.} Plain cross-entropy on 87/13 data reaches high accuracy but
+lower spam recall. Class weights $w_c\propto 1/\text{freq}(c)$ raise recall at some cost
+in precision. Undersampling behaves similarly but trains on less data. Accuracy is
+misleading under imbalance; report precision/recall/F1 for the spam class, and for a
+dashboard prefer precision at a fixed recall (or vice versa), matched to the product
+cost of each error.
 
-\paragraph{Exercise 24.5.} Total weight per response is (tokens) $\times$ (per-token weight).
-\emph{Sequence mean:} every response gets $1/N=0.25$. \emph{Token mean} ($\sum|y|=1860$): $0.016,\,0.016,\,0.161,\,0.806$.
-\emph{Constant} ($Z=8192$): $0.0037,\,0.0037,\,0.037,\,0.183$. The long wrong answer
-($-1$, 1500 tokens) receives the smallest share of the batch's push under the sequence mean
-($0.25$ versus $0.81$ under token mean), so sequence-mean aggregation makes long wrong answers
-cheapest to keep.
+\paragraph{Exercise 24.5.} Let a message occupy positions $0..\ell-1$ with padding at
+$\ell..T-1$. Under the causal mask, the hidden state at position $t$ depends only on
+tokens $0..t$. In particular position $\ell-1$ never attends to padding, and
+LayerNorm/MLP act per position, so $h_{\ell-1}$, and hence the logits read there, are
+independent of $T-\ell$. Counterexample for position $-1$: with $T=\ell+1$, the last
+position is a padding token attending to $\ell+1$ keys. With $T=\ell+5$ it attends to
+$\ell+5$ keys, four of which are padding tokens with different position embeddings,
+so the softmax weights and the output differ.
 
-\paragraph{Exercise 24.6.} The exact rule gives every token weight $1/1000$. The buggy rule gives
-$\frac12\cdot\frac{1}{100}=1/200$ in the first micro-batch ($5\times$ too large) and
-$\frac12\cdot\frac{1}{900}=1/1800$ in the second ($0.56\times$). The error depends on the
-arbitrary split, so the same data give different gradients under different micro-batch sizes.
+\paragraph{Exercise 24.6.} With left padding the real tokens occupy positions
+$T-\ell..T-1$ instead of $0..\ell-1$, so they receive different learned position
+embeddings, and the logits differ (often by a few percent of their magnitude, enough to
+flip borderline cases). The key mask removes the influence of padded tokens but cannot
+undo the position shift. With RoPE, attention depends only on $i-j$, which is unchanged
+for every pair of real tokens, so the logits match up to floating-point error.
 
-\paragraph{Exercise 24.7.} $\chi^2=\sum p_1^2/p_0-1\approx0.0112$. The variance is
-$(1.0112)^{256}-1\approx16$ at $L=256$ and $\approx5.7\times10^{19}$ at $L=4096$. Since
-$\E[w^2]\approx5.7\times10^{19}$ while $\E[w]=1$, the effective sample size $1024/\E[w^2]$ is
-far below one: in practice a single sequence carries essentially all the weight.
+\paragraph{Exercise 24.7.} Sort-within-mega-batch as in \cref{lst:classify:bucket}, then
+greedily add sequences to the current batch while $\max(\text{len})\times(\text{count})
+\le K$. Short-message batches then contain many sequences and long ones few. The number
+of batches varies, padding waste matches bucketing, and step-time variance drops
+because every batch has roughly $K$ token-slots. Learning-rate schedules should then be
+defined in tokens rather than steps.
 
-\paragraph{Exercise 24.8.} Gradient flows for $(1.3,-1)$, $(0.7,+1)$, $(1.1,+1)$ and $(0.9,-1)$; it is
-masked for $(1.3,+1)$ (already raised beyond $1+\epsilon$) and $(0.7,-1)$ (already lowered below
-$1-\epsilon$). Clipping only removes incentive to move \emph{further} in the advantage's direction;
-moves that undo an over-shoot are always allowed.
+\paragraph{Exercise 24.8.} Compute $\log p(\text{`` spam''}\mid\text{prompt})$ and
+$\log p(\text{`` ham''}\mid\text{prompt})$ from one forward pass each (or one pass with
+both continuations scored via \code{sequence\_logprob}) and predict the larger. Base
+GPT-2 models typically score only modestly above chance on the balanced split, and the
+improvement with model size is gradual. Fine-tuning closes most of the gap. Note that
+the label words should be chosen as single tokens with a leading space, otherwise
+multi-token labels are penalised by length.
 
-\paragraph{Exercise 24.9.} $4\times8192\times152{,}064\times4\,\text{B}\approx19.9$\,GB. A chunk of $r$
-rows costs $r\times152{,}064\times4$\,B, so $r\le1644$ keeps it under 1\,GB; 1024 rows (0.62\,GB) is a
-convenient choice. Slicing hidden states to response positions before the LM head removes
-25\% of the LM-head FLOPs and of the logit memory; with large vocabularies the LM head is a
-significant share of a forward pass, so this is a cheap, real saving.
+\paragraph{Exercise 24.9.} Demand: $20{,}000\times35 = 7.0\times10^5$ real tokens/s. With
+random batching at about 60\% waste, the GPUs must process $7.0\times10^5/0.4=1.75\times
+10^6$ token-slots/s; with bucketing at about 7\% waste, $7.5\times10^5$. An L4 offers
+\SI{121}{TFLOP/s}; at 40\% utilisation and $1.7\times10^8$ FLOPs/token it processes
+about $2.85\times10^5$ tokens/s. So random batching needs $\lceil 6.1\rceil = 7$ GPUs
+and bucketing needs $\lceil 2.6\rceil=3$, plus headroom for peaks. A 160-token message
+in a batch of 64 takes about $64\times160\times1.7\times10^8/4.8\times10^{13}\approx
+\SI{36}{ms}$ of compute, so the \SI{50}{ms} p99 constrains the batching window to a few
+milliseconds. The weakest assumption is the 40\% utilisation: at such short sequences,
+kernel-launch and framework overheads can halve it unless CUDA graphs or a compiled
+engine are used.
 
-\paragraph{Exercise 24.10.} At initialisation $\eta$ is low (about 0.09 on the toy task), so most
-groups are all-zero and the group baselines mostly produce zero rows; no-baseline variance is
-dominated by the few lucky successes. After 20 GRPO steps $\eta$ is near 0.3, where baselines help most.
-Expect the leave-one-out and group-mean variances to match up to the $(G/(G-1))^2$ factor, and both
-to be several times lower than no baseline.
+\paragraph{Exercise 24.10.} The SMS collection contains several hundred exact duplicate
+texts, mostly spam templates, and more after normalisation. Re-splitting after
+deduplication typically lowers test accuracy slightly. The difference measures how much
+the original score benefited from test messages whose duplicates were in training.
 
-\paragraph{Exercise 24.11.} $\int_0^1\big(p^G+(1-p)^G\big)dp=\frac{2}{G+1}=2/17\approx11.8\%$ of
-groups. Pruning removes their forward and backward passes, about 12\% of trainer time when the
-step is trainer-bound. It cannot save rollout time: a group's rewards, and therefore whether it is
-prunable, are known only after its rollouts have been generated. Saving rollout time requires
-predicting difficulty in advance (filtering or curriculum), not pruning.
+\paragraph{Exercise 24.11.} Temperature scaling multiplies all logits of an example by the
+same positive constant $1/T$. Because $\argmax_c z_c/T = \argmax_c z_c$ for $T>0$,
+predictions and therefore accuracy are unchanged. A fine-tuned classifier is typically
+over-confident ($T>1$ after fitting), and ECE drops substantially after scaling.
+
+\paragraph{Exercise 24.12.} Sort test examples by calibrated confidence. Escalating the
+least confident fraction $e$ makes cascade accuracy
+$=1-(\text{errors among the confident }1-e)/n$. Increase $e$ until accuracy reaches
+99.5\%; the cost is then $(1+eR)/R$ of the large-only budget. Well-calibrated models
+concentrate their errors in the low-confidence region, so a small $e$ suffices.
+
+\paragraph{Exercise 24.13.} For pretrained GPT-2 small, probe accuracy typically rises over
+the first several blocks and plateaus in the middle-to-upper layers. Sometimes it dips
+slightly in the last block, which is specialised for next-token prediction. If the
+plateau is reached by block $\ell$, serving only blocks $1..\ell$ plus a head saves
+about $(12-\ell)/12$ of the per-token FLOPs (embeddings and head aside).

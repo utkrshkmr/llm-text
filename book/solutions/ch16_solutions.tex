@@ -1,100 +1,87 @@
-\subsection*{Chapter 16: Fine-Tuning for Classification}
+\subsection*{Chapter 16: Performance Engineering on One GPU}
 
-\paragraph{Exercise 16.1.} With global padding every batch is $8\times120$; with dynamic
-padding the mean batch width falls to roughly the batch's longest message (typically
-30--60 tokens for SMS), so epoch time drops roughly in proportion once the GPU is
-compute-bound. On CPU, or with tiny batches, the gain is smaller because fixed overheads
-dominate. Accuracy should be statistically indistinguishable \emph{if} the head reads
-the last real token. Padding to 1{,}024 multiplies linear-layer work by about
-$1024/120\approx8.5$ and attention-score work by about $73$. If the head reads position
-$-1$, it now reads a padding token that sits 900+ positions after the message. Its
-hidden state is still a function of the message, but a very different input
-distribution from the one seen in training, and accuracy typically drops sharply.
+\paragraph{Exercise 16.1} One-time costs: CUDA context creation and kernel-module loading; cuBLAS
+handle creation and heuristic or autotuning selection per new GEMM shape; Triton JIT compilation and
+\code{triton.autotune} sweeps; \code{torch.compile} tracing (Dynamo), joint-graph partitioning
+(AOTAutograd) and code generation (Inductor); caching-allocator growth (one \code{cudaMalloc} per new
+segment); CUDA-graph capture if enabled; GPU clock ramp-up. Experiment: wrap ``import + model
+construction'', ``first forward'', ``first backward'', ``first optimizer step'', ``second step'' and
+``steps 3--20'' in separate NVTX ranges and profile without a capture range. Compile and autotune
+appear as long host-side ranges with no kernels; allocator growth appears as \code{cudaMalloc} calls in
+the CUDA API row; clock ramp-up shows as identical kernels getting faster over the first iterations
+(also visible with \code{nvidia-smi dmon}).
 
-\paragraph{Exercise 16.2.} Per-step cost is predicted by $2N + 4N_{\text{tr}}$ per token:
-with $k$ trainable blocks out of 12, $N_{\text{tr}}\approx (k/12)N$, so time per step
-$\propto 2 + 4k/12$. That is $1.0$ ($k=0$, head only, up to a tiny head), $1.17$
-($k=1$), $1.33$ ($k=2$), $1.67$ ($k=4$) and $3.0$ ($k=12$) relative to a forward pass.
-Peak memory grows with $k$ through activations kept for backward (only blocks above the
-lowest trainable one store them) and through $14$ bytes per trainable parameter.
-Accuracy usually improves from $k=0$ to $k=1$ and changes little after that.
-Discrepancies come from fixed overheads (optimizer step, kernel launches) and from the
-embedding/head layers, which the block-count model ignores.
+\paragraph{Exercise 16.2} Any launch-bound workload: for example, 1000 small elementwise kernels on
+$10^4$-element tensors. Each kernel runs for about $2\,\mu$s on the device, but the host needs
+about $5$--$10\,\mu$s per launch, so CUDA events (device time, roughly the sum of kernel durations
+when the queue never empties) report much less than wall-clock time, which includes the launch
+bottleneck. Report device time (events or \code{do\_bench}) for a kernel paper, because the claim is
+about the kernel; report synchronised wall-clock time for training throughput, because host overhead
+is part of the real cost.
 
-\paragraph{Exercise 16.3.} Run blocks 1--11 under \code{torch.no\_grad()} once, storing
-$h_{11}$ of shape $(n, T, 768)$ in bf16 (about \SI{193}{MB} for 1{,}045 messages padded
-to 120). Train block 12, the final norm and the head on the cache. With dropout off,
-the forward computation is identical, so the loss curves match to floating-point
-tolerance. Measuring cost in units of one block's forward FLOPs (2 per parameter), an uncached step costs $12\times2 + 4 = 28$ (twelve forwards, one backward of block 12), a cached step $2+4=6$, so each epoch is about $28/6\approx4.7\times$ faster (less if data movement of the cache dominates).
+\paragraph{Exercise 16.3} For \code{fc3(silu(fc1(x)) * fc2(x))} in eager mode: \code{fc1} and
+\code{fc2} save $x$ (the same storage, counted once): $BTd\cdot4$ bytes. \code{silu} saves its input
+$g=\code{fc1}(x)$: $BTh\cdot4$. The product saves both operands, \code{silu}$(g)$ and
+$u=\code{fc2}(x)$: $2BTh\cdot4$. \code{fc3} saves its input (the product): $BTh\cdot4$. Total
+$4BT(d+4h)$ bytes, i.e.\ $1+4h/d$ units of the residual stream (about 13 for $h=3d$). Under
+\code{torch.compile} the partitioner typically keeps $x$, $g$ and $u$ and recomputes
+\code{silu}$(g)$ and the product in the backward kernel, dropping two $h$-wide tensors (about
+$1+2h/d$ units). Verify by printing \code{tr.table()} in both modes.
 
-\paragraph{Exercise 16.4.} Plain cross-entropy on 87/13 data reaches high accuracy but
-lower spam recall. Class weights $w_c\propto 1/\text{freq}(c)$ raise recall at some cost
-in precision. Undersampling behaves similarly but trains on less data. Accuracy is
-misleading under imbalance; report precision/recall/F1 for the spam class, and for a
-dashboard prefer precision at a fixed recall (or vice versa), matched to the product
-cost of each error.
+\paragraph{Exercise 16.4} With outer groups of $k_1$ blocks, each recomputed with inner checkpoints
+every $k_2$ blocks, the peak (in units of $a$, with $A=30a$) is
+$M=\tfrac{L}{k_1}+\tfrac{k_1}{k_2}+30k_2$: outer checkpoints, the inner checkpoints of the outer
+group being recomputed, and one live inner group. Each block runs forward three times (original,
+outer recomputation, inner recomputation) versus twice for one level. Because $A\gg a$, $k_2=1$ is
+optimal, giving $M=64/k_1+k_1+30$, minimised at $k_1=8$: $M=46a$. The best one-level schedule
+($k=1$ or $2$) gives $94a$ or $92a$. One extra forward per block roughly halves peak activation
+memory here.
 
-\paragraph{Exercise 16.5.} Let a message occupy positions $0..\ell-1$ with padding at
-$\ell..T-1$. Under the causal mask, the hidden state at position $t$ depends only on
-tokens $0..t$. In particular position $\ell-1$ never attends to padding, and
-LayerNorm/MLP act per position, so $h_{\ell-1}$, and hence the logits read there, are
-independent of $T-\ell$. Counterexample for position $-1$: with $T=\ell+1$, the last
-position is a padding token attending to $\ell+1$ keys. With $T=\ell+5$ it attends to
-$\ell+5$ keys, four of which are padding tokens with different position embeddings,
-so the softmax weights and the output differ.
+\paragraph{Exercise 16.5} Per parameter, AdamW does about 12--15 FLOPs (two moment updates, bias
+corrections, a square root, a division, weight decay, the update) and moves about 28 bytes
+(\cref{sec:perf:anatomy}): roughly 0.5 FLOP/byte, far below any GPU's ridge point. Qwen3-1.7B has
+$1.72\times10^9$ parameters, so 48.2\,GB of traffic, or 14.4\,ms at 3.35\,TB/s. The model has about
+310 parameter tensors (11 per layer over 28 layers, plus the embedding and final norm); at about
+ten kernels per tensor and $5\,\mu$s per launch, launching alone takes 15.5\,ms of host time, and
+kernels on small tensors (norm weights) are too short to reach bandwidth. Expect 25--40\,ms unfused.
+A fused (or multi-tensor) implementation launches a handful of kernels and approaches
+$14.4/0.8\approx18$\,ms at 80\% of peak bandwidth.
 
-\paragraph{Exercise 16.6.} With left padding the real tokens occupy positions
-$T-\ell..T-1$ instead of $0..\ell-1$, so they receive different learned position
-embeddings, and the logits differ (often by a few percent of their magnitude, enough to
-flip borderline cases). The key mask removes the influence of padded tokens but cannot
-undo the position shift. With RoPE, attention depends only on $i-j$, which is unchanged
-for every pair of real tokens, so the logits match up to floating-point error.
+\paragraph{Exercise 16.6} $16\times4096=65{,}536$ tokens. Logits in bf16: $65{,}536\times151{,}936\times2$\,B
+$=19.9$\,GB; the fp32 upcast doubles that to 39.8\,GB; the gradient of the logits is another
+19.9--39.8\,GB. That is 80--100\,GB at the peak, more than an 80\,GB GPU. To keep the fp32 slab under
+1\,GB: chunk $\le 10^9/(151{,}936\times4)\approx1645$ tokens, so use 1024 (0.62\,GB fp32 plus 0.31\,GB
+bf16). Recomputation repeats the LM-head forward ($2\dmodel V=622$\,MFLOP per token), i.e.\
+$4.1\times10^{13}$ extra FLOPs per step (about 41\,ms at the H100's bf16 peak): one third more than the
+LM head's normal training cost.
 
-\paragraph{Exercise 16.7.} Sort-within-mega-batch as in \cref{lst:classify:bucket}, then
-greedily add sequences to the current batch while $\max(\text{len})\times(\text{count})
-\le K$. Short-message batches then contain many sequences and long ones few. The number
-of batches varies, padding waste matches bucketing, and step-time variance drops
-because every batch has roughly $K$ token-slots. Learning-rate schedules should then be
-defined in tokens rather than steps.
+\paragraph{Exercise 16.7} With tile size $b$ and $n=T/b$ tiles per side, a causal forward visits
+$n(n+1)/2$ tiles and does two GEMMs of $2b^2\dhead$ FLOPs on each, giving
+$2\,BH\dhead\,T(T+b)$ FLOPs ($\approx2BH\dhead T^2$, half of non-causal). The two-kernel backward
+does seven GEMMs per visited tile: $7\,BH\dhead\,T(T+b)$, $3.5\times$ the forward. A backward reading a
+stored $\mat{P}$ does four GEMMs ($\mat{dV},\mat{dP},\mat{dQ},\mat{dK}$), $2\times$ the forward, but
+must store and read $BHT^2$ elements. The diagonal tiles are computed in full and masked, so their
+wasted FLOPs are the $T\cdot b$ term.
 
-\paragraph{Exercise 16.8.} Compute $\log p(\text{`` spam''}\mid\text{prompt})$ and
-$\log p(\text{`` ham''}\mid\text{prompt})$ from one forward pass each (or one pass with
-both continuations scored via \code{sequence\_logprob}) and predict the larger. Base
-GPT-2 models typically score only modestly above chance on the balanced split, and the
-improvement with model size is gradual. Fine-tuning closes most of the gap. Note that
-the label words should be chosen as single tokens with a leading space, otherwise
-multi-token labels are penalised by length.
+\paragraph{Exercise 16.8} Visited tiles $n(n+1)/2$, masked tiles $n$: a fraction of $2/(n+1)$, e.g.\
+about 3\% for $n=64$. With \code{BLOCK\_M}$=2\,$\code{BLOCK\_N} and $n_q=T/\code{BLOCK\_M}$ query
+tiles, query tile $i$ visits $2i+2$ key tiles, the last two of which straddle the diagonal and need
+masks. Visited $=n_q(n_q+1)$, masked $=2n_q$, so again $2/(n_q+1)$, now in terms of the (fewer)
+query tiles.
 
-\paragraph{Exercise 16.9.} Demand: $20{,}000\times35 = 7.0\times10^5$ real tokens/s. With
-random batching at about 60\% waste, the GPUs must process $7.0\times10^5/0.4=1.75\times
-10^6$ token-slots/s; with bucketing at about 7\% waste, $7.5\times10^5$. An L4 offers
-\SI{121}{TFLOP/s}; at 40\% utilisation and $1.7\times10^8$ FLOPs/token it processes
-about $2.85\times10^5$ tokens/s. So random batching needs $\lceil 6.1\rceil = 7$ GPUs
-and bucketing needs $\lceil 2.6\rceil=3$, plus headroom for peaks. A 160-token message
-in a batch of 64 takes about $64\times160\times1.7\times10^8/4.8\times10^{13}\approx
-\SI{36}{ms}$ of compute, so the \SI{50}{ms} p99 constrains the batching window to a few
-milliseconds. The weakest assumption is the 40\% utilisation: at such short sequences,
-kernel-launch and framework overheads can halve it unless CUDA graphs or a compiled
-engine are used.
+\paragraph{Exercise 16.9} Tiles $=16\lceil M/128\rceil$ and waves $=\lceil\text{tiles}/132\rceil$;
+achieved fraction $=\text{tiles}/(132\cdot\text{waves})$. At $M=4096$: 512 tiles, 4 waves, 97\%.
+Throughput drops just above $M=4224$ (528 tiles fill exactly 4 waves; 544 need 5, falling to 82\%),
+$M=5248$ (656 to 672 tiles: 99\% to 85\%), $M=6272$ (784 to 800 tiles) and $M=7296$ (912 to 928 tiles),
+with smaller steps at every multiple of 128 from tile quantisation. A sweep of measured throughput
+shows the same sawtooth.
 
-\paragraph{Exercise 16.10.} The SMS collection contains several hundred exact duplicate
-texts, mostly spam templates, and more after normalisation. Re-splitting after
-deduplication typically lowers test accuracy slightly. The difference measures how much
-the original score benefited from test messages whose duplicates were in training.
-
-\paragraph{Exercise 16.11.} Temperature scaling multiplies all logits of an example by the
-same positive constant $1/T$. Because $\argmax_c z_c/T = \argmax_c z_c$ for $T>0$,
-predictions and therefore accuracy are unchanged. A fine-tuned classifier is typically
-over-confident ($T>1$ after fitting), and ECE drops substantially after scaling.
-
-\paragraph{Exercise 16.12.} Sort test examples by calibrated confidence. Escalating the
-least confident fraction $e$ makes cascade accuracy
-$=1-(\text{errors among the confident }1-e)/n$. Increase $e$ until accuracy reaches
-99.5\%; the cost is then $(1+eR)/R$ of the large-only budget. Well-calibrated models
-concentrate their errors in the low-confidence region, so a small $e$ suffices.
-
-\paragraph{Exercise 16.13.} For pretrained GPT-2 small, probe accuracy typically rises over
-the first several blocks and plateaus in the middle-to-upper layers. Sometimes it dips
-slightly in the last block, which is specialised for next-token prediction. If the
-plateau is reached by block $\ell$, serving only blocks $1..\ell$ plus a head saves
-about $(12-\ell)/12$ of the per-token FLOPs (embeddings and head aside).
+\paragraph{Exercise 16.10} With \code{fullgraph=True}, Dynamo raises at \code{loss.item()}
+(``data-dependent'' or ``Tensor.item'' graph break) because converting a tensor to a Python number
+needs a device synchronisation and leaves the graph. \code{TORCH\_LOGS=graph\_breaks} on the original
+code lists remaining breaks, typically from NVTX/profiler calls inside the compiled region,
+\code{print}s, Python-side conditionals on tensor values and calls into unsupported libraries. The
+remedies: move logging outside the compiled function (return the loss tensor and call
+\code{.item()} every $k$ steps), replace data-dependent branches with \code{torch.where}, mark
+helper functions with \code{torch.compiler.disable} if they must stay in Python, and compile per block
+so that remaining breaks fall between compiled regions.

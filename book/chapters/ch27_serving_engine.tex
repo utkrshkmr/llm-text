@@ -1,0 +1,1168 @@
+\chapter{Batching and Serving Engines}\label{ch:serving}
+
+\Cref{ch:inference} ended with a sobering table: a single decoding stream uses well under 1\% of a
+modern GPU's arithmetic, because every token drags the entire model through the memory system.
+The only way to amortize that cost is to decode many sequences at once. This chapter is about
+doing so well. We start where every practitioner starts: pad a few prompts into a rectangle and
+run them together. That simple idea already speeds up every workload of Part~VII (evaluation,
+self-consistency sampling, GRPO rollouts and distillation), and we walk through each one. Then we
+take the serving-system view. Requests arrive at random times with random lengths; rectangles waste
+compute on padding and memory on reservations, and fast requests get stuck behind slow ones. The
+fixes, iteration-level (continuous) batching, paged KV memory, prefix sharing, chunked prefill, and
+disaggregation of prefill from decode, form the core of every modern engine (vLLM, SGLang,
+TensorRT-LLM, TGI). We finish by building a working miniature of such an engine,
+\ident{llmsys.serving}, that produces exactly the same tokens as our reference generator while
+batching, paging, sharing and preempting underneath.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  stage/.style={draw=sysblue,fill=sysblue!8,rounded corners=2pt,minimum width=2.45cm,
+    minimum height=1.0cm,align=center,font=\small},
+  sys/.style={stage,draw=napkin,fill=napkin!10},
+  num/.style={circle,fill=sysblue,text=white,font=\scriptsize\bfseries,inner sep=1.2pt},
+  arr/.style={-{Stealth[length=2mm]},thick,sysblue!70}]
+\node[stage] (a) at (0,0) {Why batching\\helps};
+\node[stage] (b) at (2.9,0) {Padding \&\\masks};
+\node[stage] (c) at (5.8,0) {Batched eval,\\sampling, RL, KD};
+\node[stage] (d) at (8.7,0) {Single vs.\\batch trade-offs};
+\node[sys] (e) at (11.6,0) {Continuous\\batching};
+\node[sys] (f) at (11.6,-1.9) {Paged KV\\memory};
+\node[sys] (g) at (8.7,-1.9) {Prefix sharing};
+\node[sys] (h) at (5.8,-1.9) {Chunked prefill\\\& scheduling};
+\node[sys] (i) at (2.9,-1.9) {Disaggregation};
+\node[sys,draw=labpurple,fill=labpurple!10] (j) at (0,-1.9) {Mini engine\\+ Lab 27};
+\foreach \x/\y in {a/b,b/c,c/d,d/e,e/f,f/g,g/h,h/i,i/j} \draw[arr] (\x) -- (\y);
+\foreach \n/\k in {a/1,b/2,c/3,d/4,e/5,f/6,g/7,h/8,i/9,j/10} \node[num] at (\n.north west) {\k};
+\node[font=\scriptsize\itshape,text=sysblue] at (5.8,0.85) {batching in our own scripts (offline)};
+\node[font=\scriptsize\itshape,text=napkin] at (5.8,-2.75) {batching in a server (online, random arrivals)};
+\end{tikzpicture}
+\caption{Roadmap. The top row batches known workloads offline; the bottom row designs an online
+engine for a stream of unpredictable requests.}
+\label{fig:serving:roadmap}
+\end{figure}
+
+% =====================================================================
+\section{Latency, throughput, and why batching helps}\label{sec:serving:why}
+
+Two performance goals pull in different directions:
+\begin{itemize}
+  \item \textbf{Latency}: how quickly \emph{one} prompt gets its answer.
+  \item \textbf{Throughput}: how many prompts (or tokens) are processed per unit time.
+\end{itemize}
+Single-sequence generation, as in \cref{ch:inference}, minimizes latency for one user, is easiest
+to read and debug, and is what we use to explain algorithms throughout the book. Batched generation
+stacks several sequences into one tensor and advances all of them with each forward pass
+(\cref{fig:serving:singlebatch}). It is a \emph{throughput} optimization.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  q/.style={draw=fdata,fill=fdata!12,rounded corners=1pt,minimum width=2.3cm,minimum height=0.48cm,font=\scriptsize},
+  a/.style={draw=napkin,fill=napkin!15,rounded corners=1pt,minimum height=0.48cm,font=\scriptsize},
+  llm/.style={draw=fcompute,fill=fcompute!15,rounded corners=2pt,minimum width=1.0cm,minimum height=0.5cm,font=\scriptsize\bfseries},
+  arr/.style={-{Stealth[length=1.4mm]},thick}]
+\node[font=\small\bfseries,anchor=west] at (-1.3,1.0) {sequential: one prompt per pass};
+\foreach \i/\p/\r in {0/{Solve $3x-1=8$}/{$x=3$},1/{Compute $9^2-4^2$}/{$65$},2/{Simplify $18/6+2$}/{$5$}} {
+  \node[q] (Q\i) at (4.1*\i,0.25) {\p};
+  \node[llm] (L\i) at (4.1*\i,-0.5) {LLM};
+  \node[a,minimum width=1.2cm] (A\i) at (4.1*\i,-1.25) {\r};
+  \draw[arr] (Q\i) -- (L\i); \draw[arr] (L\i) -- (A\i);
+  \node[circle,fill=sysblue,text=white,font=\tiny\bfseries,inner sep=1pt] at (4.1*\i-1.35,0.25) {\the\numexpr\i+1\relax};
+}
+\draw[-{Stealth},black!50] (-1.3,-1.8) -- (10.0,-1.8) node[right,font=\scriptsize]{time};
+\begin{scope}[yshift=-3.3cm]
+\node[font=\small\bfseries,anchor=west] at (-1.3,1.0) {batched: all prompts in one pass};
+\node[q] at (0,0.45) {Solve $3x-1=8$};
+\node[q] at (0,0.0) {Compute $9^2-4^2$};
+\node[q] at (0,-0.45) {Simplify $18/6+2$};
+\node[llm,minimum height=1.4cm,minimum width=1.4cm] (LB) at (2.6,0) {LLM};
+\node[a,minimum width=1.2cm] at (4.6,0.45) {$x=3$};
+\node[a,minimum width=1.2cm] at (4.6,0.0) {$65$};
+\node[a,minimum width=1.2cm] at (4.6,-0.45) {$5$};
+\draw[arr] (1.2,0) -- (LB); \draw[arr] (LB) -- (3.95,0);
+\node[font=\scriptsize,align=left,anchor=west,text=black!70] at (5.6,0)
+  {one weight read serves 3 rows;\\the tensor is $(3,T)$ instead of $(1,T)$};
+\draw[-{Stealth},black!50] (-1.3,-0.95) -- (10.0,-0.95) node[right,font=\scriptsize]{time};
+\end{scope}
+\end{tikzpicture}
+\caption{Sequential versus batched generation. In the batched case the prompts share every
+forward pass, so each weight read from memory is amortized over all rows.}
+\label{fig:serving:singlebatch}
+\end{figure}
+
+The reason batching works is the roofline argument of \cref{sec:inference:roofline}: the weight
+GEMMs of a decode step have arithmetic intensity $\approx B$ (in bf16), so on a GPU with a ridge point
+in the hundreds, raising $B$ from 1 to 64 multiplies useful FLOPs per byte read by 64 while the step
+time barely changes. But batching is not free, and it is not always faster:
+\begin{itemize}
+  \item Prompts have different lengths, and tensors are rectangles: shorter rows are padded, and
+    the padding costs compute and memory without producing anything.
+  \item Rows finish at different times, so a naive batch runs until its longest row is done.
+  \item Each row has its own KV cache, so batch size is bounded by memory, and attention over the
+    cache does not get cheaper per row as the batch grows.
+  \item On CPUs or for tiny models, the step is not dominated by weight reads in the first place,
+    and the bookkeeping (masks, padding) can eat the gain.
+\end{itemize}
+
+\begin{keyidea}
+Batching is a throughput optimization with a latency cost. Whether it pays off is decided by
+where the step time goes: amortizable work (weight reads, kernel launches) versus per-row work
+(KV reads, attention, padding).
+\end{keyidea}
+
+% =====================================================================
+\section{Running batched generation}\label{sec:serving:batched}
+
+The core obstacle is that prompts tokenize to different lengths. To run them together we pad
+shorter rows with a placeholder id up to the batch's maximum length, and keep a boolean mask that
+records which positions are real. Which id we pad with does not matter, because padded positions
+will be masked out; reusing the end-of-text token is common.
+
+Where should the padding go? For \emph{generation} we pad on the \textbf{left}. Left padding aligns
+the last real token of every prompt in the final column, so after the prefill the next-token logits
+of all rows sit at position $-1$, and each decode step appends one column to everyone
+(\cref{fig:serving:masks}). With right padding, every row's ``last real token'' would be at a
+different index, and new tokens would have to be written into the middle of the tensor.
+
+\begin{lstlisting}[caption={Left-padded batched generation with the core helper.},label={lst:serving:batch}]
+from llmsys.generate import generate_batch
+
+problems = ["2+2?", "3+3=6?", "Is 91 prime?"]
+prompts = [tok.encode(render_prompt(p)) for p in problems]   # ragged lists
+outs = generate_batch(model, prompts, max_new_tokens=64,
+                      pad_id=tok.pad_token_id, eos_id=tok.pad_token_id)
+for o in outs:                       # each row trimmed at its own EOS
+    print(tok.decode(o))
+\end{lstlisting}
+
+Inside \ident{generate_batch} the steps are: build the left-padded $(B,T)$ id tensor and a
+$(B,T+n)$ validity mask; run one prefill over the whole rectangle with a KV cache; then for each
+step sample one token per row, append it, and run a decode step with the mask extended by one
+always-valid column.
+
+\paragraph{Finished rows.} When a row emits EOS, three strategies are possible
+(\cref{fig:serving:eos}): (1) process prompts one by one; (2) keep the finished row in the batch,
+force it to keep emitting EOS so shapes stay aligned, and trim afterwards; (3) remove finished
+rows from the active batch, which saves compute but requires slicing the KV cache of every layer
+(and re-indexing masks) each time a row leaves. Strategy (2) is simplest and is what
+\ident{generate_batch} does (it stops recording tokens for finished rows). Strategy (3) helps when
+output lengths are very skewed, and it is the seed of continuous batching (\cref{sec:serving:continuous}):
+once rows can \emph{leave} a running batch, it is natural to let new rows \emph{join} it.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  c/.style={draw=black!30,minimum width=0.85cm,minimum height=0.46cm,font=\scriptsize,inner sep=0pt},
+  e/.style={c,fill=warnred!20},
+  w/.style={c,fill=black!6,text=black!35},
+  lab/.style={font=\scriptsize,anchor=east}]
+\foreach \s in {1,...,4} \node[font=\scriptsize\bfseries] at (2.0+0.9*\s,0.55) {step \s};
+% (1) sequential
+\node[font=\scriptsize\bfseries,anchor=west] at (-1.9,0.55) {(1) one at a time};
+\node[lab] at (2.3,0) {$3x-1=8$};
+\foreach \s/\t in {1/$x$,2/$=$,3/$3$,4/eos} {\ifnum\s=4 \node[e] at (2.0+0.9*\s,0) {\t}; \else \node[c] at (2.0+0.9*\s,0) {\t}; \fi}
+% (2) keep finished rows
+\begin{scope}[yshift=-1.0cm]
+\node[font=\scriptsize\bfseries,anchor=west] at (-1.9,0.4) {(2) batch, keep finished rows};
+\foreach \r/\p/\a/\b/\cc/\d in {0/{$3x-1=8$}/{$x$}/{$=$}/{$3$}/eos,1/{$9^2-4^2$}/{65}/eos/eos/eos,2/{$18/6+2$}/{5}/{.}/eos/eos} {
+  \node[lab] at (2.3,-0.5*\r) {\p};
+  \foreach \s/\t in {1/\a,2/\b,3/\cc,4/\d} {
+    \node[c] (n) at (2.0+0.9*\s,-0.5*\r) {\t};
+  }
+}
+\foreach \x/\y in {4/0,2/-0.5,3/-0.5,4/-0.5,3/-1.0,4/-1.0} \node[e] at (2.0+0.9*\x,\y) {eos};
+\foreach \x/\y in {3/-0.5,4/-0.5,4/-1.0} \node[w] at (2.0+0.9*\x,\y) {eos};
+\node[font=\scriptsize,anchor=west,text=black!60,align=left] at (6.1,-0.5) {grey: wasted compute\\on already-finished rows};
+\end{scope}
+% (3) drop finished
+\begin{scope}[yshift=-3.0cm]
+\node[font=\scriptsize\bfseries,anchor=west] at (-1.9,0.4) {(3) batch, drop finished rows};
+\foreach \r/\p in {0/{$3x-1=8$},1/{$9^2-4^2$},2/{$18/6+2$}} \node[lab] at (2.3,-0.5*\r) {\p};
+\node[c] at (2.9,0) {$x$}; \node[c] at (3.8,0) {$=$}; \node[c] at (4.7,0) {$3$}; \node[e] at (5.6,0) {eos};
+\node[c] at (2.9,-0.5) {65}; \node[e] at (3.8,-0.5) {eos};
+\node[c] at (2.9,-1.0) {5}; \node[c] at (3.8,-1.0) {.}; \node[e] at (4.7,-1.0) {eos};
+\node[font=\scriptsize,anchor=west,text=black!60,align=left] at (6.1,-0.5) {batch shrinks 3 $\to$ 2 $\to$ 1;\\KV cache rows must be sliced};
+\end{scope}
+\end{tikzpicture}
+\caption{Three ways to handle sequences that finish at different steps.}
+\label{fig:serving:eos}
+\end{figure}
+
+% =====================================================================
+\section{Padding and attention masks}\label{sec:serving:masks}
+
+For a single unpadded prompt, the model builds the standard causal mask: position $i$ may attend
+to positions $j\le i$. With padding we must additionally make sure no real token ever attends to a
+pad token, otherwise the pad embeddings leak into the computation and the batched output differs
+from the single-sequence output. The combined rule is
+\begin{equation}\label{eq:serving:mask}
+  \text{forbidden}(b,i,j) \;=\; \underbrace{[\,j>i\,]}_{\text{causal}} \;\lor\; \underbrace{[\,\neg\text{valid}(b,j)\,]}_{\text{key is padding}},
+\end{equation}
+which is exactly what \ident{llmsys.layers.build_mask} computes from a $(B,T_k)$ validity mask
+(\cref{fig:serving:masks}). Two details matter in practice:
+\begin{itemize}
+  \item \textbf{Padded queries.} A pad position on the left has no valid key at all (its only
+    allowed keys, those $\le i$, are all padding), so its softmax row is $\softmax(-\infty,\ldots)$ =
+    NaN. These rows produce garbage that no real token ever reads, but NaNs must not propagate
+    (e.g.\ through a later normalization or a $0\cdot\text{NaN}$ in a fused kernel). Our explicit attention
+    zeroes them with \code{nan\_to\_num}; production kernels special-case fully-masked rows.
+  \item \textbf{Decode steps extend the mask.} Each new column is valid for every row, so the
+    validity mask grows by a column of \code{True} per step, while the left padding stays masked
+    forever.
+\end{itemize}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[m/.style={minimum size=0.48cm,draw=black!25,font=\tiny,inner sep=0pt}]
+\newcommand{\drawmask}[4]{% x offset, pad count, title, label
+  \begin{scope}[xshift=#1cm]
+  \node[font=\scriptsize\bfseries] at (1.2,0.75) {#3};
+  \foreach \i in {0,...,5} { \foreach \j in {0,...,5} {
+    \pgfmathtruncatemacro{\pad}{(\j<#2) ? 1 : 0}
+    \pgfmathtruncatemacro{\qpad}{(\i<#2) ? 1 : 0}
+    \pgfmathtruncatemacro{\fut}{(\j>\i) ? 1 : 0}
+    \ifnum\fut=1 \node[m,fill=black!45] at (0.48*\j,-0.48*\i) {};
+    \else\ifnum\pad=1 \node[m,fill=warnred!45] at (0.48*\j,-0.48*\i) {};
+    \else \node[m,fill=keygreen!35] at (0.48*\j,-0.48*\i) {}; \fi\fi
+    \ifnum\qpad=1 \ifnum\fut=0 \node[m,pattern=north east lines,pattern color=warnred] at (0.48*\j,-0.48*\i) {}; \fi\fi
+  }}
+  \node[font=\tiny,align=center] at (1.2,-3.1) {#4};
+  \end{scope}}
+\drawmask{0}{0}{causal only}{6 real tokens}
+\drawmask{4.0}{2}{causal + key padding}{2 left pads, 4 real tokens}
+\begin{scope}[xshift=8.6cm,yshift=-0.6cm]
+\node[m,fill=keygreen!35] at (0,0) {}; \node[font=\scriptsize,anchor=west] at (0.35,0) {may attend};
+\node[m,fill=black!45] at (0,-0.6) {}; \node[font=\scriptsize,anchor=west] at (0.35,-0.6) {future (causal)};
+\node[m,fill=warnred!45] at (0,-1.2) {}; \node[font=\scriptsize,anchor=west] at (0.35,-1.2) {padding key};
+\node[m,pattern=north east lines,pattern color=warnred] at (0,-1.8) {}; \node[font=\scriptsize,anchor=west,align=left] at (0.35,-1.95) {padding query\\(row is all-masked)};
+\end{scope}
+\node[font=\scriptsize] at (-0.55,-1.2) {\rotatebox{90}{query $i$}};
+\node[font=\scriptsize] at (1.2,0.38) {key $j$};
+\end{tikzpicture}
+\caption{Masks for a 6-column batch row. Left: a row without padding. Right: the same layout with two
+left pads; real queries attend only to real, non-future keys, which reproduces the 4-token causal mask
+of the unpadded prompt in the lower-right corner.}
+\label{fig:serving:masks}
+\end{figure}
+
+\paragraph{Positions under left padding.} Masking makes pad \emph{keys} invisible, but the real tokens
+of a padded row now sit at column indices $p, p+1,\ldots$ instead of $0,1,\ldots$, where $p$ is the
+row's pad count. Whether that shift matters depends on the positional scheme.
+
+\begin{proposition}[RoPE is invariant to a uniform shift]\label{prop:serving:rope}
+Let $R_m$ be the RoPE rotation for position $m$. For any query at position $m$ and key at position
+$n$, and any offset $p$,
+$\langle R_{m+p}\,q,\ R_{n+p}\,k\rangle = \langle R_m\,q,\ R_n\,k\rangle$.
+\end{proposition}
+\begin{proof}
+Each 2-D frequency pair is rotated by an angle proportional to the position, so
+$R_m^\top R_n = R_{n-m}$ (rotations compose additively and $R_m^\top=R_{-m}$). Hence
+$\langle R_{m+p}q,R_{n+p}k\rangle = q^\top R_{m+p}^\top R_{n+p}k = q^\top R_{n-m}k$, which does not depend on $p$.
+\end{proof}
+
+So for Qwen3, left padding changes no attention score of a real token, and batched outputs equal
+single-sequence outputs up to floating-point reordering (a test in the core
+test suite, \ident{tests/test_core.py}, checks exactly this). GPT-2 instead adds a
+\emph{learned absolute} position embedding, so a row shifted by $p$ sees different embeddings and
+its outputs change slightly. The fix is to pass explicit \emph{position ids} per row,
+$\text{pos}(b,t)=\max(0,\,t-p_b)$, which is what Hugging Face's \code{position\_ids} argument and
+every production engine do. (Our GPT-2 class takes positions from the cache length; extending it to
+per-row positions is \cref{ex:serving:positions}.)
+
+\begin{pitfall}[Right padding for training, left padding for generation]
+Training and scoring (classification, distillation, log-probability computation) usually pad on the
+\emph{right}, because labels are aligned with inputs and nothing is generated after the last token;
+loss masks (label $-100$, \cref{ch:instruct}) remove pad positions. Generation pads on the \emph{left}.
+Mixing them up is the most common batched-generation bug: with right padding, \code{logits[:, -1]} reads
+the prediction after a \emph{pad} token for every row but the longest.
+\end{pitfall}
+
+% =====================================================================
+\section{Batching across the reasoning workflow}\label{sec:serving:workflows}
+
+Every compute-heavy step of Part~VII benefits from batching, but the steps differ in an important way:
+some batch \emph{different} prompts of different lengths (padding needed), others batch many samples
+of the \emph{same} prompt (no padding, and a shared prefix that a smart engine computes only once).
+\Cref{tab:serving:workflows} summarizes; the subsections give the details.
+
+\begin{table}[ht]
+\centering\small
+\caption{What gets batched in each workflow of the book.}
+\label{tab:serving:workflows}
+\begin{tabularx}{\linewidth}{lXll}
+\toprule
+Workflow & Rows of the batch & Padding? & Shared prefix?\\
+\midrule
+MATH-500 evaluation (\cref{ch:eval}) & different problems & yes (left) & only the template\\
+Self-consistency (\cref{ch:scaling}) & $k$ samples of one problem & no & whole prompt\\
+GRPO rollouts (\cref{ch:grpo}) & $G$ rollouts of one problem & no & whole prompt\\
+Distillation training (\cref{ch:distill}) & different (prompt, trace) pairs & yes (right) & no\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Batched benchmark evaluation}
+Evaluating on MATH-500 means generating answers to 500 unrelated problems. With a batch size of
+$B$, the evaluator tokenizes $B$ prompts, left-pads them, generates until every row has emitted EOS
+or hit the token limit, trims each row at its EOS, and hands the texts to the verifier. The only new knob is the batch size:
+\begin{lstlisting}
+for i in range(0, len(problems), batch_size):
+    chunk = problems[i:i + batch_size]
+    prompts = [tok.encode(render_prompt(p["problem"])) for p in chunk]
+    outs = generate_batch(model, prompts, max_new_tokens=2048,
+                          pad_id=tok.pad_token_id, eos_id=tok.pad_token_id)
+    results += [grade(tok.decode(o), p["answer"]) for o, p in zip(outs, chunk)]
+\end{lstlisting}
+The best batch size is hardware-dependent: increase it until either throughput stops improving or
+memory runs out (reasoning traces of thousands of tokens make the KV cache, not the weights, the
+limit). Because problems are sorted by nothing in particular, a batch's run time is set by its
+\emph{longest} answer; sorting problems by prompt length reduces padding, but output lengths are
+unknown in advance, which is the deeper reason servers need continuous batching.
+
+\subsection{Batched self-consistency sampling}
+Self-consistency (\cref{ch:scaling}) samples $k$ answers to the \emph{same} prompt at nonzero
+temperature and takes a majority vote. Here the batch dimension holds the $k$ samples: we repeat the
+prompt $k$ times, so every row has identical length and no padding or special mask is needed. The
+plain model class works as is. Each row needs its own random stream, which \code{torch.multinomial}
+provides naturally when sampling a $(k,V)$ probability matrix.
+
+\begin{systemslens}[Do not prefill the same prompt $k$ times]
+Repeating the prompt $k$ times also repeats its prefill $k$ times and stores $k$ identical copies of
+its KV cache. The obvious fix is to prefill once and \emph{fork} the cache: all samples share the
+prompt's KV blocks and only allocate private blocks for their own continuations. With paged memory
+(\cref{sec:serving:paged}) this is a reference-count increment per block, and a copy-on-write if a
+sample must write into a partially filled shared block. For a 1,000-token problem and $k=16$
+samples of 500 tokens each, sharing cuts the KV footprint from $16\times1500=24{,}000$ to
+$1000+16\times500=9{,}000$ tokens and the prefill work by $16\times$. Lab~32 measures this.
+\end{systemslens}
+
+\subsection{Batched GRPO rollouts}
+GRPO (\cref{ch:grpo}) samples a \emph{group} of $G$ rollouts per prompt and compares their rewards.
+Again the rows share one prompt, so batching rollouts needs no padding logic, and the same
+prompt-sharing argument applies. The batch size for rollouts trades throughput against memory:
+generating 8 rollouts of 512 tokens in parallel needs 8 KV caches; if memory is tight, generate the
+group in several smaller batches. Self-refinement (\cref{ch:refine}) is the counter-example in Part~VII:
+each round depends on the previous one, so it is inherently sequential per problem and only benefits
+from batching \emph{across} problems, which requires more bookkeeping.
+
+\subsection{Batched distillation training}
+Distillation (\cref{ch:distill}) fine-tunes a student on (prompt, teacher reasoning trace) pairs of
+widely varying length, so we are back to batching unrelated sequences, this time for \emph{training}.
+Sequences are right-padded, pad positions get loss label $-100$, and the attention mask hides pad keys.
+Training also stores activations for the backward pass, so memory per row is far higher than in
+evaluation, and the useful batch size is smaller. When lengths vary a lot, \emph{packing} several
+short examples into one row with block-diagonal attention (\cref{ch:instruct}) beats padding.
+
+% =====================================================================
+\section{Single-sequence versus batched execution}\label{sec:serving:tradeoffs}
+
+Batched execution always costs more memory; whether it saves time depends on the shape of the work.
+Two quantities predict the outcome. The first is \emph{padding efficiency}: for a batch with prompt
+lengths $\ell_1,\ldots,\ell_B$ padded to $\ell_{\max}$,
+\begin{equation}
+  \eta_{\text{pad}} = \frac{\sum_b \ell_b}{B\,\ell_{\max}},
+\end{equation}
+and the analogous quantity for output lengths when the batch runs until its longest row finishes.
+The second is how much of the step time is amortizable, which the roofline tells us.
+
+\begin{napkinmath}[When batching barely helps]
+Take 64 MATH problems with prompt lengths uniform in $[60,240]$ and output lengths uniform in
+$[50,1500]$. Expected padding efficiency of the prompts is $\approx150/240=0.63$; for outputs, a batch of
+64 runs to $\approx\max\approx1480$ steps while the average row needs 775, so $\eta\approx0.52$: half of
+all decode slots are wasted on finished rows. On a GPU the weight-read amortization ($\approx64\times$)
+still wins handily. On a CPU running a small model, where step time is roughly proportional to rows,
+the same batch can be \emph{slower} than sequential execution. And in a training job that is already
+compute-bound, batching adds padding work without saving any memory traffic.
+\end{napkinmath}
+
+Our own CPU measurement in \cref{fig:inference:measured} showed sub-linear scaling (about $9\times$
+throughput at $B=32$), and published GPU comparisons show large wall-clock reductions from batching
+evaluation and rollout generation, with smaller gains for distillation training, where the GPU is
+already busy with large matmuls at batch size one. The general rule: batch when the hardware is
+underutilized, and expect the gain to shrink as per-row work (padding, KV reads, activations) grows.
+
+% =====================================================================
+\section{From static to continuous batching}\label{sec:serving:continuous}
+
+Everything so far was \emph{offline}: we knew all prompts in advance. A server faces an \emph{online}
+problem: requests arrive at random times with unknown output lengths, and each user cares about their
+own latency. The batching we have used so far, called \emph{static} or request-level batching, waits
+until $B$ requests are available (or a timeout fires), runs them as a rectangle until the last one
+finishes, then starts the next batch. Three things go wrong:
+\begin{enumerate}
+  \item \textbf{Head-of-line blocking.} A request arriving just after a batch started waits for the
+    entire batch, including its longest member, before its own prefill begins: TTFT explodes.
+  \item \textbf{Idle slots.} Rows that finish early sit idle until the batch ends
+    (\cref{fig:serving:eos}, strategy 2).
+  \item \textbf{Padding and reservation.} Prompts are padded to the longest, and KV memory must be
+    reserved for the maximum possible output length.
+\end{enumerate}
+
+\textbf{Iteration-level scheduling}, introduced by Orca (Yu et al., 2022) and now called
+\emph{continuous batching}, makes scheduling decisions at every forward pass instead of every batch.
+After each step, finished sequences leave and waiting requests join; the batch is a set of
+sequences, each at its own position (\cref{fig:serving:timeline}).
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=0.42cm,y=0.5cm,
+  pf/.style={fill=fcompute!55,draw=white},
+  dc/.style={fill=napkin!45,draw=white},
+  wt/.style={fill=black!8,draw=white},
+  idle/.style={pattern=north east lines,pattern color=black!35,draw=white}]
+\node[font=\small\bfseries,anchor=west] at (0,5.3) {static batching ($B=3$)};
+% requests: R1 len 4, R2 len 9, R3 len 6 start at 0 ; R4 arrives t=2 (len 3), R5 arrives t=5 (len 5)
+\foreach \y/\l in {4/R1,3/R2,2/R3,1/R4,0/R5} \node[font=\scriptsize,anchor=east] at (-0.2,\y+0.5) {\l};
+% batch 1: prefill t0-2, decode to 2+9=11
+\fill[pf] (0,4) rectangle (2,5); \fill[dc] (2,4) rectangle (6,5); \fill[idle] (6,4) rectangle (11,5);
+\fill[pf] (0,3) rectangle (2,4); \fill[dc] (2,3) rectangle (11,4);
+\fill[pf] (0,2) rectangle (2,3); \fill[dc] (2,2) rectangle (8,3); \fill[idle] (8,2) rectangle (11,3);
+% batch 2 starts at 11
+\fill[wt] (2,1) rectangle (11,2); \fill[pf] (11,1) rectangle (13,2); \fill[dc] (13,1) rectangle (16,2); \fill[idle] (16,1) rectangle (18,2);
+\fill[wt] (5,0) rectangle (11,1); \fill[pf] (11,0) rectangle (13,1); \fill[dc] (13,0) rectangle (18,1);
+\draw[-{Stealth}] (0,-0.4) -- (19.5,-0.4) node[right,font=\scriptsize]{steps};
+\draw[warnred,thick] (2,1) -- (2,2.15); \draw[warnred,thick] (5,0) -- (5,1.15);
+\begin{scope}[xshift=0cm,yshift=-3.9cm]
+\node[font=\small\bfseries,anchor=west] at (0,5.3) {continuous batching (max 3 running)};
+\foreach \y/\l in {4/R1,3/R2,2/R3,1/R4,0/R5} \node[font=\scriptsize,anchor=east] at (-0.2,\y+0.5) {\l};
+\fill[pf] (0,4) rectangle (2,5); \fill[dc] (2,4) rectangle (6,5);
+\fill[pf] (0,3) rectangle (2,4); \fill[dc] (2,3) rectangle (11,4);
+\fill[pf] (0,2) rectangle (2,3); \fill[dc] (2,2) rectangle (8,3);
+\fill[wt] (2,1) rectangle (6,2); \fill[pf] (6,1) rectangle (7,2); \fill[dc] (7,1) rectangle (10,2);
+\fill[wt] (5,0) rectangle (8,1); \fill[pf] (8,0) rectangle (9,1); \fill[dc] (9,0) rectangle (14,1);
+\draw[-{Stealth}] (0,-0.4) -- (19.5,-0.4) node[right,font=\scriptsize]{steps};
+\draw[warnred,thick] (2,1) -- (2,2.15); \draw[warnred,thick] (5,0) -- (5,1.15);
+\end{scope}
+\begin{scope}[yshift=-5.0cm]
+\fill[pf] (0,0) rectangle (1,0.7); \node[font=\scriptsize,anchor=west] at (1.2,0.35) {prefill};
+\fill[dc] (4,0) rectangle (5,0.7); \node[font=\scriptsize,anchor=west] at (5.2,0.35) {decode};
+\fill[wt] (8,0) rectangle (9,0.7); \node[font=\scriptsize,anchor=west] at (9.2,0.35) {queued};
+\fill[idle] (12,0) rectangle (13,0.7); \node[font=\scriptsize,anchor=west] at (13.2,0.35) {finished, still in batch};
+\draw[warnred,thick] (21.5,-0.05) -- (21.5,0.75); \node[font=\scriptsize,anchor=west] at (21.8,0.35) {arrival};
+\end{scope}
+\end{tikzpicture}
+\caption{Five requests under static and continuous batching. Statically, R4 and R5 wait for the
+whole first batch (their TTFT includes R2's full generation) and finished rows idle. Continuously,
+R4 joins as soon as R1 leaves and R5 as soon as R3 leaves; the whole workload finishes at step 14
+instead of 18. (In a real engine the joiners' prefills share steps with others' decodes; see
+\cref{sec:serving:chunked}.)}
+\label{fig:serving:timeline}
+\end{figure}
+
+Continuous batching needs two capabilities that the rectangle formulation lacks. First, the forward
+pass must handle a \emph{ragged} batch: some sequences are in prefill with hundreds of new tokens,
+others decode one token each, and each attends over its own history. Engines therefore flatten all
+scheduled tokens into one $(N_{\text{tok}},d)$ matrix, run every dense layer as one GEMM over all of
+them (no padding at all), and only split by sequence inside attention, using variable-length
+attention kernels that take per-sequence offsets (``varlen'' or ``cu\_seqlens'' interfaces in
+FlashAttention, FlashInfer). Second, KV memory must be allocated and freed at fine granularity as
+sequences come and go, which is the subject of the next section.
+
+\begin{systemslens}[Why flattening beats padding]
+In a flattened batch the dense layers cost $2N\cdot\sum_s n_s$ FLOPs where $n_s$ is the number of
+\emph{new} tokens of sequence $s$ this step, exactly the useful work. Padding to a rectangle would cost
+$2N\cdot S\cdot\max_s n_s$: a single 2,000-token prefill in a batch of 63 decodes would inflate the
+GEMMs by $64\times$. Flattening also makes the LM head cheap: it is evaluated only on the last new
+token of each sequence ($S$ rows, not $\sum_s n_s$).
+\end{systemslens}
+
+% =====================================================================
+\section{Paged KV memory}\label{sec:serving:paged}
+
+Before 2023, serving systems stored each sequence's KV cache in a contiguous tensor sized for the
+maximum sequence length. Kwon et al.\ (2023) measured that such systems used only a small fraction
+of their KV memory for actual tokens and proposed \textbf{PagedAttention}, the core of vLLM. The
+waste has three sources:
+\begin{itemize}
+  \item \textbf{Reservation}: memory for future tokens is reserved at admission, although the output
+    length is unknown and usually far below the maximum.
+  \item \textbf{Internal fragmentation}: unused tail of each reserved region.
+  \item \textbf{External fragmentation}: free memory split into gaps too small for a new contiguous
+    allocation.
+\end{itemize}
+
+\begin{napkinmath}[How much memory reservation wastes]
+Reserve 2,048 tokens per request; actual lengths average 300. Utilization is $300/2048\approx15\%$:
+85\% of the KV pool is dead weight, and batch size is $6.8\times$ smaller than it could be. With paging
+in 16-token blocks, only the last block of each sequence is partially filled, wasting on average 7.5
+tokens per sequence: $7.5/307.5\approx2.4\%$. Lab~27 (Task~4) computes both for any length distribution.
+\end{napkinmath}
+
+The solution is borrowed from operating-system virtual memory (\cref{fig:serving:paged}). KV memory
+is a pool of fixed-size \emph{blocks} (pages), each holding the K and V vectors of \texttt{block\_size}
+tokens for all layers and KV heads. Each sequence has a \emph{block table} mapping logical block $i$
+(tokens $i\cdot\text{bs}$ to $(i+1)\cdot\text{bs}-1$) to a physical block id. Blocks are allocated
+on demand when a sequence crosses a block boundary and returned to a free list when it finishes. The
+attention kernel follows the table: the key of logical position $p$ lives at physical slot
+\begin{equation}\label{eq:serving:slot}
+  \text{slot}(p) = \text{table}[\lfloor p/\text{bs}\rfloor]\cdot\text{bs} + (p \bmod \text{bs}).
+\end{equation}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  tk/.style={draw=black!35,minimum width=0.52cm,minimum height=0.45cm,font=\tiny,inner sep=0pt},
+  pb/.style={draw=black!50,minimum width=2.9cm,minimum height=0.45cm,font=\tiny,inner sep=0pt},
+  arr/.style={-{Stealth[length=1.4mm]},thick}]
+% ---- sequence A: logical blocks L0 L1 L2
+\node[font=\scriptsize\bfseries,anchor=west] at (-0.35,0.75) {seq A (10 tokens)};
+\foreach \g/\col/\toks in {0/fcompute!25/{The,sky,is,blue},1/fdata!25/{be,cau,se,of},2/napkin!35/{Ray,leigh,{},{}}} {
+  \foreach \t [count=\k from 0] in \toks {
+    \node[tk,fill=\col] at (2.3*\g+0.52*\k,0) {\t};
+  }
+  \node[font=\tiny,text=black!60] at (2.3*\g+0.78,-0.42) {logical block \g};
+}
+\node[font=\scriptsize,anchor=south] at (8.0,0.3) {block table A};
+\foreach \v/\col [count=\k from 0] in {5/fcompute!25,1/fdata!25,6/napkin!35}
+  \node[tk,fill=\col,font=\scriptsize] (A\k) at (7.48+0.52*\k,0) {\v};
+% ---- sequence B
+\node[font=\scriptsize\bfseries,anchor=west] at (-0.35,-1.25) {seq B (6 tokens)};
+\foreach \g/\col/\toks in {0/labpurple!25/{Two,plus,two,is},1/keygreen!30/{four,.,{},{}}} {
+  \foreach \t [count=\k from 0] in \toks {
+    \node[tk,fill=\col] at (2.3*\g+0.52*\k,-2.0) {\t};
+  }
+  \node[font=\tiny,text=black!60] at (2.3*\g+0.78,-2.42) {logical block \g};
+}
+\node[font=\scriptsize,anchor=north] at (7.74,-2.3) {block table B};
+\foreach \v/\col [count=\k from 0] in {2/labpurple!25,7/keygreen!30}
+  \node[tk,fill=\col,font=\scriptsize] (B\k) at (7.48+0.52*\k,-2.0) {\v};
+% ---- physical pool
+\node[font=\scriptsize\bfseries] at (12.0,1.15) {physical KV pool};
+\foreach \p/\col/\lab in {0/white/free,1/fdata!25/{A: be cau se of},2/labpurple!25/{B: Two plus two is},3/white/free,4/white/free,5/fcompute!25/{A: The sky is blue},6/napkin!35/{A: Ray leigh -- --},7/keygreen!30/{B: four . -- --}} {
+  \node[pb,fill=\col] (P\p) at (12.0,0.6-0.52*\p) {\lab};
+  \node[font=\tiny,anchor=east] at (10.45,0.6-0.52*\p) {\p};
+}
+\draw[arr,fcompute] (A0.south) to[out=-70,in=180] (P5.west);
+\draw[arr,fdata!80!black] (A1.north) to[out=70,in=180] (P1.west);
+\draw[arr,napkin] (A2.south) to[out=-50,in=180] (P6.west);
+\draw[arr,labpurple] (B0.north) to[out=80,in=180] (P2.west);
+\draw[arr,keygreen!80!black] (B1.south) to[out=-40,in=180] (P7.west);
+\end{tikzpicture}
+\caption{Paged KV memory. Logically contiguous sequences are stored in non-contiguous physical
+blocks; a per-sequence block table translates positions to slots (\cref{eq:serving:slot}). Only the
+last block of each sequence can be partially empty, and any free block can serve any sequence.}
+\label{fig:serving:paged}
+\end{figure}
+
+\paragraph{Choosing the block size.} Small blocks waste less memory and allow finer sharing; large
+blocks make the attention kernel's gathers more efficient (longer contiguous reads, fewer table
+lookups) and shrink block tables. Engines typically use 16 tokens per block on GPUs. For Qwen3-8B a
+16-token block holds $16\times\SI{144}{KiB}=\SI{2.25}{MiB}$ across all layers; a \SI{20}{GB} pool holds about
+8,500 blocks, i.e.\ 136k tokens.
+
+\begin{systemslens}[The cost of indirection]
+Paging turns the attention kernel's KV reads from one contiguous stream into a gather over blocks.
+On a GPU this is nearly free if each block is a large contiguous chunk (each warp reads whole blocks)
+and the block table is small enough to sit in shared memory or registers. The PagedAttention paper
+reports only modest kernel-level overhead in exchange for several-fold higher batch sizes. Later
+systems (e.g.\ vAttention) instead use CUDA virtual-memory APIs to keep the KV cache virtually
+contiguous while mapping physical pages on demand, so unmodified attention kernels can be used.
+\end{systemslens}
+
+% =====================================================================
+\section{Sharing KV state: prefix caching and copy-on-write}\label{sec:serving:prefix}
+
+Once KV memory is managed in blocks with reference counts, \emph{sharing} becomes cheap: two
+sequences whose block tables point to the same physical block simply increment its count. Three
+patterns are ubiquitous:
+\begin{itemize}
+  \item \textbf{Parallel sampling} ($k$ samples or $G$ rollouts of one prompt): fork the prompt's
+    blocks after one prefill.
+  \item \textbf{Shared system prompts and few-shot templates}: thousands of requests start with the
+    same hundreds of tokens.
+  \item \textbf{Multi-turn chat and agents}: turn $t+1$ resends the full conversation of turn $t$ plus a
+    few new tokens. Without caching, the whole history is prefilled again every turn.
+\end{itemize}
+
+\paragraph{Hash-based automatic prefix caching.} vLLM identifies every \emph{full} block by a hash of
+its tokens \emph{and} the hash of the previous block, so a hash identifies the entire prefix up to and
+including that block. Completed blocks are published in a hash table. A new request walks its prompt
+block by block, computing chained hashes, and reuses every block it finds until the first miss; it
+then only prefills the remainder. Blocks whose reference count drops to zero are not freed; they stay
+in the table as \emph{evictable} and are reclaimed in least-recently-used order when the allocator runs
+dry. One subtlety: at least one prompt token must still be computed, because the model has to produce
+the logits for the first output token.
+
+\begin{lstlisting}[caption={Prefix lookup with chained block hashes (llmsys.serving.block\_manager).},label={lst:serving:lookup}]
+def block_hash(prev_hash, tokens):
+    return hash((prev_hash, tuple(tokens)))      # identifies the whole prefix
+
+def lookup_prefix(self, tokens):
+    bs, out, h = self.block_size, [], None
+    for i in range((len(tokens) - 1) // bs):     # leave >= 1 token to compute
+        h = block_hash(h, tokens[i * bs:(i + 1) * bs])
+        b = self.hash_to_block.get(h)
+        if b is None:
+            break                                # first miss ends the match
+        if self.ref_count[b] == 0:
+            self.evictable.pop(b, None)          # revive a cached block
+        self.ref_count[b] += 1
+        out.append(b)
+    return out
+\end{lstlisting}
+
+\paragraph{RadixAttention.} SGLang (Zheng et al., 2024) organizes cached prefixes as a \emph{radix
+tree} keyed by token sequences (\cref{fig:serving:radix}). Each edge holds a run of tokens and the
+corresponding KV pages; a request matches the longest path from the root; insertion splits edges where
+sequences diverge; LRU eviction removes leaves first. The tree makes the cache structure explicit,
+supports matching at token rather than block granularity, and enables \emph{cache-aware scheduling}:
+ordering the waiting queue so requests that share long prefixes run close together, which raises the hit
+rate. Hash chains and radix trees are two indexes over the same idea.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  nd/.style={draw,rounded corners=2pt,font=\scriptsize,align=center,inner sep=3pt},
+  lv/.style={nd,fill=napkin!20},
+  arr/.style={-{Stealth[length=1.4mm]},thick,black!60},
+  level distance=1.35cm]
+\node[nd,fill=black!8] (root) at (0,0) {root};
+\node[nd,fill=fcompute!15] (sys) at (0,-1.3) {system prompt (512 tok)\\ref = 4};
+\node[nd,fill=fdata!15] (fs) at (-3.6,-2.7) {few-shot math\\examples (900)};
+\node[nd,fill=fdata!15] (chat) at (3.4,-2.7) {``You are a helpful\\assistant'' (40)};
+\node[lv] (q1) at (-5.3,-4.2) {Q: solve\ldots\\(60) + answer};
+\node[lv] (q2) at (-2.0,-4.2) {Q: prove\ldots\\(85) + answer};
+\node[nd,fill=fdata!15] (t1) at (2.2,-4.2) {turn 1\\(user + assistant)};
+\node[lv] (u2) at (4.8,-4.2) {other user\\turn 1};
+\node[lv] (t2) at (2.2,-5.6) {turn 2 (new tokens only\\need prefill)};
+\foreach \a/\b in {root/sys,sys/fs,sys/chat,fs/q1,fs/q2,chat/t1,chat/u2,t1/t2} \draw[arr] (\a) -- (\b);
+\node[font=\scriptsize,align=left,anchor=west,text=black!70] at (-6.3,-0.5)
+  {match: longest root-to-node path\\insert: split edge where tokens diverge\\evict: LRU leaves with ref = 0};
+\end{tikzpicture}
+\caption{A radix tree of cached prefixes. Requests sharing the system prompt reuse its KV pages;
+the follow-up turn of a conversation matches everything up to and including turn~1, so only the new
+user message is prefilled. Leaves (orange) are the first candidates for eviction.}
+\label{fig:serving:radix}
+\end{figure}
+
+\paragraph{Copy-on-write.} Sharing full blocks is safe because full blocks are immutable: new tokens are
+always appended to the \emph{last} block. When a forked sequence (parallel sampling, beam search) shares a
+\emph{partially filled} last block, the first sequence to append must copy it into a private block
+first, exactly like copy-on-write pages after \code{fork()} in an operating system.
+
+\begin{napkinmath}[What prefix caching buys]
+In our simulator (\cref{sec:serving:sim}), 600 requests to Qwen3-8B on an H100 at 8 requests/s, each with a
+1,024-token system prompt drawn from four variants, plus a unique 64--512-token question: prefix caching
+reused 610k of 787k prompt tokens (78\%), cut the prefill work by $4.5\times$, and reduced mean TTFT from
+\SI{52}{ms} to \SI{19}{ms}. Throughput was unchanged because the system was not saturated at that load;
+under saturation, saved prefill compute turns directly into throughput.
+\end{napkinmath}
+
+% =====================================================================
+\section{Chunked prefill and the token budget}\label{sec:serving:chunked}
+
+Continuous batching mixes prefills and decodes in the same step, which creates a new problem. A
+4,000-token prefill takes tens of milliseconds of compute; every decoding user sharing that step waits
+for it, so their inter-token latency spikes (a ``generation stall''). Not admitting prefills while
+decodes run would starve new requests instead. Sarathi-Serve (Agrawal et al., 2024) resolves this with
+\textbf{chunked prefill} under a per-step \textbf{token budget} (\cref{fig:serving:chunked}):
+\begin{enumerate}
+  \item Each step processes at most $\tau$ tokens in total (e.g.\ 512 or 2,048).
+  \item Running decodes are scheduled first, one token each.
+  \item The remaining budget is filled with \emph{chunks} of pending prefills; a long prompt is split
+    across several steps, carrying its KV cache forward between chunks.
+\end{enumerate}
+Every step then has roughly the same, bounded cost: decode latency becomes predictable, and the
+prefill chunks ``piggyback'' on decode steps that would otherwise underuse the GPU's compute. The
+budget $\tau$ is a dial between TTFT (large $\tau$ finishes prefills sooner) and TPOT (small $\tau$ keeps
+steps short); it is usually chosen near the point where a step becomes compute-bound.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=0.62cm,y=0.022cm]
+\foreach \off/\title in {0/{no chunking},11/{chunked prefill, budget 64}} {
+  \begin{scope}[xshift=\off*0.62cm]
+  \draw[-{Stealth}] (0,0) -- (9.3,0) node[below left,font=\scriptsize]{step};
+  \draw[-{Stealth}] (0,0) -- (0,205);
+  \node[font=\scriptsize\bfseries,anchor=south] at (4.5,212) {\title};
+  \draw[dashed,warnred] (0,64) -- (9,64);
+  \foreach \yy in {0,64,128,192} \node[font=\tiny,anchor=east] at (-0.1,\yy) {\yy};
+  \end{scope}
+}
+\node[font=\scriptsize,rotate=90] at (-1.3,100) {tokens processed in step};
+\node[font=\scriptsize,text=warnred,anchor=west] at (20.4,64) {$\tau$};
+% no chunking: decodes 6 per step, step 3 has 180 prefill
+\foreach \s/\d/\p in {1/6/0,2/6/0,3/6/180,4/7/0,5/7/0,6/7/0,7/7/0,8/7/0} {
+  \fill[napkin!60] (\s-0.35,0) rectangle (\s+0.35,\d);
+  \fill[fcompute!60] (\s-0.35,\d) rectangle (\s+0.35,\d+\p);
+}
+\node[font=\tiny,align=center] at (5.6,175) {one slow step:\\every decoding\\user waits};
+% chunked
+\foreach \s/\d/\p in {1/6/0,2/6/0,3/6/58,4/6/58,5/6/58,6/7/6,7/7/0,8/7/0} {
+  \fill[napkin!60] (11+\s-0.35,0) rectangle (11+\s+0.35,\d);
+  \fill[fcompute!60] (11+\s-0.35,\d) rectangle (11+\s+0.35,\d+\p);
+}
+\node[font=\tiny,align=center] at (16.5,120) {58 + 58 + 58 + 6\\prefill tokens ride\\along with decodes};
+\fill[napkin!60] (2,-40) rectangle (2.7,-25); \node[font=\scriptsize,anchor=west] at (2.8,-32) {decode tokens (one per running sequence)};
+\fill[fcompute!60] (13,-40) rectangle (13.7,-25); \node[font=\scriptsize,anchor=west] at (13.8,-32) {prefill tokens};
+\end{tikzpicture}
+\caption{A 180-token prompt arrives while 6--7 sequences decode. Without chunking, step 3 processes 186
+tokens and every decoding user sees one very slow token. With a 64-token budget the prompt is split into
+chunks of 58, 58, 58 and 6 tokens that ride along with the decodes (the prompt's first token appears
+one step later, but no step exceeds the budget).}
+\label{fig:serving:chunked}
+\end{figure}
+
+% =====================================================================
+\section{Scheduling, admission, and preemption}\label{sec:serving:scheduling}
+
+The scheduler decides, every step, which sequences run and how many tokens each processes. Its inputs
+are the waiting queue, the running set, the free block count, and the token budget. A minimal policy,
+the one our engine implements, is:
+\begin{enumerate}
+  \item \textbf{Serve running sequences first} (oldest first), giving each $\min(\text{remaining},
+    \text{budget})$ tokens: 1 for decodes, a chunk for unfinished prefills.
+  \item If a running sequence needs a new block and none is free, \textbf{preempt} the \emph{youngest}
+    running sequence (last admitted, least work lost) until space is available.
+  \item With the remaining budget, \textbf{admit} waiting requests first-come-first-served, after a
+    prefix-cache lookup, as long as their first chunk fits in memory and the running-set limit allows.
+    Do not admit in a step that had to preempt (memory is tight).
+\end{enumerate}
+
+\paragraph{Preemption: swap or recompute?} A preempted sequence loses its KV blocks. \emph{Swapping}
+copies them to host memory over PCIe and back later; \emph{recomputation} discards them and later
+re-prefills the prompt \emph{plus the tokens generated so far}. Per token, swapping costs
+$2\kappa/\beta_{\text{PCIe}}$ (out and back in) while recomputation costs about $2N/\Pi$ plus attention.
+For Qwen3-8B ($\kappa=\SI{144}{KiB}$) over \SI{50}{GB/s} that is \SI{5.9}{\micro s} versus
+\SI{16.6}{\micro s} at peak FLOP/s: with GQA's small caches, swapping is competitive. For a model with
+full multi-head attention and $4\times$ larger caches, recomputation wins up to tens of thousands of
+tokens. In practice, swapping many small blocks over PCIe is inefficient, swap traffic competes with
+other host transfers, and recomputation needs no host memory and may hit the prefix cache, so engines
+often default to recomputation. Our engine recomputes; Lab~27's tests verify that preempted sequences produce exactly the
+same tokens as unpreempted ones.
+
+\begin{systemslens}[Beyond FCFS]
+FCFS is fair in arrival order but ignores everything else. Production schedulers add: priorities and
+SLO classes (interactive vs.\ batch); \emph{shortest-job-first} approximations using predicted output
+length to cut mean latency; fairness across tenants measured in served tokens (Virtual Token Counter,
+Sheng et al., 2024) to stop one heavy user from starving others; cache-aware ordering to maximize
+prefix hits; and admission control that rejects or queues requests early when the predicted TTFT would
+violate the SLO, which protects goodput rather than raw throughput.
+\end{systemslens}
+
+% =====================================================================
+\section{Disaggregating prefill and decode}\label{sec:serving:disagg}
+
+Chunked prefill makes prefill and decode coexist; disaggregation separates them. DistServe (Zhong et
+al., 2024) and Splitwise (Patel et al., 2024) run prefill and decode on \emph{different} GPU pools: a
+prefill instance computes the prompt's KV cache and ships it to a decode instance, which then streams
+tokens (\cref{fig:serving:disagg}). The motivation is the asymmetry of \cref{sec:inference:roofline}:
+\begin{itemize}
+  \item Prefill is compute-bound and its latency (TTFT) benefits from tensor parallelism and small
+    batches; decode is bandwidth-bound and benefits from huge batches.
+  \item Co-locating them couples their SLOs: any prefill in a step delays every decode in it.
+  \item Separate pools can be sized, parallelized and even built from different hardware
+    independently, maximizing goodput per GPU.
+\end{itemize}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  gp/.style={draw,rounded corners=3pt,minimum width=3.0cm,minimum height=1.6cm,align=center,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick}]
+\node[draw,rounded corners=2pt,fill=black!5,font=\scriptsize,align=center,minimum height=1.0cm] (rt) at (0,0) {router /\\scheduler};
+\node[gp,fill=fcompute!15] (pf) at (4.0,0.95) {\textbf{prefill pool}\\compute-bound\\TP for low TTFT};
+\node[gp,fill=napkin!20] (dc) at (4.0,-1.35) {\textbf{decode pool}\\bandwidth-bound\\large batches};
+\node[draw,rounded corners=2pt,fill=fmemory!15,font=\scriptsize,align=center] (kv) at (8.6,0.95) {KV store\\(HBM / DRAM / SSD)};
+\draw[arr] (-2.0,0) node[left,font=\scriptsize]{requests} -- (rt);
+\draw[arr] (rt) -- node[above,font=\tiny,sloped]{prompt} (pf.west);
+\draw[arr,fcomm] (pf.south) -- node[right,font=\scriptsize,text=fcomm,align=left]{KV transfer\\(NVLink / RDMA)} (dc.north);
+\draw[arr] (dc.west) -- node[below,font=\tiny,sloped]{tokens} (rt.south east);
+\draw[arr,dashed,black!50] (pf.east) -- node[above,font=\tiny]{publish} (kv.west);
+\draw[arr,dashed,black!50] (kv.south) |- node[pos=0.25,right,font=\tiny]{reuse} (dc.east);
+\end{tikzpicture}
+\caption{Disaggregated serving. Prefill and decode run on separately sized pools; the KV cache moves
+between them over a fast interconnect. Systems such as Mooncake add a distributed KV store so that
+caches computed once can be reused across requests and machines.}
+\label{fig:serving:disagg}
+\end{figure}
+
+\begin{napkinmath}[Is the KV transfer affordable?]
+A 2,000-token prompt on Qwen3-8B produces $2000\times\SI{144}{KiB}\approx\SI{295}{MB}$ of KV cache. Its prefill takes
+at least $2000\cdot\SI{15.1}{GFLOP}/\SI{989}{TFLOP/s}\approx\SI{31}{ms}$ on an H100. Shipping
+\SI{295}{MB} takes \SI{0.33}{ms} over NVLink (\SI{900}{GB/s}) and $\approx\SI{5.9}{ms}$ over a 400\,Gb/s
+RDMA NIC (\SI{50}{GB/s}): well below the prefill time, and it can be pipelined layer by layer as
+the prefill progresses. The transfer only becomes the bottleneck for models with very large per-token
+caches on slow networks, which is one more reason for GQA/MLA (\cref{ch:modern}) and fp8 KV caches.
+\end{napkinmath}
+
+\paragraph{Tiered KV caches.} Prefix caches outgrow HBM quickly. Engines therefore spill evicted blocks
+to host DRAM or SSD and reload them on a hit, provided reloading is faster than recomputing:
+at \SI{25}{GB/s} PCIe, reloading the \SI{295}{MB} prefix above takes \SI{12}{ms}, cheaper than its
+\SI{31}{ms} prefill. Mooncake (Qin et al., 2024) builds a cluster-wide KV store around this trade-off.
+
+% =====================================================================
+\section{Anatomy of a production engine}\label{sec:serving:anatomy}
+
+Before building our own engine, it helps to see what a production engine adds around the scheduler
+and the KV cache. Three pieces deserve a systems person's attention.
+
+\paragraph{Sizing the KV pool at start-up.} Engines do not ask the user how many KV blocks to
+allocate. At start-up they load the weights, run a \emph{profiling} forward pass with the largest
+batch the scheduler may ever issue (e.g.\ \code{max\_batched\_tokens} tokens of prefill), record the
+peak activation memory, and give everything that remains, up to a utilization fraction, to the KV pool.
+
+\begin{napkinmath}[KV pool for Qwen3-8B on one H100]
+Usable HBM at 90\% utilization: $0.9\times\SI{80}{GB}=\SI{72}{GB}$. Weights: \SI{16.4}{GB}. Peak activations of an
+8,192-token profiling step: the largest transient is the MLP intermediate, $8192\times12288\times2$ bytes
+$\approx\SI{0.2}{GB}$ per tensor; a few such tensors plus logits for the sampled rows, the CUDA context
+and CUDA-graph memory pools come to perhaps \SI{4}{GB}. KV pool:
+$72-16.4-4\approx\SI{51.6}{GB}$, i.e.\ $51.6\,\text{GB}/(16\times\SI{144}{KiB})\approx21{,}900$ blocks
+$\approx\num{350000}$ tokens. At an average of 2,000 tokens per sequence, that is room for $\approx175$
+concurrent sequences, comfortably past the batch size where decode throughput saturates in
+\cref{tab:inference:decode}. For Qwen3-32B on the same GPU, weights alone take \SI{65.5}{GB} and the KV
+pool shrinks to a few GB: such a model is served with tensor parallelism across GPUs largely to gain
+KV memory, not FLOPs (\cref{ch:efficient}).
+\end{napkinmath}
+
+\paragraph{Process architecture.} Python is single-threaded, and the GPU must never wait for it. Modern
+engines therefore split work across processes (\cref{fig:serving:procs}): an API server handles HTTP,
+tokenization, chat templates and detokenization; an \emph{engine core} process runs the scheduler and
+the step loop; GPU worker processes (one per GPU for tensor parallelism) execute the model. The
+processes communicate over shared memory or ZeroMQ sockets, so CPU-heavy work (tokenizing a 100k-token
+prompt, detokenizing thousands of streams, JSON encoding) overlaps with GPU execution. Inside the
+engine core, \emph{asynchronous scheduling} prepares the inputs of step $t+1$ (scheduling, block
+allocation, building the slot mapping on the host and copying it to the device) while the GPU still
+executes step $t$, so the GPU sees back-to-back steps.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  pr/.style={draw,rounded corners=3pt,minimum height=1.25cm,align=center,font=\scriptsize,minimum width=2.9cm},
+  arr/.style={{Stealth[length=1.5mm]}-{Stealth[length=1.5mm]},thick,black!60}]
+\node[font=\scriptsize] (cl) at (-1.6,0) {clients};
+\node[pr,fill=fdata!12] (api) at (1.6,0) {\textbf{API server}\\HTTP / SSE, chat template,\\tokenize, detokenize};
+\node[pr,fill=sysblue!10] (core) at (5.6,0) {\textbf{engine core}\\scheduler, block manager,\\async step loop};
+\node[pr,fill=fcompute!15,minimum width=2.3cm] (w0) at (9.6,0.8) {\textbf{GPU worker 0}\\TP rank 0};
+\node[pr,fill=fcompute!15,minimum width=2.3cm] (w1) at (9.6,-0.8) {\textbf{GPU worker 1}\\TP rank 1};
+\draw[arr] (cl) -- (api);
+\draw[arr] (api) -- node[above,font=\tiny]{IPC (ZMQ)} (core);
+\draw[arr] (core.east) -- (w0.west); \draw[arr] (core.east) -- (w1.west);
+\draw[thick,fcomm] (w0.south) -- node[right,font=\tiny,text=fcomm]{NCCL all-reduce} (w1.north);
+\node[font=\tiny,text=black!60,align=center] at (3.6,-1.1) {token ids in,\\token ids out};
+\node[font=\tiny,text=black!60,align=center] at (7.4,-1.55) {per step: slot mapping,\\block tables, positions};
+\end{tikzpicture}
+\caption{Process layout of a typical modern engine. CPU-bound request handling, scheduling and GPU
+execution run concurrently in separate processes.}
+\label{fig:serving:procs}
+\end{figure}
+
+\paragraph{Batched sampling with per-request parameters.} Every request may carry its own temperature,
+top-$p$, top-$k$, seed, repetition penalty, stop strings and logprob requests. A Python loop over rows (as in our
+engine) is fine for a toy but serializes thousands of tiny kernels. Production samplers vectorize: parameters
+become per-row tensors, and one sort, one cumulative sum and one \code{multinomial} serve the whole batch
+(\cref{lst:serving:batchsample}). Greedy rows are temperature-0 rows handled by a final \code{where}.
+
+\begin{lstlisting}[caption={Vectorized sampling with per-row temperature and top-p.},label={lst:serving:batchsample}]
+def sample_batch(logits, temperature, top_p, generator=None):
+    # logits: (B, V); temperature, top_p: (B,) tensors. Returns (B,) ids.
+    greedy = logits.argmax(dim=-1)
+    t = temperature.clamp_min(1e-5)[:, None]
+    probs = torch.softmax(logits.float() / t, dim=-1)
+    sorted_p, idx = probs.sort(dim=-1, descending=True)
+    cum = sorted_p.cumsum(dim=-1)
+    sorted_p[(cum - sorted_p) >= top_p[:, None]] = 0.0        # per-row nucleus
+    choice = torch.multinomial(sorted_p, 1, generator=generator)  # renormalizes
+    sampled = idx.gather(-1, choice).squeeze(-1)
+    return torch.where(temperature == 0, greedy, sampled)
+\end{lstlisting}
+
+The full sort over $V=151{,}936$ entries per row is the expensive part. Faster samplers avoid it by
+rejection sampling or by first pruning to a top-$k$ candidate set, and some draw samples via the
+``exponential race'' trick, $\argmax_i\, p_i/E_i$ with $E_i\sim\text{Exp}(1)$, which needs neither a sort
+nor a cumulative sum (it samples from $p$ exactly, so top-$p$ must still be applied first). These tricks
+matter because at large batch sizes sampling can take a visible share of each decode step.
+
+% =====================================================================
+\section{Building a mini engine}\label{sec:serving:engine}
+
+We now assemble the pieces into \ident{llmsys.serving}, a teaching-sized engine of a few hundred lines
+that runs our GPT-2 and Qwen3 implementations unchanged (\cref{fig:serving:arch}). It is deliberately
+simple (pure PyTorch, one process, a Python loop for per-sequence attention), but its structure mirrors
+vLLM's: a scheduler, a block manager, a model runner, and an engine loop.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  cmp/.style={draw,rounded corners=2pt,minimum width=3.2cm,minimum height=0.95cm,align=center,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.6mm]},thick}]
+\node[cmp,fill=black!5] (eng) at (0,0) {\textbf{LLMEngine}\\\code{add\_request / step}};
+\node[cmp,fill=sysblue!10] (sch) at (-3.9,-1.7) {\textbf{Scheduler}\\token budget, chunking,\\admission, preemption};
+\node[cmp,fill=fmemory!20] (bm) at (-3.9,-3.6) {\textbf{BlockManager}\\free list, ref counts,\\prefix hash table + LRU};
+\node[cmp,fill=fcompute!15] (mr) at (3.9,-1.7) {\textbf{ModelRunner}\\ragged forward,\\LM head on last tokens};
+\node[cmp,fill=fmemory!20] (pool) at (3.9,-3.6) {\textbf{PagedKVPool}\\$(L,\ \text{slots},H_{kv},d_h)$\\K and V};
+\node[cmp,fill=keygreen!12] (seq) at (0,-2.65) {\textbf{Sequence}\\tokens, block table,\\\code{num\_computed}};
+\draw[arr] (eng) -- node[above left,font=\tiny]{1. schedule()} (sch);
+\draw[arr] (sch) -- node[left,font=\tiny]{alloc / free} (bm);
+\draw[arr] (eng) -- node[above right,font=\tiny]{2. forward(chunks)} (mr);
+\draw[arr] (mr) -- node[right,font=\tiny]{write, gather} (pool);
+\draw[arr,dashed] (eng) -- node[right,font=\tiny,align=left]{3. sample, publish\\blocks, finish} (seq);
+\draw[dashed,black!40] (seq) -- (sch); \draw[dashed,black!40] (seq) -- (mr);
+\end{tikzpicture}
+\caption{Architecture of \ident{llmsys.serving}. The scheduler and block manager deal only in integers
+(token counts, block ids); only the model runner touches tensors.}
+\label{fig:serving:arch}
+\end{figure}
+
+\paragraph{One state variable.} A sequence's tokens are its prompt plus its output so far, and
+\ident{num_computed} counts how many of them already have K/V in the pool. Everything follows from
+$\text{remaining} = \text{len(tokens)} - \text{num\_computed}$: a fresh request has remaining $=$
+prompt length (prefill); a decoding sequence has remaining $=1$ (its last sampled token); a chunked
+prefill has remaining $>1$ after its first chunk; a preempted sequence is reset to
+$\text{num\_computed}=0$ and simply re-prefills everything; a prefix hit sets $\text{num\_computed}$ to
+the matched length. The engine samples a token only when a sequence's chunk reaches the end of its known
+tokens. Prefill, decode, chunking, preemption and prefix reuse are thus one code path.
+
+\begin{lstlisting}[caption={The engine step (abridged from llmsys/serving/engine.py).},label={lst:serving:step}]
+def step(self):
+    batch = self.scheduler.schedule()             # [(seq, n_tokens), ...]
+    chunks = [(seq.tokens[seq.num_computed: seq.num_computed + n],
+               seq.num_computed, seq.block_table) for seq, n in batch]
+    logits = self.runner.forward(chunks)          # one ragged forward pass
+    for i, (seq, n) in enumerate(batch):
+        seq.num_computed += n
+        self._publish_full_blocks(seq)            # feed the prefix cache
+        if seq.remaining > 0:
+            continue                              # mid-prefill: nothing to sample
+        tok = int(sample_next_token(logits[i:i + 1], seq.params.temperature,
+                                    seq.params.top_k, seq.params.top_p, seq.generator))
+        seq.output.append(tok)
+        if seq.is_finished():
+            self.scheduler.finish(seq)            # releases (or caches) its blocks
+\end{lstlisting}
+
+\paragraph{The ragged forward pass.} \ident{ModelRunner.forward} concatenates the new tokens of all
+scheduled sequences into one vector, computes the physical slot of every token with
+\cref{eq:serving:slot}, and walks the layers. All projections and the MLP run once on the whole
+$(N_{\text{tok}},d)$ matrix. Per layer, the new keys and values are scattered into the pool with
+\code{index\_copy\_}; attention then loops over sequences, gathering each one's history through its
+block table (\cref{lst:serving:pagedattn}). Finally, the LM head runs only on the last new token of
+each sequence. RoPE is applied with per-token positions, so sequences at different positions coexist
+in one batch.
+
+\begin{lstlisting}[caption={Reference paged attention for one sequence.},label={lst:serving:pagedattn}]
+def paged_attention(q, k_pool, v_pool, block_table, ctx_len, block_size, group_size):
+    n_new, H, D = q.shape                       # queries for the last n_new positions
+    slots = torch.tensor(slot_mapping(block_table, range(ctx_len), block_size))
+    k = k_pool.index_select(0, slots).repeat_interleave(group_size, dim=1)
+    v = v_pool.index_select(0, slots).repeat_interleave(group_size, dim=1)
+    scores = torch.einsum("qhd,khd->hqk", q.float(), k.float()) / math.sqrt(D)
+    past = ctx_len - n_new                      # causal offset for chunked prefill
+    mask = torch.triu(torch.ones(n_new, ctx_len, dtype=torch.bool), diagonal=past + 1)
+    w = torch.softmax(scores.masked_fill(mask[None], float("-inf")), dim=-1)
+    return torch.einsum("hqk,khd->qhd", w, v.float()).to(q.dtype)
+\end{lstlisting}
+
+The Python loop over sequences and the explicit gather are what a real engine replaces with a fused
+paged-attention kernel: one thread block per (sequence, head), streaming K/V blocks from the table into
+shared memory with an online softmax (\cref{ch:attention}), so the gathered K/V never materializes.
+Writing that kernel in Triton is a stretch goal in Lab~27 and \cref{app:triton}.
+
+\paragraph{Correctness.} The strongest test of an engine is that it is \emph{invisible}: for greedy
+decoding, every request must receive exactly the tokens it would have received alone. Lab~27's tests
+run six requests with a shared prefix through the engine under three regimes (plenty of memory; a
+5-token budget forcing chunked prefill; a 10-block pool forcing repeated preemption) and compare against
+\ident{llmsys.generate.generate} token by token, for both GPT-2 and Qwen3. They also assert the block
+manager's invariant after every run: each block is either referenced, free, or cached-and-evictable,
+never two of these and never none.
+
+% =====================================================================
+\section{Simulating serving policies at scale}\label{sec:serving:sim}
+
+Our engine runs on a CPU with toy models; to study policies at production scale we replace the model
+with a \emph{cost model} and keep everything else. \ident{llmsys.serving.simulator} feeds a Poisson
+request trace through the \emph{same} \ident{Scheduler} and \ident{BlockManager} classes, and advances a
+virtual clock by
+\begin{equation}
+  t_{\text{step}} = t_0 + \frac{1}{\epsilon}\max\!\left(\frac{2N\,n_{\text{tok}} + \text{attn}}{\Pi},\ \frac{Nb + \kappa\,C_{\text{ctx}}}{\beta}\right)
+\end{equation}
+where $n_{\text{tok}}$ is the number of tokens in the step, $C_{\text{ctx}}$ the total context read by all
+scheduled sequences, $t_0$ a fixed per-step overhead (\SI{2}{ms}) and $\epsilon=0.6$ an achieved
+fraction of peak. \Cref{fig:serving:sim} compares three policies for Qwen3-8B on an H100 with a
+\SI{20}{GB} KV pool (8,477 blocks of 16 tokens), prompts of 64--512 and outputs of 16--256 tokens:
+static batching ($B=32$), continuous batching with paged memory, and continuous batching that
+\emph{reserves} 4,096 tokens per request at admission (the pre-paging design).
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1,horizontal sep=1.7cm},width=0.49\linewidth,height=5.8cm,
+  grid=major,grid style={black!10},tick label style={font=\scriptsize},label style={font=\small},
+  xlabel={arrival rate (requests/s)},legend style={font=\scriptsize,at={(0.03,0.97)},anchor=north west}]
+\nextgroupplot[ylabel={throughput (output tokens/s)},title={\small throughput},ymin=0]
+\addplot[thick,mark=*,mark size=1.3pt,warnred] coordinates {(2,266.1) (4,523) (8,1008) (12,1218) (16,1226) (20,1227) (24,1227) (28,1227) (32,1227) (40,1226)};
+\addlegendentry{static, $B=32$}
+\addplot[thick,mark=square*,mark size=1.3pt,sysblue] coordinates {(2,267) (4,529.7) (8,1042) (12,1538) (16,2017) (20,2482) (24,2931) (28,3366) (32,3786) (40,4581)};
+\addlegendentry{continuous, paged}
+\addplot[thick,mark=triangle*,mark size=1.6pt,napkin] coordinates {(2,267) (4,529.7) (8,1042) (12,1538) (16,2017) (20,2482) (24,2625) (28,2642) (32,2657) (40,2670)};
+\addlegendentry{continuous, reserve 4k}
+\nextgroupplot[ymode=log,ylabel={mean TTFT (s)},title={\small time to first token}]
+\addplot[thick,mark=*,mark size=1.3pt,warnred] coordinates {(2,1.201) (4,1.486) (8,1.966) (12,8.162) (16,13.74) (20,17.03) (24,19.53) (28,21.31) (32,22.57) (40,24.36)};
+\addplot[thick,mark=square*,mark size=1.3pt,sysblue] coordinates {(2,0.0161) (4,0.01695) (8,0.01748) (12,0.01802) (16,0.01877) (20,0.01966) (24,0.02025) (28,0.02107) (32,0.02162) (40,0.0238)};
+\addplot[thick,mark=triangle*,mark size=1.6pt,napkin] coordinates {(2,0.0161) (4,0.01695) (8,0.01748) (12,0.01802) (16,0.02852) (20,0.2636) (24,2.033) (28,3.612) (32,4.775) (40,6.481)};
+\end{groupplot}
+\end{tikzpicture}
+\caption{Simulated (not measured) serving of Qwen3-8B on one H100 under the roofline cost model, 600
+Poisson requests per point. Static batching saturates at about 1,200 tokens/s with TTFTs of
+tens of seconds. Reservation-based continuous batching caps the running batch at about 30 sequences
+($20\,\text{GB}/(4096\times\SI{144}{KiB})$) and its TTFT explodes beyond 20 requests/s. Paged continuous
+batching keeps TTFT near \SI{20}{ms} while throughput keeps growing (its mean running batch reaches 59).}
+\label{fig:serving:sim}
+\end{figure}
+
+Three lessons are visible. First, static batching's TTFT is dominated by waiting for the previous
+batch's longest request: seconds even at light load, and it collapses as soon as the arrival rate
+exceeds its fixed capacity. Second, continuous batching with reservation behaves identically to paging
+until KV memory, not compute, limits the batch, then saturates at a throughput set by
+$\text{memory}/\text{reservation}$. Third, with paging the batch grows with load (the mean running batch
+climbs from 3 to 59 sequences in this sweep) and TPOT rises only gently (\SI{10.3}{ms} to
+\SI{13.3}{ms}), which is the roofline story of \cref{tab:inference:decode} playing out in a queueing
+system. Lab~27's \code{bench.py} reproduces this figure and lets you vary block size, budget,
+memory, and the prefix-sharing pattern.
+
+\begin{pitfall}[Simulators are only as good as their cost model]
+Our cost model ignores attention-kernel efficiency at long contexts, sampling cost, CPU scheduling
+overhead, and the interference between prefill and decode inside one step beyond the max() term. Use
+it to compare policies and to find regimes worth measuring, then validate the conclusions on the real
+engine and hardware.
+\end{pitfall}
+
+% =====================================================================
+\section{Summary}\label{sec:serving:summary}
+\begin{itemize}
+  \item Batching amortizes weight reads across rows; it raises throughput and costs memory and some
+    latency. It does not help per-row work (KV reads, padding, activations).
+  \item Batched generation left-pads prompts and masks pad keys; RoPE makes left padding exact,
+    absolute position embeddings need per-row position ids. Training pads on the right.
+  \item Evaluation and distillation batch different prompts (padding); self-consistency and GRPO batch
+    samples of one prompt (no padding, shareable prefix).
+  \item Serving engines schedule at iteration granularity (continuous batching), flatten ragged batches
+    instead of padding, manage KV memory in pages with reference counts, share prefixes through hash chains
+    or radix trees, bound step cost with chunked prefill, and preempt by recomputation or swapping.
+  \item Disaggregating prefill and decode decouples TTFT from TPOT at the cost of moving KV caches, which
+    is affordable on fast interconnects.
+  \item \ident{llmsys.serving} implements all of this in a few hundred lines and is token-for-token
+    identical to the reference generator.
+\end{itemize}
+
+% =====================================================================
+\section{Exercises}\label{sec:serving:exercises}
+
+\begin{exercise}[Per-row positions]\label{ex:serving:positions}
+Extend \ident{GPTModel.forward} (in your own subclass) to accept \code{position\_ids} of shape $(B,T)$.
+Show that \ident{generate_batch} with left padding then reproduces single-sequence GPT-2 outputs exactly,
+and quantify how different the outputs are without the fix.
+\end{exercise}
+
+\begin{exercise}[Dropping finished rows]
+Implement strategy (3) of \cref{fig:serving:eos}: after each step, remove rows that emitted EOS from the
+input, the validity mask and every layer's KV cache. Measure the speed-up over strategy (2) for output
+lengths drawn from a geometric distribution with mean 200 and maximum 2,000.
+\end{exercise}
+
+\begin{exercise}[Padding efficiency]
+Derive the expected output-padding efficiency $\eta$ of a static batch of size $B$ when output lengths are
+i.i.d.\ uniform on $[a,b]$. Evaluate for $B\in\{1,8,64\}$ with $a=50$, $b=1500$, and compare with
+continuous batching.
+\end{exercise}
+
+\begin{exercise}[Block size]
+Using the simulator with the paged policy, sweep the block size over $\{1,4,16,64,256\}$ at a fixed KV
+budget. Plot throughput and the internal fragmentation. Then argue, from how a GPU kernel would gather
+blocks, why real engines do not use block size 1.
+\end{exercise}
+
+\begin{exercise}[Copy-on-write fork]
+Add \code{fork(rid, n)} to the engine: it creates $n$ child sequences that share the parent's blocks
+after its prefill, and implements copy-on-write for the partially filled last block. Verify with
+temperature sampling and fixed seeds that each child generates the same tokens as an independent request
+with the same seed, and report the memory saved for $n=16$.
+\end{exercise}
+
+\begin{exercise}[Swap vs.\ recompute]
+For Qwen3-8B on an H100 with PCIe~5.0 (about \SI{50}{GB/s} effective), compare the per-token cost of
+swapping a preempted sequence's KV cache out and back in with the cost of recomputing it. Include the
+quadratic attention term of recomputation and find the sequence length at which the cheaper option
+changes, if any. Repeat for the same model with full multi-head attention (32 KV heads) and for an fp8
+KV cache.
+\end{exercise}
+
+\begin{exercise}[Budget trade-off]
+In the simulator, sweep the token budget $\tau\in\{64,256,1024,4096\}$ at a load near saturation and
+plot mean TTFT against mean TPOT. Explain the shape of the trade-off curve in terms of
+\cref{fig:serving:chunked}.
+\end{exercise}
+
+\begin{exercise}[Multi-turn chat]
+Write a trace generator for multi-turn conversations (each turn appends 50--200 user tokens to the
+previous conversation including the model's reply). Compare prefill tokens and TTFT with and without
+prefix caching as the number of turns grows. Why does the benefit grow with conversation length?
+\end{exercise}
+
+\begin{exercise}[Disaggregation sizing]
+A workload has mean prompt 3,000 tokens and mean output 300 tokens on Qwen3-8B. Using the roofline
+bounds, estimate the ratio of prefill GPUs to decode GPUs that balances the two pools at a target TPOT
+of \SI{30}{ms}. What changes for a reasoning workload with prompt 300 and output 8,000?
+\end{exercise}
+
+\begin{exercise}[Fairness]
+Implement a Virtual-Token-Counter-style scheduler: track tokens served per tenant and always admit from
+the tenant with the smallest counter. Show with the simulator that a tenant sending 10$\times$ more
+requests no longer degrades the TTFT of a light tenant.
+\end{exercise}
+
+% =====================================================================
+\section{Lab 27: A paged, continuous-batching engine}\label{sec:serving:lab}
+\begin{labbox}{27}{A paged, continuous-batching engine}
+\labdir{lab27_engine}
+\labsection{Goals}
+Implement the four components that make \ident{llmsys.serving} work, plug them into \ident{LLMEngine},
+and show that the engine is token-for-token identical to single-sequence generation under chunked
+prefill, prefix sharing and preemption. Then use the simulator to study policies at scale.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+python3 -m pytest -q labs/lab27_engine        # grades starter.py (CPU, < 1 min)
+python3 labs/lab27_engine/bench.py --help     # simulator experiments
+\end{lstlisting}
+
+\labsection{Tasks}
+\begin{enumerate}
+  \item \textbf{BlockManager} (\ident{_take}, \ident{allocate}, \ident{release}, \ident{lookup_prefix},
+    \ident{register}): free list, reference counts, evictable LRU set, chained-hash prefix lookup that
+    always leaves one token to compute.
+  \item \textbf{Paged addressing}: \ident{slot_mapping} (\cref{eq:serving:slot}) and
+    \ident{paged_attention} with GQA head expansion and a causal offset for chunked prefill. The test
+    compares against \code{scaled\_dot\_product\_attention} on a dense copy.
+  \item \textbf{Scheduler.schedule}: running sequences first under the token budget, preempt the youngest
+    on block shortage, then FCFS admission with prefix lookup. \ident{build_engine} wires your classes in.
+  \item \textbf{Fragmentation}: \ident{waste_reserved}, \ident{waste_paged}, \ident{blocks_for_budget}.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{itemize}
+  \item \code{bench.py --exp policies}: reproduce \cref{fig:serving:sim} (static vs.\ continuous paged vs.\
+    continuous reserved) and report the knee of each curve.
+  \item \code{bench.py --exp prefix}: requests sharing $k$ system prompts of length $P$; plot prefill
+    tokens and TTFT with and without prefix caching for $k\in\{1,4,64\}$.
+  \item \code{bench.py --exp budget}: TTFT vs.\ TPOT as the token budget varies.
+  \item \code{bench.py --exp engine}: run the real engine on a small random model on your machine; report
+    steps, mean batch size, prefix hit rate and preemptions for a burst of 32 requests.
+\end{itemize}
+
+\labsection{Deliverables}
+Passing tests; the four plots; a one-page design note explaining (i) why the engine's greedy outputs
+are identical to the reference even under preemption, and (ii) which component you would move to a GPU
+kernel first and why.
+
+\labsection{Stretch goals}
+\begin{itemize}
+  \item Copy-on-write \code{fork} for parallel sampling (exercise above) and its use for self-consistency.
+  \item A Triton paged-attention decode kernel (one program per sequence and head, online softmax over
+    blocks) that replaces \ident{paged_attention} on GPU.
+  \item Swap-based preemption to a CPU block pool, with a policy that chooses swap vs.\ recompute by
+    sequence length.
+\end{itemize}
+\end{labbox}

@@ -58,7 +58,7 @@ def sample_rollouts(model, tokenizer, prompts: Sequence[str], num_rollouts: int,
     """Sample G rollouts for each of P prompts in ONE left-padded batch of P*G rows.
 
     Batching all P*G sequences turns P*G memory-bound decode streams into one;
-    see Chapter 19 for why this is the single biggest rollout speed-up.
+    see Chapter 27 for why this is the single biggest rollout speed-up.
     """
     was_training = model.training
     model.eval()

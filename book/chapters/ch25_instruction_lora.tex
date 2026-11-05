@@ -1,0 +1,1228 @@
+\chapter{Instruction Fine-Tuning and Parameter-Efficient Adaptation}\label{ch:instruct}
+
+A pretrained model continues text; an assistant answers requests. If you ask base GPT-2
+to ``Convert 45 kilometers to meters,'' it is just as likely to continue with a second
+unit-conversion question as to answer. \emph{Instruction fine-tuning}, also called
+supervised fine-tuning (SFT), closes that gap. We train the model with the ordinary
+next-token objective on examples written as a prompt followed by the desired response,
+so the most likely continuation of a prompt becomes its answer.
+
+Algorithmically, SFT is pretraining with differently formatted data. The details are in
+the data pipeline: how examples are templated, how variable-length sequences become
+rectangular batches, which positions contribute to the loss, and how to pack many short
+examples into one long row without letting them see each other. These details decide
+whether SFT is correct and whether it is efficient, and they are the same machinery
+behind the chat models served in \cref{ch:inference,ch:serving}. The second half of the
+chapter turns to \emph{which} parameters to train. Low-rank adaptation (LoRA) and its
+quantised variant QLoRA make fine-tuning a multi-billion-parameter model fit on one GPU.
+They also make it possible to serve hundreds of task-specific variants from one base
+model.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  stage/.style={draw=sysblue,fill=sysblue!8,rounded corners=2pt,minimum width=2.05cm,
+    minimum height=1.05cm,align=center,font=\small},
+  lstage/.style={stage,draw=napkin,fill=napkin!10},
+  num/.style={circle,fill=sysblue,text=white,font=\scriptsize\bfseries,inner sep=1.5pt},
+  arr/.style={-{Latex[length=2mm]},thick,sysblue!70}]
+\node[stage] (s1) {Format\\instructions};
+\node[stage,right=0.35cm of s1] (s2) {Batch:\\pad, shift,\\mask $-100$};
+\node[stage,right=0.35cm of s2] (s3) {Data\\loaders,\\packing};
+\node[stage,right=0.35cm of s3] (s4) {Load\\GPT-2\\medium};
+\node[stage,right=0.35cm of s4] (s5) {Fine-tune};
+\node[stage,right=0.35cm of s5] (s6) {Generate \&\\save\\responses};
+\node[stage,right=0.35cm of s6] (s7) {Judge with\\a larger LLM};
+\foreach \i in {1,...,7}{\node[num] at (s\i.north west) {\i};}
+\foreach \a/\b in {1/2,2/3,3/4,4/5,5/6,6/7}{\draw[arr] (s\a) -- (s\b);}
+\node[lstage,below=0.9cm of s3] (l1) {LoRA\\layers};
+\node[lstage,right=0.35cm of l1] (l2) {QLoRA:\\NF4 base};
+\node[lstage,right=0.35cm of l2] (l3) {Merge or\\multi-LoRA\\serving};
+\node[num,fill=napkin] at (l1.north west) {8};
+\node[num,fill=napkin] at (l2.north west) {9};
+\node[num,fill=napkin] at (l3.north west) {10};
+\draw[arr,napkin] (l1)--(l2); \draw[arr,napkin] (l2)--(l3);
+\draw[densely dashed,napkin,thick] (l1.north) -- (s5.south west);
+\node[font=\scriptsize\itshape,text=napkin,anchor=east] at ([xshift=-0.3cm]l1.west)
+  {parameter-efficient track};
+\end{tikzpicture}}
+\caption{Chapter roadmap. Stages 1--7 build the instruction-tuning pipeline end to end.
+Stages 8--10 replace full fine-tuning with low-rank adapters, quantise the frozen
+base, and show how adapted models are deployed.}
+\label{fig:instruct:roadmap}
+\end{figure}
+
+% =====================================================================================
+\section{Introduction to instruction fine-tuning}\label{sec:instruct:intro}
+
+Pretraining (\cref{ch:pretrain}) teaches a model the statistics of web text. Web text
+contains questions followed by answers, but also questions followed by more questions,
+forum signatures, and navigation menus. The pretrained model has no notion that a
+request should be \emph{answered}. SFT shows it thousands of examples where it is.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  stage/.style={draw=#1,fill=#1!12,rounded corners=2pt,minimum width=2.6cm,minimum height=0.85cm,
+    align=center,font=\scriptsize},
+  outbox/.style={draw=srcgray,fill=white,rounded corners=1pt,text width=4.1cm,font=\scriptsize\ttfamily,
+    inner sep=4pt,align=left},
+  arr/.style={-{Latex[length=2mm]},thick,srcgray}]
+\node[stage=sysblue] (pre) at (0,0) {\textbf{Pretraining}\\next token on raw text};
+\node[stage=keygreen] (sft) at (4.0,0) {\textbf{SFT}\\next token on\\prompt$\to$response};
+\node[stage=labpurple] (pref) at (8.0,0) {\textbf{Preference / RL}\\reward on whole\\responses};
+\draw[arr] (pre)--(sft); \draw[arr] (sft)--(pref);
+\node[outbox] (o1) at (-0.5,-2.0) {Convert 45 kilometers to meters.\\Convert 12 miles to feet.\\Convert 3 liters to\dots};
+\node[outbox] (o2) at (4.3,-2.0) {Convert 45 kilometers to meters.\\[2pt]\textbf{45 kilometers is 45,000 meters.}};
+\draw[densely dashed,srcgray] (pre.south) -- (o1.north);
+\draw[densely dashed,srcgray] (sft.south) -- (o2.north west -| sft.south);
+\node[font=\scriptsize,text=srcgray,anchor=north] at (o1.south) {base model: continues the pattern};
+\node[font=\scriptsize,text=srcgray,anchor=north] at (o2.south) {after SFT: answers the request};
+\node[font=\scriptsize,text=labpurple,text width=2.6cm,align=center,anchor=north] at (8.6,-0.65)
+  {\cref{ch:grpo,ch:grpo2,ch:rlsys}: optimise for \emph{which} answer is better};
+\end{tikzpicture}
+\caption{Where SFT sits. The same next-token loss is used throughout; what changes is the
+data, and later the objective. Example outputs are illustrative.}
+\label{fig:instruct:pipeline}
+\end{figure}
+
+Three facts frame the rest of the chapter.
+\begin{enumerate}
+\item \textbf{SFT needs surprisingly little data.} Strong results have come from tens of
+thousands of examples, and in the LIMA study from about a thousand carefully curated
+ones (Zhou et al., 2023). This is consistent with the ``superficial alignment''
+hypothesis: the knowledge comes from pretraining, and SFT mostly teaches format and
+behaviour. Our dataset has 1{,}100 examples.
+\item \textbf{The model must learn to stop.} Every training response ends with an
+end-of-text token. Without it, a fine-tuned model answers and then keeps generating
+another instruction. This is why the collate function in \cref{sec:instruct:batches}
+treats the first end-of-text token differently from the rest of the padding.
+\item \textbf{Evaluation is the hard part.} Unlike classification, there is no single
+correct string, so we will use a larger model as a judge (\cref{sec:instruct:eval}),
+previewing the evaluation machinery of \cref{ch:eval}.
+\end{enumerate}
+
+% =====================================================================================
+\section{Preparing a dataset for supervised instruction fine-tuning}\label{sec:instruct:data}
+
+Our dataset is a JSON list of 1{,}100 records in the style popularised by
+Alpaca (Taori et al., 2023). Each record has an \code{instruction}, an optional \code{input} that provides
+context, and the reference \code{output}:
+
+\begin{lstlisting}[style=plain]
+{"instruction": "Rewrite the sentence in passive voice.",
+ "input": "The committee approved the budget.",
+ "output": "The budget was approved by the committee."}
+{"instruction": "What is the boiling point of water at sea level in Celsius?",
+ "input": "",
+ "output": "The boiling point of water at sea level is 100 degrees Celsius."}
+\end{lstlisting}
+
+The tasks are short and varied: grammar fixes, unit conversions, definitions,
+antonyms, simple factual questions. That makes them a good test of instruction
+following on a 355M-parameter model that trains in minutes.
+
+\subsection{Prompt templates}
+
+Before tokenisation, every record is rendered into one string by a \emph{prompt
+template}. The template defines the boundaries the model will learn: where the request
+ends and the answer begins. \Cref{fig:instruct:styles} compares two common styles. The
+\emph{Alpaca} style uses a fixed preamble and Markdown-like section headers. The
+\emph{Phi-3} style uses compact role tags. Modern chat models use structured templates
+of the second kind with dedicated special tokens (Qwen's ChatML,
+\code{<|im\_start|>user \dots <|im\_end|>}, \cref{ch:inference}). Those tokens cannot
+appear in user text by accident, which matters for both correctness and prompt-injection
+resistance.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  card/.style={draw=#1,fill=#1!6,rounded corners=2pt,text width=6.3cm,font=\scriptsize\ttfamily,
+    inner sep=6pt,align=left},
+  hl/.style={text=#1,font=\scriptsize\ttfamily\bfseries}]
+\node[card=sysblue] (a) at (0,0) {%
+Below is an instruction that describes a task. Write a response that appropriately completes
+the request.\\[4pt]
+\textcolor{sysblue}{\textbf{\#\#\# Instruction:}}\\Convert the temperature to Fahrenheit.\\[4pt]
+\textcolor{sysblue}{\textbf{\#\#\# Input:}}\\25 degrees Celsius\\[4pt]
+\textcolor{sysblue}{\textbf{\#\#\# Response:}}\\25 degrees Celsius is 77 degrees Fahrenheit.};
+\node[card=keygreen,anchor=north west] (b) at ([xshift=0.5cm]a.north east) {%
+\textcolor{keygreen}{\textbf{<|user|>}}\\Convert the temperature to Fahrenheit.\\25 degrees Celsius\\[4pt]
+\textcolor{keygreen}{\textbf{<|assistant|>}}\\25 degrees Celsius is 77 degrees Fahrenheit.};
+\node[font=\small\bfseries,anchor=south] at (a.north) {Alpaca style};
+\node[font=\small\bfseries,anchor=south] at (b.north) {Phi-3 style};
+\node[text width=6.3cm,font=\scriptsize,anchor=north west,text=srcgray] at ([yshift=-0.2cm]b.south west)
+  {Fewer template tokens per example $\Rightarrow$ shorter sequences, faster training and
+  inference, and more room for content in a fixed context window.};
+\end{tikzpicture}
+\caption{The same record rendered with two prompt templates. The response section is what
+we ultimately want the model to produce; everything before it is the prompt.}
+\label{fig:instruct:styles}
+\end{figure}
+
+\begin{lstlisting}[caption={Rendering a record with the Alpaca template (from \ident{llmsys/finetune.py}).},label={lst:instruct:alpaca}]
+def format_alpaca(entry, with_response=False):
+    text = ("Below is an instruction that describes a task. "
+            "Write a response that appropriately completes the request."
+            f"\n\n### Instruction:\n{entry['instruction']}")
+    if entry.get("input"):                        # optional section
+        text += f"\n\n### Input:\n{entry['input']}"
+    text += "\n\n### Response:\n"
+    if with_response:
+        text += entry["output"]
+    return text
+\end{lstlisting}
+
+The function returns the prompt alone (used at inference time) or prompt plus response
+(used for training). Keeping one function for both prevents a subtle bug: a template
+that differs by a single newline between training and inference measurably degrades a
+fine-tuned model.
+
+\begin{napkinmath}[What the template costs]
+The Alpaca preamble and headers add roughly 30 GPT-2 tokens to every example. With
+responses of about 20--60 tokens and instructions of about 10--30, the template is
+roughly a third of all tokens processed. Training and evaluating with a compact
+template cuts compute by about that fraction. In attention, where cost grows with
+$T^2$, the saving is larger. The template also takes up context-window space that real
+content could use.
+\end{napkinmath}
+
+\subsection{Splitting}
+
+We shuffle with a fixed seed and split 85\% / 10\% / 5\% into training (935),
+test (110) and validation (55) sets. The test set is larger than the validation set
+because we will spend real effort on it (generation plus LLM judging). Validation is
+used only to monitor loss.
+
+% =====================================================================================
+\section{Organizing data into training batches}\label{sec:instruct:batches}
+
+In \cref{ch:classify}, the collate function only padded inputs. For SFT it has to do
+more work. \Cref{fig:instruct:collate} shows the steps:
+
+\begin{enumerate}
+\item \textbf{Format and tokenise} each record (done once, in the dataset constructor).
+\item \textbf{Append one end-of-text token} (id 50256 for GPT-2) to every sequence, so the
+model learns to stop.
+\item \textbf{Pad} every sequence in the batch to the length of the longest one plus one,
+using the same id 50256.
+\item \textbf{Shift}: inputs are positions $0..T-1$ of the padded row and targets are
+positions $1..T$. This is exactly the shift used in pretraining.
+\item \textbf{Mask padding in the targets}: every target position after the first
+end-of-text token is replaced by $-100$, PyTorch's default \code{ignore\_index}, so the
+loss ignores it. The \emph{first} end-of-text token stays a real target, because
+predicting it is how the model learns to stop.
+\end{enumerate}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  tok/.style={draw=sysblue!60,fill=sysblue!12,minimum width=0.66cm,minimum height=0.5cm,
+    font=\scriptsize\ttfamily,inner sep=0pt},
+  eot/.style={tok,draw=keygreen,fill=keygreen!30},
+  pad/.style={tok,draw=srcgray!60,fill=srcgray!15,text=srcgray},
+  ign/.style={tok,draw=warnred!60,fill=warnred!15,text=warnred},
+  ttl/.style={font=\scriptsize\bfseries,anchor=south west}]
+\def\dx{0.68}
+% group 1: padded rows
+\node[ttl] at (-0.35,1.05) {steps 2--3: append EOT, pad};
+\foreach \x/\t in {0/0,1/1,2/2,3/3,4/4}{\node[tok] at (\x*\dx,0.75) {\t};}
+\node[eot] at (5*\dx,0.75) {E};
+\foreach \x/\t in {0/5,1/6}{\node[tok] at (\x*\dx,0.2) {\t};}
+\node[eot] at (2*\dx,0.2) {E};
+\foreach \x in {3,4,5}{\node[pad] at (\x*\dx,0.2) {E};}
+% group 2: inputs
+\begin{scope}[xshift=5.4cm]
+\node[ttl] at (-0.35,1.05) {step 4: inputs = row[:-1]};
+\foreach \x/\t in {0/0,1/1,2/2,3/3,4/4}{\node[tok] at (\x*\dx,0.75) {\t};}
+\foreach \x/\t in {0/5,1/6}{\node[tok] at (\x*\dx,0.2) {\t};}
+\node[eot] at (2*\dx,0.2) {E};
+\foreach \x in {3,4}{\node[pad] at (\x*\dx,0.2) {E};}
+\end{scope}
+% group 3: targets
+\begin{scope}[xshift=10.2cm]
+\node[ttl] at (-0.35,1.05) {steps 4--5: targets = row[1:], mask};
+\foreach \x/\t in {0/1,1/2,2/3,3/4}{\node[tok] at (\x*\dx,0.75) {\t};}
+\node[eot] at (4*\dx,0.75) {E};
+\node[tok] at (0,0.2) {6};
+\node[eot] at (\dx,0.2) {E};
+\foreach \x in {2,3,4}{\node[ign] at (\x*\dx,0.2) {-100};}
+\end{scope}
+\draw[-{Latex[length=2mm]},thick,srcgray] (4.25,0.48) -- (4.95,0.48);
+\draw[-{Latex[length=2mm]},thick,srcgray] (9.05,0.48) -- (9.75,0.48);
+\node[font=\scriptsize,anchor=north west,align=left] at (-0.35,-0.25)
+  {\textcolor{keygreen}{\rule{6pt}{6pt}} first EOT: a real target that teaches stopping\qquad
+   \textcolor{srcgray}{\rule{6pt}{6pt}} padding (same id)\qquad
+   \textcolor{warnred}{\rule{6pt}{6pt}} padding targets replaced by $-100$, ignored by the loss};
+\end{tikzpicture}
+\caption{The SFT collate function on two sequences \texttt{[0,1,2,3,4]} and
+\texttt{[5,6]} (E = end-of-text id 50256). The pad token and the stop token share an id;
+the target mask is what tells them apart.}
+\label{fig:instruct:collate}
+\end{figure}
+
+\begin{lstlisting}[caption={The instruction collate function (from \ident{llmsys/finetune.py}).},label={lst:instruct:collate}]
+IGNORE_INDEX = -100
+
+def instruction_collate(batch, pad_id, ignore_index=IGNORE_INDEX,
+                        allowed_max_length=None, mask_prompt=False, device="cpu"):
+    items = [(b, 0) if not isinstance(b, tuple) else b for b in batch]
+    max_len = max(len(ids) + 1 for ids, _ in items)       # +1 for the EOT
+    inputs, targets = [], []
+    for ids, prompt_len in items:
+        row = list(ids) + [pad_id]                        # step 2
+        row = row + [pad_id] * (max_len - len(row))       # step 3
+        x = torch.tensor(row[:-1]); y = torch.tensor(row[1:])   # step 4
+        y[len(ids):] = ignore_index                       # step 5: keep 1st EOT
+        if mask_prompt and prompt_len > 0:
+            y[:prompt_len - 1] = ignore_index             # optional: response-only
+        if allowed_max_length is not None:
+            x, y = x[:allowed_max_length], y[:allowed_max_length]
+        inputs.append(x); targets.append(y)
+    return torch.stack(inputs).to(device), torch.stack(targets).to(device)
+\end{lstlisting}
+
+\paragraph{Why $-100$ works.} With \code{reduction="mean"}, \code{F.cross\_entropy}
+computes
+\begin{equation}
+\mathcal{L} = \frac{\sum_{i}\mathbb{1}[y_i \neq -100]\,\bigl(-\log p_\theta(y_i\mid x_{\le i})\bigr)}
+                   {\sum_i \mathbb{1}[y_i\neq -100]},
+\label{eq:instruct:masked}
+\end{equation}
+so ignored positions contribute neither to the numerator nor to the denominator. Adding
+padding therefore leaves the loss value and its gradient exactly unchanged. That is the
+property that makes dynamic padding safe. It also has a consequence that is easy to
+miss: the mean is over \emph{tokens in the batch}, so long responses carry more total
+weight than short ones, and the effective weight of an example depends on its
+batch-mates. Gradient accumulation must reproduce this normalisation. Summing
+per-microbatch means over-weights tokens in short microbatches; the fix is to sum
+token losses and divide by the total target count of the full step.
+
+\paragraph{Truncation.} \code{allowed\_max\_length} caps sequences at the model's
+context window (1{,}024 for GPT-2). Truncate \emph{after} building targets so that the
+input/target alignment survives. If truncation drops the response entirely, consider
+filtering the example out instead, since it then contributes only prompt tokens.
+
+\subsection{Masking the instruction}\label{sec:instruct:maskprompt}
+
+By default the loss covers prompt tokens too, so the model is also trained to predict
+the instruction text and the Alpaca preamble. A common variant masks every target that predicts a prompt token, so only the response
+is learned (\cref{fig:instruct:maskprompt}). The trade-offs:
+\begin{itemize}
+\item \emph{Response-only loss} puts all gradient signal on what we want the model to
+produce, and stops the model from learning to generate user-side text. Most modern
+SFT recipes use it, especially for multi-turn chats, where only assistant turns are
+trained.
+\item \emph{Full-sequence loss} gives more training signal per example. Some studies
+report it helps when responses are very short relative to prompts.
+\end{itemize}
+In the collate function, target index $j$ predicts token $j+1$, so masking the prompt
+means masking targets $0..P-2$ for a prompt of $P$ tokens. Target $P-1$, the first
+response token, is kept.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  tok/.style={draw=sysblue!60,fill=sysblue!12,minimum width=0.85cm,minimum height=0.5cm,
+    font=\scriptsize\ttfamily,inner sep=0pt},
+  ign/.style={tok,draw=warnred!60,fill=warnred!15,text=warnred},
+  rsp/.style={tok,draw=keygreen,fill=keygreen!25},
+  lab/.style={font=\scriptsize,anchor=east}]
+\node[lab] at (-0.3,0.6) {tokens};
+\foreach \x/\t in {0/Below,1/is,2/\dots,3/\#\#\#,4/Resp.,5/:\textbackslash n}{\node[tok] at (\x*0.9,0.6) {\t};}
+\foreach \x/\t in {6/45,7/km,8/is}{\node[rsp] at (\x*0.9,0.6) {\t};}
+\node[lab] at (-0.3,-0.1) {targets};
+\foreach \x in {0,...,4}{\node[ign] at (\x*0.9,-0.1) {-100};}
+\foreach \x/\t in {5/45,6/km,7/is,8/\dots}{\node[rsp] at (\x*0.9,-0.1) {\t};}
+\draw[decorate,decoration={brace,amplitude=4pt,mirror}] (-0.42,-0.45) -- (4.95,-0.45)
+  node[midway,below=4pt,font=\scriptsize] {predicting prompt tokens: masked};
+\draw[decorate,decoration={brace,amplitude=4pt,mirror}] (5.0,-0.45) -- (7.6,-0.45)
+  node[midway,below=4pt,font=\scriptsize] {response: trained};
+\end{tikzpicture}
+\caption{Response-only training. The target that predicts the first response token
+(here ``45'') sits at the last prompt position, which is why the mask stops at $P-1$.}
+\label{fig:instruct:maskprompt}
+\end{figure}
+
+\begin{pitfall}[Tokenisation at the prompt boundary]
+We compute $P$ by tokenising the prompt alone. BPE is not compositional: the tokens of
+\texttt{prompt+response} are not always the tokens of \texttt{prompt} followed by those
+of \texttt{response}, because a merge can span the boundary. The Alpaca template ends
+in a newline, which no GPT-2 merge crosses, so it is safe. A template that ends in a
+space, such as \texttt{"Answer: "}, is not. Production code tokenises the two segments
+separately and concatenates the id lists, or uses a special-token boundary.
+\end{pitfall}
+
+\subsection{Packing: removing padding altogether}\label{sec:instruct:packing}
+
+Bucketing (\cref{sec:classify:loaders}) reduces padding; \emph{packing} eliminates it.
+We concatenate several EOT-terminated examples into one row of exactly $T$ tokens, and
+fill rows with a bin-packing heuristic (first-fit decreasing is within $11/9$ of optimal
+in the worst case and near-optimal in practice). Two corrections keep packing exactly
+equivalent to training on the examples separately:
+
+\begin{enumerate}
+\item \textbf{Block-diagonal causal attention.} A token in document 2 must not attend to
+document 1, so the attention mask is the causal mask AND a same-document mask.
+\item \textbf{Per-document positions.} Position ids restart at 0 for each document.
+Otherwise the second document is processed at positions it would never see at
+inference time.
+\end{enumerate}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[x=0.36cm,y=0.36cm]
+% padded batch
+\node[font=\scriptsize\bfseries,anchor=south west] at (0,6.4) {padded: 4 rows};
+\foreach \r/\n in {0/12,1/5,2/8,3/3}{
+  \fill[sysblue!35] (0,5-\r*1.3) rectangle (\n,5.9-\r*1.3);
+  \fill[srcgray!20] (\n,5-\r*1.3) rectangle (12,5.9-\r*1.3);}
+\node[font=\scriptsize,anchor=west,text=srcgray] at (12.3,3.3) {44\% padding};
+% packed
+\node[font=\scriptsize\bfseries,anchor=south west] at (19,6.4) {packed: 3 rows};
+\fill[sysblue!35] (19,5) rectangle (31,5.9);
+\fill[keygreen!45] (19,3.7) rectangle (27,4.6); \fill[napkin!50] (27,3.7) rectangle (30,4.6);
+\fill[labpurple!40] (19,2.4) rectangle (24,3.3); \fill[srcgray!20] (24,2.4) rectangle (31,3.3);
+\node[font=\scriptsize,anchor=west,text=srcgray] at (31.3,3.3) {pad only in the tail};
+% mask
+\begin{scope}[shift={(19,-10.6)},x=0.36cm,y=0.36cm]
+\node[font=\scriptsize\bfseries,anchor=south west] at (0,8.6) {mask for row 2 (doc A: 8, doc B: 3)};
+\foreach \i in {0,...,10}{\foreach \j in {0,...,10}{
+  \pgfmathtruncatemacro{\da}{\i<8 ? 1 : 2}
+  \pgfmathtruncatemacro{\db}{\j<8 ? 1 : 2}
+  \ifnum\j>\i \else\ifnum\da=\db
+    \ifnum\da=1 \fill[keygreen!45] (\j*0.75,8-\i*0.75) rectangle ++(0.75,-0.75);
+    \else \fill[napkin!50] (\j*0.75,8-\i*0.75) rectangle ++(0.75,-0.75); \fi
+  \fi\fi
+  \draw[white] (\j*0.75,8-\i*0.75) rectangle ++(0.75,-0.75);}}
+\node[font=\scriptsize,anchor=west,text width=3.6cm] at (9,4)
+  {blank = forbidden\\(future or other document)};
+\end{scope}
+\begin{scope}[shift={(0,-10.6)},x=0.36cm,y=0.36cm]
+\node[font=\scriptsize\bfseries,anchor=south west] at (0,8.6) {position ids, row 2};
+\foreach \p [count=\k from 0] in {0,1,2,3,4,5,6,7,0,1,2}{
+  \pgfmathtruncatemacro{\d}{\k<8 ? 1 : 2}
+  \ifnum\d=1 \fill[keygreen!45] (\k*1.2,6) rectangle ++(1.2,1); \else \fill[napkin!50] (\k*1.2,6) rectangle ++(1.2,1); \fi
+  \node[font=\tiny] at (\k*1.2+0.6,6.5) {\p};}
+\end{scope}
+\end{tikzpicture}
+\caption{Padding versus packing for four sequences of lengths 12, 5, 8 and 3 with
+$T=12$. Packing needs a block-diagonal causal mask and position ids that restart per
+document, so that documents are mathematically independent.}
+\label{fig:instruct:packing}
+\end{figure}
+
+\begin{lstlisting}[caption={First-fit-decreasing packing and the block-diagonal mask.},label={lst:instruct:pack}]
+def pack_sequences(seqs, max_len, pad_id, ignore_index=-100):
+    rows, space = [], []
+    for s in sorted(seqs, key=len, reverse=True):     # first-fit decreasing
+        need = len(s) - 1                             # inputs s[:-1], targets s[1:]
+        for r, free in enumerate(space):
+            if free >= need:
+                rows[r].append(s); space[r] -= need; break
+        else:
+            rows.append([s]); space.append(max_len - need)
+    # ... fill input_ids, targets, segment_ids (1, 2, ...) and position_ids
+    #     (restarting at 0) row by row; see llmsys/finetune.py
+
+def segment_mask(segment_ids):                        # True = forbidden
+    T = segment_ids.shape[1]
+    causal = causal_mask(T, T, segment_ids.device)[None, None]
+    other_doc = segment_ids[:, None, :, None] != segment_ids[:, None, None, :]
+    return causal | other_doc
+\end{lstlisting}
+
+The lab verifies the equivalence numerically. The token-weighted mean loss of a packed
+batch equals the loss obtained by running every example on its own, to within
+$10^{-4}$.
+
+\begin{systemslens}[Packing in real training stacks]
+Materialising a $T\times T$ mask per row, as in \cref{lst:instruct:pack}, is fine for
+teaching but wasteful at scale. Production kernels take \emph{cumulative sequence
+lengths} instead: \code{cu\_seqlens} $=[0, \ell_1, \ell_1+\ell_2, \dots]$ for a flattened
+batch with no padding at all. FlashAttention's \emph{varlen} kernels skip the
+cross-document tiles entirely (\cref{ch:attention}), so packed attention costs
+$\sum_i \ell_i^2$ instead of $T^2$ per row. For RoPE models the position ids are passed
+alongside so each document's rotation restarts. Because of this:
+\begin{itemize}
+\item packing reduces MLP compute by the padding fraction, \emph{and} reduces attention
+compute below even the unpadded-row cost $T^2$;
+\item the per-step token count becomes constant, which stabilises memory use and step
+time, and makes CUDA-graph capture possible (\cref{ch:inference});
+\item the loss normalisation of \cref{eq:instruct:masked} becomes a per-token mean over
+the whole pack. Schemes that weight each example equally need explicit per-example
+weights.
+\end{itemize}
+Naive packing, which concatenates without the mask and position reset, is common in
+pretraining, where documents are long and cross-document leakage is mostly harmless.
+In SFT the examples are short and a model that sees previous answers can learn to copy
+them, so do it properly.
+\end{systemslens}
+
+\begin{systemslens}[Where should the device transfer happen?]
+A simple implementation moves each batch to the GPU inside the collate function, which is
+convenient for single-process loading. With \code{num\_workers>0}, collate runs in
+worker processes. Those should not touch CUDA: initialising CUDA in forked processes is
+unsafe, and every worker would get its own CUDA context, costing hundreds of megabytes
+each. The robust pattern is to keep collate on the CPU, set \code{pin\_memory=True} on
+the \code{DataLoader}, and in the training loop call
+\code{x.to(device, non\_blocking=True)}. Pinned host memory lets the copy run as an
+asynchronous DMA that overlaps with the previous step's compute (\cref{ch:pytorch}).
+\end{systemslens}
+
+% =====================================================================================
+\section{Creating data loaders for an instruction dataset}\label{sec:instruct:loaders}
+
+The collate function has configuration (\code{pad\_id}, \code{allowed\_max\_length},
+\code{mask\_prompt}) but \code{DataLoader} calls it with a single argument, the batch.
+\code{functools.partial} binds the rest:
+
+\begin{lstlisting}[caption={Instruction data loaders.},label={lst:instruct:loaders}]
+from functools import partial
+from llmsys.finetune import InstructionDataset, instruction_collate, format_alpaca
+
+collate = partial(instruction_collate, pad_id=50256, allowed_max_length=1024,
+                  mask_prompt=True)            # device stays "cpu": see Systems Lens
+train_ds = InstructionDataset(train_data, tokenizer, fmt=format_alpaca)
+train_loader = DataLoader(train_ds, batch_size=8, shuffle=True, drop_last=True,
+                          collate_fn=collate, num_workers=2, pin_memory=True)
+val_loader = DataLoader(InstructionDataset(val_data, tokenizer), batch_size=8,
+                        shuffle=False, drop_last=False, collate_fn=collate)
+\end{lstlisting}
+
+\code{InstructionDataset} tokenises every example once in its constructor and stores
+\code{(ids, prompt\_len)} pairs. Pre-tokenising pays off because tokenisation is pure
+Python-side CPU work that would otherwise be repeated every epoch. For 1{,}100 examples
+it takes a fraction of a second; for millions of examples, tokenisation becomes an
+offline preprocessing job that writes binary shards (\cref{ch:text}).
+
+Iterating over the training loader shows the defining property of dynamic padding:
+batch widths vary (for example $8\times61$, $8\times76$, $8\times73$), each batch as
+wide as its longest example.
+
+% =====================================================================================
+\section{Loading a pretrained LLM}\label{sec:instruct:load}
+
+GPT-2 small (124M) is too weak to follow instructions well after a short SFT run. We
+use \emph{GPT-2 medium} (355M parameters, 24 layers, $d=1024$, 16 heads) and load it
+exactly as in \cref{ch:classify}, keeping the vocabulary head this time. Before
+training, check what the base model does with a formatted prompt from the validation
+set. Typically it repeats the \texttt{\#\#\# Response:} header, restates the
+instruction, or starts a new instruction block. It recognises the format but has never
+been trained to fill it in.
+
+\begin{napkinmath}[Can I fully fine-tune GPT-2 medium on my GPU?]
+GPT-2 medium has about $355$M unique parameters, so AdamW state is about
+$16\times355\text{M}\approx\SI{5.7}{GB}$. Activations for a batch of 8 sequences of
+about 80 tokens are small, a few hundred MB. A full fine-tune fits on any 8--12 GB GPU,
+and even on a laptop CPU it runs in tens of minutes for two epochs over 935 examples.
+At 7B parameters the same arithmetic gives \SI{112}{GB} for weights and optimizer state
+alone. That is where \cref{sec:instruct:lora} begins.
+\end{napkinmath}
+
+% =====================================================================================
+\section{Fine-tuning the LLM on instruction data}\label{sec:instruct:train}
+
+The training loop is the one from \cref{ch:pretrain}. The only change is that the loss
+uses \code{ignore\_index=-100}, which is \code{F.cross\_entropy}'s default, so the
+pretraining \code{loss\_batch} works unchanged. We train for two
+epochs with AdamW (learning rate $5\times10^{-5}$, weight decay $0.1$), evaluating
+train and validation loss every few steps on a few batches.
+
+\begin{lstlisting}[caption={SFT reuses the pretraining loop; only the data differs.},label={lst:instruct:train}]
+from llmsys.train import train, loss_loader
+
+model.to(device)
+opt = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.1)
+print("before:", loss_loader(model, train_loader, device, 5),
+                 loss_loader(model, val_loader, device, 5))
+hist = train(model, train_loader, val_loader, opt, device, num_epochs=2,
+             eval_freq=5, eval_iter=5)
+\end{lstlisting}
+
+A typical run starts near a loss of 4 (the base model is surprised by the template) and
+falls below 1 within the first epoch. Validation loss tracks training loss closely in
+epoch 1 and starts to separate in epoch 2. Training longer gives diminishing returns
+and eventually overfits a dataset this small. A useful habit is to print a generated
+response for one fixed validation prompt after every epoch. A decreasing loss can hide
+a model that has learned the template but not when to stop.
+
+\begin{systemslens}[What dominates SFT wall-clock time]
+For short SFT runs on small models the step itself is cheap, and time goes to
+(i) per-step Python and kernel-launch overhead, (ii) evaluation passes, and
+(iii) generation for qualitative checks, which runs at decode speed and is the slowest
+thing in this pipeline. Once models grow, the levers of \cref{ch:pretrain} take over:
+bf16 autocast, fused AdamW, activation checkpointing for long sequences, and
+\code{torch.compile}. Packing becomes worth its complexity as soon as padding exceeds
+roughly 20\%.
+\end{systemslens}
+
+% =====================================================================================
+\section{Extracting and saving responses}\label{sec:instruct:extract}
+
+To evaluate, we generate a response for every test instruction and store it next to the
+reference. We format the prompt without the response, decode greedily with the KV-cached
+generator from \cref{ch:inference} until the model emits the end-of-text token (or hits
+a length cap), and strip the prompt.
+
+\begin{lstlisting}[caption={Generating, extracting and saving test responses.},label={lst:instruct:extract}]
+from llmsys.generate import generate
+from llmsys.finetune import extract_response
+
+def extract_response(generated_text, marker="### Response:"):
+    tail = generated_text.split(marker)[-1]            # after the last header
+    tail = tail.split("### Instruction:")[0]           # model started a new task
+    return tail.replace("<|endoftext|>", "").strip()
+
+results = []
+for entry in test_data:
+    ids = torch.tensor([tok.encode(format_alpaca(entry))], device=device)
+    out = generate(model, ids, max_new_tokens=256, eos_id=50256)
+    entry = dict(entry, model_response=extract_response(tok.decode(out[0].tolist())))
+    results.append(entry)
+json.dump(results, open("instruction-data-with-response.json", "w"), indent=2)
+torch.save(model.state_dict(), "gpt2-medium355M-sft.pth")
+\end{lstlisting}
+
+Splitting on the response header is more robust than slicing off \code{len(prompt)}
+characters: it survives tokeniser round-trip differences in whitespace. Cutting at a
+new \code{\#\#\# Instruction:} header guards against models that have not fully
+learned to stop.
+
+\begin{systemslens}[This loop is a serving problem in miniature]
+Generating 110 responses one at a time with a batch size of one leaves almost all of a
+GPU idle, because each decode step reads every weight to produce one token
+(\cref{ch:inference}). Batching the test prompts with left padding
+(\code{generate\_batch}, \cref{ch:serving}) amortises each weight read over the whole
+batch and finishes the same work many times faster. For thousands of prompts, use a
+continuous-batching engine. The SFT and RL pipelines of later chapters
+(\cref{ch:grpo,ch:distill}) are dominated by exactly this kind of bulk generation.
+\end{systemslens}
+
+% =====================================================================================
+\section{Evaluating the fine-tuned LLM}\label{sec:instruct:eval}
+
+There are three broad ways to evaluate an instruction-following model
+(\cref{ch:eval} treats each in depth):
+\begin{enumerate}
+\item \textbf{Short-answer benchmarks} such as MMLU test knowledge with multiple-choice
+questions. They are cheap and reproducible, but they barely test instruction following.
+\item \textbf{Human preference comparisons}, such as the LMSYS Chatbot Arena, where
+people vote between two anonymous models. They are the gold standard for
+conversational quality, but slow and expensive.
+\item \textbf{Automated conversational benchmarks} that use a strong LLM as the judge,
+such as AlpacaEval and MT-Bench. They are scalable, but inherit the judge's biases.
+\end{enumerate}
+
+We follow the third route with a local judge. Ollama serves quantised open models
+behind a small REST API. We run an 8B Llama~3 instruct model and ask it to score
+every response from 0 to 100 against the reference.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[box/.style={draw=#1,fill=#1!10,rounded corners=2pt,minimum height=0.9cm,
+    text width=2.2cm,align=center,font=\scriptsize},arr/.style={-{Latex[length=2mm]},thick,srcgray}]
+\node[box=srcgray] (t) at (0,0) {test record\\instruction, input,\\reference};
+\node[box=sysblue] (g) at (3.0,0) {fine-tuned\\GPT-2 medium\\(generate)};
+\node[box=keygreen] (e) at (6.0,0) {extract\\response};
+\node[box=labpurple] (j) at (9.0,0) {judge LLM\\(Ollama, 8B)};
+\node[box=napkin] (s) at (12.0,0) {parse score,\\aggregate};
+\draw[arr] (t)--(g); \draw[arr] (g)--(e); \draw[arr] (e)--(j); \draw[arr] (j)--(s);
+\draw[arr,densely dashed] (t.south) |- ++(0,-0.7) -| node[pos=0.25,below,font=\scriptsize]
+  {reference answer goes into the judge prompt} (j.south);
+\end{tikzpicture}
+\caption{The evaluation pipeline. Generation is done once and saved; judging can then be
+repeated with other judges or rubrics without touching the fine-tuned model.}
+\label{fig:instruct:judge}
+\end{figure}
+
+\begin{lstlisting}[caption={A minimal Ollama client and a scoring prompt.},label={lst:instruct:ollama}]
+def query_ollama(prompt, model="llama3", url="http://localhost:11434/api/chat",
+                 seed=123, temperature=0.0, num_ctx=2048):
+    payload = {"model": model, "messages": [{"role": "user", "content": prompt}],
+               "options": {"seed": seed, "temperature": temperature,
+                           "num_ctx": num_ctx}}
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
+                                 headers={"Content-Type": "application/json"})
+    chunks = []
+    with urllib.request.urlopen(req) as resp:           # streamed JSON lines
+        for line in resp:
+            msg = json.loads(line)
+            chunks.append(msg.get("message", {}).get("content", ""))
+            if msg.get("done"):
+                break
+    return "".join(chunks)
+
+def parse_score(text, lo=0, hi=100):
+    m = re.search(r"-?\d+", text)
+    return None if not m else max(lo, min(hi, int(m.group())))
+\end{lstlisting}
+
+The judge prompt (\code{build\_judge\_prompt} in \ident{llmsys/finetune.py}) shows the
+instruction, the reference and the model answer, and asks for an integer only. We
+average the parsed scores over the test set and count unparseable replies separately
+rather than dropping them silently. A fine-tuned GPT-2 medium typically scores
+around 50 on this scale. That is respectable for 355M parameters and far behind a
+modern 8B instruct model.
+
+\begin{pitfall}[LLM judges are measuring instruments, so calibrate them]
+Judges prefer longer answers, answers in their own style, and the first of two options
+in pairwise mode. Their scores drift between judge versions, and sampling makes them
+non-deterministic unless temperature and seed are pinned (we pass
+\code{temperature=0}, \code{seed=123}, and a fixed \code{num\_ctx}). Before trusting
+a judge, score the reference answers themselves (they should be near 100) and a few
+deliberately wrong answers (near 0), and report the judge model and version with every
+number. \Cref{ch:eval} adds rubric-based grading and pairwise preference models.
+\end{pitfall}
+
+\begin{napkinmath}[What does judging cost?]
+Each judgement is a prefill of about 200--300 tokens plus a few output tokens. An 8B
+model in 4-bit on a laptop GPU processes prefill at thousands of tokens per second, so
+110 judgements take well under a minute. Most of the wall-clock time is per-request
+overhead and the sequential decode of the score. For thousands of evaluations, send
+requests concurrently: Ollama and similar servers batch concurrent requests, which
+raises throughput several-fold at the same per-request latency.
+\end{napkinmath}
+
+% =====================================================================================
+\section{Conclusions and what comes next}\label{sec:instruct:conclusions}
+
+At this point the from-scratch pipeline is complete: tokenisation and data sampling
+(\cref{ch:text}), attention and the GPT architecture (\cref{ch:attention,ch:gpt}),
+pretraining (\cref{ch:pretrain}), and two kinds of fine-tuning (this chapter and
+\cref{ch:classify}). Modern assistants add a third training stage after SFT:
+\emph{preference tuning}, with RLHF/PPO or direct preference optimisation (DPO), and
+\emph{reinforcement learning with verifiable rewards} for reasoning. We build the
+latter from scratch in \cref{ch:grpo,ch:grpo2} and the systems that run it at scale in
+\cref{ch:rlsys}. Before that, Part~VI turns the trained model into a service.
+
+On staying current: the field moves quickly, but the core loop of data formatting,
+masking, next-token loss and careful evaluation has stayed stable since the first
+instruction-tuned models. New methods mostly change the data or the objective. The
+best way to absorb them is the one this book follows: re-implement the core idea on a
+small model, measure it, and only then reach for a framework.
+
+% =====================================================================================
+\section{Parameter-efficient fine-tuning with LoRA}\label{sec:instruct:lora}
+
+Full fine-tuning updates every weight matrix $\mat{W}\in\R^{d_\text{out}\times d_\text{in}}$
+by a dense $\Delta\mat{W}$. Low-rank adaptation (Hu et al., 2021) assumes the
+\emph{update} has low intrinsic rank and parameterises it as a product,
+\begin{equation}
+\mat{W}' = \mat{W} + \Delta\mat{W} = \mat{W} + \frac{\alpha}{r}\,\mat{B}\mat{A},\qquad
+\mat{A}\in\R^{r\times d_\text{in}},\ \mat{B}\in\R^{d_\text{out}\times r},\ r\ll\min(d_\text{in},d_\text{out}).
+\label{eq:instruct:lora}
+\end{equation}
+$\mat{W}$ is frozen and only $\mat{A}$ and $\mat{B}$ are trained. Because of
+distributivity we never form $\Delta\mat{W}$ during training:
+\begin{equation}
+\vect{y} = \vect{x}\mat{W}^\top + \frac{\alpha}{r}\,(\vect{x}\mat{A}^\top)\mat{B}^\top,
+\end{equation}
+which costs $r(d_\text{in}+d_\text{out})$ multiply-adds per token on top of the frozen
+path. Three design choices matter:
+
+\begin{description}
+\item[Initialisation.] $\mat{A}$ is random (Kaiming-uniform) and $\mat{B}=\mat{0}$, so
+$\Delta\mat{W}=\mat{0}$ at step 0. The adapted model starts \emph{exactly} at the
+pretrained model, and the first gradient step reaches $\mat{B}$ through a non-zero
+$\mat{A}$.
+\item[Scaling $\alpha/r$.] The update is scaled by $\alpha/r$ so that changing $r$ does
+not require re-tuning the learning rate. A common default is $\alpha = r$ or
+$\alpha=2r$. Some implementations multiply by $\alpha$ directly, without
+dividing by $r$, so their $\alpha=16, r=16$ corresponds to our $\alpha/r=16$. Watch for
+this when porting hyperparameters between codebases. Our \code{LoRALinear} supports
+both conventions through \code{scale\_by\_rank}.
+\item[Placement.] The original paper adapted only the attention projections $W_q,W_v$.
+Later work, notably QLoRA, found that adapting \emph{every} linear layer, MLPs
+included, is needed to match full fine-tuning quality.
+\end{description}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  mat/.style={draw=#1,fill=#1!15,align=center,font=\small},
+  arr/.style={-{Latex[length=2mm]},thick,srcgray},
+  note/.style={font=\scriptsize,align=left}]
+\node[mat=srcgray,minimum width=1.0cm,minimum height=0.5cm] (x) at (0,0) {$\vect{x}$};
+\node[mat=sysblue,minimum width=2.5cm,minimum height=2.5cm] (W) at (-2.2,2.6)
+  {$\mat{W}$\\[2pt]\scriptsize frozen\\\scriptsize $d_\text{out}\times d_\text{in}$};
+\node[mat=keygreen,minimum width=2.5cm,minimum height=0.5cm] (A) at (2.2,1.6) {$\mat{A}$};
+\node[mat=keygreen,minimum width=0.5cm,minimum height=1.7cm] (B) at (2.2,3.5) {$\mat{B}$};
+\node[note,anchor=west] at (A.east) {$r\times d_\text{in}$, Kaiming init};
+\node[note,anchor=west] at (B.east) {$d_\text{out}\times r$, zeros};
+\node[circle,draw,inner sep=1pt,font=\small] (plus) at (0,5.3) {$+$};
+\node[mat=srcgray,minimum width=1.0cm,minimum height=0.5cm] (y) at (0,6.2) {$\vect{y}$};
+\draw[arr] (x.north) -- ++(0,0.45) -| (W.south);
+\draw[arr] (x.north) -- ++(0,0.45) -| (A.south);
+\draw[arr] (A.north) -- (B.south) node[midway,left,font=\scriptsize] {$r$};
+\draw[arr] (W.north) |- (plus.west);
+\draw[arr] (B.north) |- (plus.east) node[pos=0.8,above,font=\scriptsize] {$\times\,\alpha/r$};
+\draw[arr] (plus) -- (y);
+\node[note,text width=4.3cm,anchor=north west,text=srcgray] at (4.4,1.1)
+  {trainable per layer: $r(d_\text{in}+d_\text{out})$.\\ E.g.\ $d_\text{in}=d_\text{out}=4096$, $r=16$:
+   131K vs.\ 16.8M for $\mat{W}$ ($128\times$ fewer).};
+\end{tikzpicture}
+\caption{A LoRA-adapted linear layer. The frozen path and the low-rank path run in
+parallel and are summed. After training, $\frac{\alpha}{r}\mat{B}\mat{A}$ can be folded
+into $\mat{W}$ so inference costs nothing extra.}
+\label{fig:instruct:lora}
+\end{figure}
+
+\begin{lstlisting}[caption={A LoRA linear layer with merge and unmerge (from \ident{llmsys/lora.py}).},label={lst:instruct:loralinear}]
+class LoRALinear(nn.Module):
+    def __init__(self, base: nn.Linear, rank=8, alpha=16.0, dropout=0.0,
+                 scale_by_rank=True):
+        super().__init__()
+        self.base = base
+        for p in self.base.parameters():
+            p.requires_grad = False                     # frozen W (and bias)
+        self.scaling = alpha / rank if scale_by_rank else alpha
+        self.lora_A = nn.Parameter(torch.empty(rank, base.in_features))
+        self.lora_B = nn.Parameter(torch.zeros(base.out_features, rank))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.merged = False
+
+    def delta_weight(self):
+        return self.scaling * (self.lora_B @ self.lora_A)        # (d_out, d_in)
+
+    def forward(self, x):
+        y = self.base(x)
+        if self.merged:
+            return y
+        low = F.linear(F.linear(self.dropout(x), self.lora_A), self.lora_B)
+        return y + self.scaling * low
+
+    @torch.no_grad()
+    def merge(self):
+        if not self.merged:
+            self.base.weight += self.delta_weight(); self.merged = True
+
+    @torch.no_grad()
+    def unmerge(self):
+        if self.merged:
+            self.base.weight -= self.delta_weight(); self.merged = False
+\end{lstlisting}
+
+\subsection{Preparing the dataset}
+
+We demonstrate LoRA on the spam classification task of \cref{ch:classify}
+rather than on instruction data. That makes the comparison with full fine-tuning clean: the
+same balanced SMS splits, the same dynamic-padding loaders, and the same accuracy
+metric. Nothing about the data changes. The data pipeline is independent of how many
+parameters are trained, so the loaders from \cref{lst:classify:collate} are reused
+verbatim.
+
+\subsection{Initializing the model}
+
+We load pretrained GPT-2 small, swap in the two-class head
+(\cref{lst:classify:head}), and check that the untrained classifier sits at chance
+(about 46--49\% on the balanced splits). Then we freeze
+\emph{every} parameter, the new head included. LoRA will supply all trainable
+parameters. Counting trainable parameters before and after freezing (124M, then zero)
+is a cheap guard against the most common bug, accidentally training the base.
+
+\subsection{Parameter-efficient fine-tuning with LoRA}
+
+\code{apply\_lora} walks the module tree and replaces every \code{nn.Linear} with a
+\code{LoRALinear} wrapping it. A predicate can restrict which layers are adapted.
+
+\begin{lstlisting}[caption={Replacing linear layers with LoRA layers.},label={lst:instruct:applylora}]
+def apply_lora(model, rank=8, alpha=16.0, dropout=0.0, target=None,
+               scale_by_rank=True, freeze_rest=True):
+    if freeze_rest:
+        for p in model.parameters():
+            p.requires_grad = False
+    def recurse(module, prefix):
+        for name, child in list(module.named_children()):
+            full = f"{prefix}.{name}" if prefix else name
+            if isinstance(child, nn.Linear) and (target is None or target(full, child)):
+                setattr(module, name, LoRALinear(child, rank, alpha, dropout,
+                                                 scale_by_rank))
+            elif not isinstance(child, LoRALinear):
+                recurse(child, full)
+    recurse(model, "")
+    return model
+
+model = add_classification_head(load_gpt2_small(), num_classes=2)
+apply_lora(model, rank=16, alpha=16, scale_by_rank=False)   # LLM-book convention
+print(count_trainable(model))      # (2666528, ...)
+\end{lstlisting}
+
+With $r=16$ on every linear layer of GPT-2 small plus the two-way head, the trainable
+count is 2{,}666{,}528. Per block that is $4\times16\times(768+768)=98{,}304$ for the
+attention projections and $16\times(768+3072)\times2=122{,}880$ for the MLP, times 12
+blocks, plus $16\times(768+2)$ for the head. That is about 2.1\% of the model and
+$47\times$ fewer than full fine-tuning. Training uses the same loop as
+\cref{lst:classify:train}. With a learning rate around $5\times10^{-5}$ and five epochs,
+LoRA reaches accuracy comparable to fine-tuning the last block, in somewhat more
+wall-clock time. LoRA does not reduce compute much on a model this small (see the
+next Systems Lens), and its benefits appear at scale.
+
+\begin{keyidea}[Merging makes inference free]
+After training, \code{merge()} folds $\frac{\alpha}{r}\mat{B}\mat{A}$ into $\mat{W}$,
+and \code{merge\_lora} swaps every \code{LoRALinear} back to a plain \code{nn.Linear}.
+The merged model has the original architecture and latency. The lab checks that
+outputs are identical before and after merging, and that unmerging restores the base
+weights. Keep adapters unmerged only when you need to switch between them quickly, as
+in multi-LoRA serving below.
+\end{keyidea}
+
+\begin{systemslens}[What LoRA saves, and what it does not]
+Write a frozen linear layer's training cost per token as forward $2P$, activation
+gradient $\partial\vect{x}=\partial\vect{y}\,\mat{W}$ at $2P$, and weight gradient
+$\partial\mat{W}=\partial\vect{y}^\top\vect{x}$ at $2P$, where $P=d_\text{in}d_\text{out}$.
+LoRA removes only the last term: the activation gradient must still flow through
+$\mat{W}$ to reach the adapters in lower layers. Training FLOPs per token therefore
+drop from $\approx6N$ to $\approx4N$, at best $1.5\times$ cheaper. What LoRA mainly
+removes is \emph{memory}:
+\begin{itemize}
+\item no gradients or Adam moments for the $N$ frozen parameters ($14N$ bytes saved);
+\item frozen weights can be stored in bf16 without fp32 master copies, or quantised
+(QLoRA, below);
+\item checkpoints shrink from gigabytes to megabytes per task.
+\end{itemize}
+Activation memory is \emph{not} reduced. Every layer's input must still be kept for the
+adapter weight gradients and for the backward pass through $\mat{W}$. Activation
+checkpointing (\cref{ch:pretrain}) remains the tool for that.
+\end{systemslens}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[ybar stacked,width=0.82\linewidth,height=5.6cm,bar width=0.9cm,
+  ylabel={GB (excluding activations)},symbolic x coords={Full FT,LoRA,QLoRA},xtick=data,
+  ymin=0,ymax=120,legend style={font=\scriptsize,at={(0.98,0.97)},anchor=north east},
+  nodes near coords={},enlarge x limits=0.25,grid=major,grid style={gray!20}]
+\addplot[fill=sysblue!55,draw=sysblue] coordinates {(Full FT,13.48)(LoRA,13.48)(QLoRA,3.48)};
+\addlegendentry{base weights (bf16 / NF4 + scales)}
+\addplot[fill=warnred!50,draw=warnred] coordinates {(Full FT,94.36)(LoRA,0)(QLoRA,0)};
+\addlegendentry{grads + fp32 master + Adam ($14N$)}
+\addplot[fill=keygreen!55,draw=keygreen] coordinates {(Full FT,0)(LoRA,0.64)(QLoRA,0.64)};
+\addlegendentry{adapters + their optimizer state}
+\node[font=\scriptsize,anchor=south] at (axis cs:Full FT,107.8) {107.8};
+\node[font=\scriptsize,anchor=south] at (axis cs:LoRA,14.1) {14.1};
+\node[font=\scriptsize,anchor=south] at (axis cs:QLoRA,4.1) {4.1};
+\end{axis}
+\end{tikzpicture}
+\caption{Persistent training memory for a 6.74B-parameter Llama-style model
+($d=4096$, 32 layers, $d_\text{ff}=11008$), computed from the formulas in the text with
+$r=16$ adapters on every linear layer (40.0M adapter parameters at 16 bytes each).}
+\label{fig:instruct:membars}
+\end{figure}
+
+\subsection{QLoRA: a 4-bit frozen base}\label{sec:instruct:qlora}
+
+Since the base is frozen, it only needs to be \emph{read}. QLoRA (Dettmers et al., 2023)
+stores it in 4 bits and dequantises on the fly inside each matmul, while adapters and
+activations stay in bf16. Three ingredients make this work without hurting quality:
+
+\begin{enumerate}
+\item \textbf{NormalFloat-4 (NF4).} Pretrained weights are roughly normally distributed,
+so the 16 quantisation levels are placed at quantiles of $\mathcal{N}(0,1)$ rescaled to
+$[-1,1]$, with an exact zero. With equal-probability bins every level is used about
+equally often, which is the information-theoretically efficient choice for normal data.
+Values are scaled per block of 64 weights by the block's absolute maximum.
+\item \textbf{Double quantisation.} One fp32 scale per 64 weights adds $32/64=0.5$
+bits per parameter. Quantising the scales themselves to 8 bits in blocks of 256
+reduces this to $8/64 + 32/(64\cdot256)\approx0.127$ bits per parameter.
+\item \textbf{Paged optimizers.} Adapter optimizer states live in unified memory, which
+the driver can page to CPU RAM during memory spikes (long sequences) instead of failing
+with an out-of-memory error.
+\end{enumerate}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.85\linewidth,height=4.6cm,xmin=-1.1,xmax=1.1,ymin=0,ymax=1.15,
+  xlabel={normalised weight value $w/\text{absmax}$},ylabel={density (scaled)},
+  ytick=\empty,grid=none,axis lines=left]
+\addplot[thick,sysblue!60,domain=-1.1:1.1,samples=120,fill=sysblue!8] {exp(-(x*2.0)^2/2)} \closedcycle;
+\foreach \v in {-1.0,-0.6962,-0.5251,-0.3949,-0.2844,-0.1848,-0.0911,0.0,0.0796,0.1609,0.2461,0.3379,0.4407,0.5626,0.7230,1.0}{
+  \edef\tmp{\noexpand\draw[warnred,thick] (axis cs:\v,0) -- (axis cs:\v,{exp(-(\v*2.0)^2/2)});}\tmp
+  \edef\tmp{\noexpand\fill[warnred] (axis cs:\v,0) circle (1.6pt);}\tmp}
+\end{axis}
+\end{tikzpicture}
+\caption{The 16 NF4 code values (red) over a normal density, matching the shape of
+block-normalised weights. Levels are dense near zero, where most weights live, and
+sparse in the tails. Seven are negative and eight positive, so that zero is exact.}
+\label{fig:instruct:nf4}
+\end{figure}
+
+\begin{lstlisting}[caption={Blockwise NF4 quantisation (one code per byte for clarity).},label={lst:instruct:nf4}]
+def quantize_nf4(w, block=64):
+    flat = w.detach().float().reshape(-1)
+    pad = (-flat.numel()) % block
+    if pad:
+        flat = torch.cat([flat, flat.new_zeros(pad)])
+    blocks = flat.view(-1, block)
+    absmax = blocks.abs().amax(dim=1).clamp(min=1e-12)       # one scale / block
+    normed = blocks / absmax[:, None]                         # in [-1, 1]
+    codes = (normed[..., None] - NF4_LEVELS).abs().argmin(dim=-1).to(torch.uint8)
+    return codes, absmax, tuple(w.shape)
+
+def dequantize_nf4(codes, absmax, shape, dtype=torch.float32):
+    vals = NF4_LEVELS[codes.long()] * absmax[:, None]
+    return vals.reshape(-1)[:math.prod(shape)].reshape(shape).to(dtype)
+\end{lstlisting}
+
+\Cref{lst:instruct:nf4} stores one code per byte to keep indexing simple. Production
+kernels (bitsandbytes) pack two codes per byte and fuse dequantisation into the GEMM,
+so the 4-bit weights are expanded only in registers or shared memory. On random
+Gaussian matrices our implementation reconstructs weights with a mean absolute error
+of about 9\% of the mean magnitude, which the lab checks. \Cref{ch:efficient} develops
+weight quantisation for inference, including GPTQ and AWQ, which choose levels using
+calibration data rather than a fixed codebook.
+
+\begin{napkinmath}[A 7B model on one 24 GB GPU]
+Base weights in NF4 with double quantisation: $6.74\times10^{9}\times(4+0.127)/8
+\approx\SI{3.5}{GB}$. Adapters ($r=16$, all linear layers): $40$M parameters
+$\times$ 16 bytes $\approx\SI{0.64}{GB}$. That leaves roughly \SI{20}{GB} for
+activations and the CUDA context, enough for batches of several thousand tokens with
+activation checkpointing. Full fine-tuning of the same model needs about
+\SI{108}{GB} before activations, more than one 80 GB GPU. QLoRA has one cost: every
+forward and backward pass dequantises the weights, which typically makes each step
+slower than LoRA on a bf16 base.
+\end{napkinmath}
+
+\subsection{Serving many adapters}\label{sec:instruct:multilora}
+
+Merged adapters are free at inference, but a merged model serves exactly one task. A
+platform hosting one base model and hundreds of customer-specific adapters faces a
+different problem: requests for different adapters arrive interleaved, and one weight
+copy per adapter does not fit. Systems such as Punica (Chen et al., 2023) and S-LoRA
+(Sheng et al., 2023) keep adapters unmerged. They batch requests across adapters by
+running the base GEMM once for the whole batch, then applying each row's adapter with a
+gather-based batched kernel (Punica's ``BGMV''). S-LoRA additionally pages adapter
+weights between host and GPU memory, in a unified pool with the KV cache.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  row/.style={draw=srcgray,fill=srcgray!10,minimum width=1.9cm,minimum height=0.45cm,font=\scriptsize},
+  arr/.style={-{Latex[length=1.6mm]},srcgray}]
+\foreach \i/\a/\c in {0/2/keygreen,1/0/sysblue,2/none/srcgray,3/1/labpurple}{
+  \node[row,fill=\c!15,draw=\c] (r\i) at (0,-\i*0.6) {req \i\ (adapter \a)};}
+\node[draw=sysblue,fill=sysblue!12,minimum width=1.6cm,minimum height=2.3cm,align=center,font=\scriptsize]
+  (W) at (3.4,-0.9) {shared\\$\vect{X}\mat{W}^\top$\\one GEMM};
+\node[draw=napkin,fill=napkin!10,minimum width=2.4cm,minimum height=2.3cm,align=center,font=\scriptsize]
+  (G) at (6.4,-0.9) {gather $\mat{A}_{a_i},\mat{B}_{a_i}$\\per row, then\\2 small bmm's};
+\node[circle,draw,inner sep=1pt] (p) at (8.6,-0.9) {$+$};
+\foreach \i in {0,...,3}{\draw[arr] (r\i.east) -- (W.west |- r\i.east);}
+\draw[arr] (W) -- (G); \draw[arr] (G) -- (p);
+\draw[arr] (W.north) |- ++(0,0.4) -| (p.north);
+\node[font=\scriptsize,anchor=north] at (6.4,-2.25)
+  {adapter stack: $\mat{A}\in\R^{K\times r\times d_\text{in}}$,\ $\mat{B}\in\R^{K\times d_\text{out}\times r}$};
+\end{tikzpicture}
+\caption{Batched multi-adapter inference. The expensive base matmul is shared by all
+requests, and each row pays only for its own rank-$r$ correction. Row 2 uses the base
+model only.}
+\label{fig:instruct:multilora}
+\end{figure}
+
+\begin{lstlisting}[caption={A gather-based multi-LoRA layer (reference, not a fused kernel).},label={lst:instruct:multilora}]
+class MultiLoRALinear(nn.Module):
+    def __init__(self, base, n_adapters, rank, alpha=16.0):
+        super().__init__()
+        self.base, self.scaling = base, alpha / rank
+        self.A = nn.Parameter(torch.zeros(n_adapters, rank, base.in_features))
+        self.B = nn.Parameter(torch.zeros(n_adapters, base.out_features, rank))
+
+    def forward(self, x, adapter_ids):          # x (B, T, d_in), ids (B,), -1 = none
+        y = self.base(x)
+        ids = adapter_ids.clamp(min=0)
+        A, B = self.A[ids], self.B[ids]          # (B, r, d_in), (B, d_out, r)
+        delta = torch.bmm(torch.bmm(x, A.transpose(1, 2)), B.transpose(1, 2))
+        delta = delta * (adapter_ids >= 0).to(x.dtype)[:, None, None]
+        return y + self.scaling * delta
+\end{lstlisting}
+
+\begin{napkinmath}[How many adapters fit?]
+For a 7B Llama-style model with $r=16$ on the four attention projections only, one
+adapter has $32\times4\times16\times(4096+4096)\approx16.8$M parameters, which is
+\SI{34}{MB} in bf16. A thousand adapters are \SI{34}{GB}, too many to keep resident
+next to the base weights and a KV cache on one 80 GB GPU. Hence S-LoRA's design: hot
+adapters stay in GPU memory, cold ones live in host RAM and are fetched over PCIe on
+demand. A 34 MB fetch at about \SI{25}{GB/s} takes about \SI{1.4}{ms}, cheap compared
+with a prefill. The adapter math per token is
+$2r(d_\text{in}+d_\text{out})$ FLOPs per adapted layer, about 0.25\% of the base model
+here, so the overhead is dominated by gather and kernel efficiency rather than FLOPs.
+\end{napkinmath}
+
+\begin{deepdive}[The wider PEFT family]
+LoRA dominates in practice, but the design space is larger.
+\emph{Adapters} (Houlsby et al., 2019) insert small bottleneck MLPs between layers and
+add inference latency unless they are fused. \emph{Prefix and prompt tuning} learn
+virtual tokens and leave all weights untouched. They are cheap to store, but they cost
+context length on every request. \emph{(IA)$^3$} learns per-channel rescaling vectors,
+with even fewer parameters than LoRA. \emph{DoRA} (Liu et al., 2024) decomposes each
+weight into a magnitude and a direction and applies LoRA to the direction, often
+closing the remaining gap to full fine-tuning. The systems question is the same for all
+of them: what must be stored per task, and can the per-task computation be batched
+across tasks?
+\end{deepdive}
+
+% =====================================================================================
+\section{Summary}\label{sec:instruct:summary}
+\begin{itemize}
+\item SFT is next-token training on templated prompt$\to$response data. The template
+defines the model's interface and must be identical at training and inference time.
+\item The collate function appends an end-of-text token, pads, shifts, and replaces
+every padding target after the first EOT with $-100$. Optional prompt masking trains
+only on responses. Masked positions drop out of both the numerator and the denominator
+of the mean loss.
+\item Packing removes padding entirely. To be exact it needs a block-diagonal causal
+mask and per-document position ids; varlen attention kernels implement this without
+materialising masks.
+\item Keep collate on the CPU, pin memory, and transfer asynchronously. Bulk
+generation for evaluation is a serving problem and should be batched.
+\item LLM-as-a-judge evaluation scales, but the judge is an instrument that must be
+pinned (model, version, temperature, seed) and sanity-checked.
+\item LoRA trains $r(d_\text{in}+d_\text{out})$ parameters per layer, starts exactly at
+the base model, and can be merged for free inference. It saves optimizer and gradient
+memory, cuts training FLOPs by at most $1.5\times$, and does not reduce activation
+memory.
+\item QLoRA stores the frozen base in NF4 with double-quantised scales (about 4.13
+bits per parameter), which puts 7B-model fine-tuning on one consumer GPU.
+\item Unmerged adapters can be batched across tasks on a shared base (Punica, S-LoRA),
+which enables multi-tenant serving.
+\end{itemize}
+
+% =====================================================================================
+\section{Exercises}\label{sec:instruct:exercises}
+
+\begin{exercise}[Phi-3 template]
+Re-run SFT with \code{format\_phi3}. Compare the total number of training tokens, the
+wall-clock time per epoch, and the judge score against the Alpaca template. Make sure
+response extraction is adapted to the new template.
+\end{exercise}
+
+\begin{exercise}[Response-only loss]
+Train with \code{mask\_prompt=True} and compare validation loss (careful: the losses are
+averaged over different token sets, so compare on a common token set) and judge scores.
+Under what data conditions would you expect full-sequence loss to win?
+\end{exercise}
+
+\begin{exercise}[Loss normalisation under gradient accumulation]
+Show with a two-microbatch example that averaging per-microbatch mean losses differs
+from the per-token mean over the whole step when microbatches have different numbers
+of target tokens. Implement the correct normalisation in the training loop and verify
+that the gradient matches a single large-batch step.
+\end{exercise}
+
+\begin{exercise}[Packing efficiency]
+For the 935 training examples tokenised with GPT-2's BPE, compute padding waste for
+(a) random batches of 8 with dynamic padding, (b) length-bucketed batches, and
+(c) first-fit-decreasing packing into rows of 512 and 1{,}024 tokens. Then estimate the
+attention FLOPs of (c) with a varlen kernel ($\sum\ell_i^2$) versus a dense mask
+($T^2$ per row).
+\end{exercise}
+
+\begin{exercise}[Naive packing leaks]
+Pack examples \emph{without} the block-diagonal mask and position reset. Construct a
+probe showing that the model's prediction for a token in document 2 changes when
+document 1 changes. How large is the effect after fine-tuning on naively packed data?
+\end{exercise}
+
+\begin{exercise}[Judge reliability]
+Score the 110 reference answers themselves and 20 deliberately wrong answers with the
+judge. Then re-score your model's responses with a second judge model, and report the
+correlation between judges and the mean absolute score difference. What does this tell
+you about the precision of a single reported score?
+\end{exercise}
+
+\begin{exercise}[LoRA rank sweep]
+For LoRA on GPT-2 medium SFT, sweep $r\in\{1,4,16,64\}$ with $\alpha=2r$ and with fixed
+$\alpha=16$. Plot judge score and validation loss against trainable parameters. Explain
+why the $\alpha/r$ convention makes the learning rate more transferable across ranks.
+\end{exercise}
+
+\begin{exercise}[Where to put adapters]
+Compare LoRA on (a) $W_q,W_v$ only, (b) all attention projections, (c) MLP only, and
+(d) all linear layers at equal total trainable parameters (adjust $r$). Which wins on
+the spam task, and which on SFT?
+\end{exercise}
+
+\begin{exercise}[FLOP accounting]
+Instrument a LoRA training step with \code{torch.profiler} and attribute time to
+forward GEMMs, activation-gradient GEMMs, weight-gradient GEMMs (adapters only) and
+everything else. Compare with full fine-tuning and with the $6N$ versus $4N$
+prediction.
+\end{exercise}
+
+\begin{exercise}[NF4 versus uniform int4]
+Quantise each weight matrix of pretrained GPT-2 small with (a) NF4 and (b) uniform
+symmetric int4, both with absmax scales per 64-weight block. Compare reconstruction
+error and validation perplexity. Then check whether GPT-2's weights are actually close
+to normal (plot a histogram of block-normalised weights).
+\end{exercise}
+
+\begin{exercise}[Multi-LoRA throughput]
+Using \code{MultiLoRALinear}, measure the throughput of a batch of 64 rows that use
+(a) one adapter, (b) 8 adapters, (c) 64 distinct adapters, against the base model alone.
+Where does the gather cost show up, and how would a fused kernel avoid it?
+\end{exercise}
+
+% =====================================================================================
+\section{Lab 25: The SFT data path, packing, LoRA and QLoRA}\label{sec:instruct:lab}
+
+\begin{labbox}{25}{The SFT data path, packing, LoRA and QLoRA}
+\labdir{lab25_instruct_lora}
+\labsection{Goals}
+Implement the parts of instruction tuning where correctness bugs hide (templating,
+target construction, masking, packing) and the parameter-efficient machinery that
+makes large-model fine-tuning feasible (LoRA, merging, batched multi-adapter layers,
+NF4 quantisation). Verify each part against an exact reference, then train.
+
+\labsection{Setup}
+\code{cd code; LAB\_IMPL=starter python -m pytest -q labs/lab13\_instruct\_lora}.
+Tests use a byte-level tokenizer and a tiny GPT (context 128). They run on CPU in under
+a minute. \code{run.py} instruction-tunes GPT-2 medium (full or LoRA) on an Alpaca-style
+JSON file, writes \code{responses.json}, and scores it with a local Ollama judge.
+
+\labsection{Tasks}
+\begin{enumerate}
+\item \code{format\_alpaca}: exact template, optional input section.
+\item \code{instruction\_collate}: append EOT, pad, shift, keep the first EOT, mask the
+rest with $-100$, optional prompt masking and truncation. The test uses the
+\texttt{[0..4]}, \texttt{[5,6]}, \texttt{[7,8,9]} example from
+\cref{fig:instruct:collate}.
+\item \code{pack\_sequences} and \code{segment\_mask}: first-fit-decreasing packing with
+per-document positions and a block-diagonal causal mask. The test checks that the
+packed loss equals the per-example token-weighted loss to $10^{-4}$.
+\item \code{LoRALinear} (\code{delta\_weight}, \code{forward}, \code{merge},
+\code{unmerge}), \code{apply\_lora}, \code{count\_trainable}: zero-init equivalence,
+merge equivalence, exact trainable-parameter formula.
+\item \code{MultiLoRALinear.forward}: gather-based batched adapters with a ``no adapter''
+id. No Python loop over rows.
+\item \code{quantize\_nf4} and \code{dequantize\_nf4}: blockwise absmax NF4 with padding
+for sizes that are not multiples of the block.
+\item \code{extract\_response} and \code{parse\_score}.
+\item \code{finetune}: a short LoRA training loop. The test requires the loss to drop by
+at least 30\% on a toy instruction task.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{itemize}
+\item Padding waste and attention FLOPs for padded, bucketed and packed batches on your
+instruction data (Exercise 25.4).
+\item On a GPU with \code{run.py}: peak memory, time per epoch and trainable parameters
+for full fine-tuning versus LoRA ($r=16$) of GPT-2 medium. Expect LoRA to cut
+persistent memory sharply and time per step only modestly. Compare judge scores.
+\item Reconstruction error of NF4 versus int4 on real GPT-2 weights (Exercise 25.10).
+\end{itemize}
+
+\labsection{Deliverables}
+Passing tests; a table of memory, time and score for full fine-tuning versus LoRA; one
+paragraph explaining the measured memory and time differences using the $6N$/$4N$ and
+$16N$/$2N$ models of this chapter.
+
+\labsection{Stretch goals}
+\begin{itemize}
+\item Wrap the frozen base with \code{NF4LoRALinear} (provided in \ident{llmsys/lora.py})
+and fine-tune GPT-2 medium QLoRA-style; compare quality and step time with bf16 LoRA.
+\item Serve two LoRA adapters (for example spam classification and SFT) from one base
+with \code{MultiLoRALinear} in every linear layer, and route a mixed batch.
+\end{itemize}
+\end{labbox}

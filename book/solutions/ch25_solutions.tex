@@ -1,83 +1,85 @@
-\subsection*{Chapter 25: RLHF: Reward Models, Value Functions, and PPO}
+\subsection*{Chapter 25: Instruction Fine-Tuning and Parameter-Efficient Adaptation}
 
-\paragraph{Exercise 25.1} The difference of two independent standard Gumbel variables is
-standard logistic, with CDF $\sigma(z)$. Hence $\Pr[u_w>u_l]=\Pr[\epsilon_l-\epsilon_w<r_w-r_l]=\sigma(r_w-r_l)$.
-With Gaussian noise of variance $s^2$ each, the difference is $\mathcal N(0,2s^2)$ and the choice
-probability is $\Phi\big((r_w-r_l)/(\sqrt2 s)\big)$, the Thurstone (probit) model. The fitted rewards
-change only by an approximately constant rescaling, because the logistic and probit curves are close after
-scaling by about $1.7$.
+\paragraph{Exercise 25.1.} Replace \code{format\_alpaca} by \code{format\_phi3} in both the
+dataset and the generation prompt, and extract responses by splitting on
+\code{<|assistant|>} instead of the Alpaca header. The Phi-3 template removes roughly
+25--30 tokens per example, so total training tokens drop by roughly a quarter to a
+third and epoch time falls accordingly. Judge scores are usually similar. Note that
+\code{<|user|>} is not a special token for GPT-2 and is split into several BPE pieces,
+which is harmless but slightly less compact than the name suggests.
 
-\paragraph{Exercise 25.2} With $\Delta=r_w-r_l$, $\partial(-\log\sigma(\Delta))/\partial r_w=-(1-\sigma(\Delta))=-\sigma(-\Delta)$
-and $\partial/\partial r_l=+\sigma(-\Delta)$. Gradient descent raises $r_w$ and lowers $r_l$ in
-proportion to the probability the model currently assigns to the \emph{wrong} ordering. Late in training,
-correctly ranked pairs with large margins contribute almost nothing, so the gradient is dominated by
-mis-ranked and borderline pairs (including label noise). A margin $m$ replaces $\Delta$ by $\Delta-m$: pairs
-must be separated by at least $m$ before their gradient fades, which keeps strong-preference pairs active longer.
+\paragraph{Exercise 25.2.} Losses averaged over response tokens only are not comparable
+with losses averaged over all tokens, because prompt tokens (especially the fixed
+preamble) are easy to predict and pull the full-sequence average down. Evaluate both
+models on the same response-only target set. Response-only training usually matches or
+slightly beats full-sequence training on judge score. Full-sequence loss can win when
+responses are very short and prompts carry useful in-domain text, because it then
+provides much more gradient signal per example.
 
-\paragraph{Exercise 25.3} Grouped: $K=6$ forward passes per prompt, producing all
-$\binom{6}{2}=15$ pair terms in one step. Independent pairs: $15$ pairs $\times$ 2 responses $=30$ forward
-passes. Each response appears in $K-1=5$ pairs, so with independent shuffling it contributes to 5
-separate gradient steps per epoch, versus one step when grouped. That repetition is what drives the
-one-epoch overfitting InstructGPT reported.
+\paragraph{Exercise 25.3.} Two microbatches with $n_1=10$ and $n_2=90$ target tokens and
+mean losses $\bar\ell_1,\bar\ell_2$: averaging the means gives
+$\tfrac12(\bar\ell_1+\bar\ell_2)$, so each token of microbatch 1 has weight $1/20$ and
+each token of microbatch 2 has weight $1/180$. The per-token mean of the full step gives
+every token weight $1/100$. Fix: compute \code{F.cross\_entropy(..., reduction="sum")}
+per microbatch, count non-ignored targets, and divide the accumulated sum by the total
+count before \code{backward} (or scale each microbatch's sum by $1/n_{\text{total}}$,
+which requires knowing $n_{\text{total}}$ in advance, for example by pre-counting the
+step's targets).
 
-\paragraph{Exercise 25.4} With $\gamma=\lambda=1$, $\hat A_t=\sum_{l\ge0}\delta_{t+l}=\sum_{l}\big(r_{t+l}+V_{t+l+1}-V_{t+l}\big)$,
-which telescopes to $\sum_{k\ge t}r_k-V_t$ since $V_{T+1}=0$. With $\lambda=0$ only $l=0$ survives,
-so $\hat A_t=\delta_t$. For $\lambda=0.5$, with $\delta=(0.28,0.40,0.45,0.39)$:
-$\hat A_4=0.39$, $\hat A_3=0.45+0.5\cdot0.39=0.645$, $\hat A_2=0.40+0.5\cdot0.645=0.7225$,
-$\hat A_1=0.28+0.5\cdot0.7225=0.64125$.
+\paragraph{Exercise 25.4.} Random batches with dynamic padding typically waste 30--50\% on
+instruction data with a long-tailed length distribution; bucketing reduces this to a few
+percent; FFD packing into 512- or 1{,}024-token rows leaves only the tail of the last
+rows empty, usually below 2\%. For attention, a dense row mask costs $T^2$ per row
+regardless of content. A varlen kernel costs $\sum_i\ell_i^2$, which for documents of
+about 100 tokens packed into $T=1024$ is about 10 documents $\times\,100^2 = 10^5$
+versus $1024^2\approx10^6$, a $10\times$ reduction in attention FLOPs.
 
-\paragraph{Exercise 25.5} With $r=\pi/\piref$ and samples from $\pi=\mathrm{Bern}(0.6)$:
-\begin{center}\small
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-$p_{\text{ref}}$ & exact KL & $\E[k_1]$ & $\E[k_2]$ & $\E[k_3]$ & $\mathrm{Var}[k_1]$ / $\mathrm{Var}[k_2]$ / $\mathrm{Var}[k_3]$\\
-\midrule
-0.5 & 0.02014 & 0.02014 & 0.01993 & 0.02014 & 0.0395 / 0.000016 / 0.000030\\
-0.2 & 0.38191 & 0.38191 & 0.45818 & 0.38191 & 0.770 / 0.0317 / 0.0038\\
-\bottomrule
-\end{tabular}
-\end{center}
-$k_1$ and $k_3$ are unbiased because $\E_\pi[\piref/\pi-1]=0$; $k_2$ is biased, slightly low when the
-distributions are close and substantially high when they are far apart. $k_3$ combines unbiasedness
-with low variance and is never negative. $k_1$ is unbiased but noisy and takes negative values on
-individual samples.
+\paragraph{Exercise 25.5.} Probe: fix document 2, vary document 1 in the same packed row,
+and compare the logits at a position in document 2. With naive packing they change.
+With the block-diagonal mask and position reset they are identical up to floating-point
+error. After fine-tuning on naively packed data the model learns to use the preceding
+documents, for example by copying formatting or answers from the previous example.
+The effect is visible as degraded single-example performance at inference time, where
+no preceding documents exist.
 
-\paragraph{Exercise 25.6} The critic now values the state \emph{after} token $t$, i.e.\ it has seen the token whose
-advantage is being estimated. Its targets become easier to fit (explained variance can rise), but the
-advantages $\delta_t=r_t+V(s_{t+1})-V(s_t)$ are computed with mismatched states. With $\gamma=1$ the
-telescoping sum no longer cancels correctly at the boundaries. The typical result is a slower and noisier reward
-curve, or a policy that improves early and then stalls. Running the lab with the modified slice shows
-this. The general lesson is to assert the alignment of logits and values in a unit test.
+\paragraph{Exercise 25.6.} Reference answers should score near the top of the scale and
+wrong answers near the bottom; deviations reveal judge bias or prompt problems.
+Correlations between two different judges are typically high (Pearson 0.7--0.9) on
+clearly separable answers but lower among mediocre ones, and mean absolute differences
+of 5--15 points are common. A single reported score therefore has an uncertainty of
+several points from the judge alone, on top of sampling uncertainty from 110 test
+items (standard error $\approx\sigma/\sqrt{110}$).
 
-\paragraph{Exercise 25.7} Assume the policy is trained with LoRA so the reference is free (adapters
-disabled). Policy base weights frozen in bf16: $32\times10^9\cdot2=64$\,GB, plus adapter states
-(negligible for small ranks). Critic initialised from the 7B reward model and fully trained:
-$7\times10^9\cdot16=112$\,GB. Reward model frozen: $14$\,GB. Total $\approx190$\,GB, so
-$\lceil190/56\rceil=4$ GPUs with full sharding. If instead the policy is fully fine-tuned with a separate
-bf16 reference, the total is $512+112+14+64=702$\,GB, which needs 13 GPUs. LoRA is what makes this
-configuration fit on a single 8-GPU node.
+\paragraph{Exercise 25.7.} With $\alpha=2r$, the effective update scale $\alpha/r=2$ is
+constant, so the magnitude of $\Delta W$ produced by a given learning rate is roughly
+independent of $r$, and one learning rate works across ranks. With fixed $\alpha=16$,
+$\alpha/r$ shrinks as $r$ grows (16 at $r=1$, 0.25 at $r=64$), so large ranks
+effectively train with a smaller step and appear worse unless the learning rate is
+re-tuned. Quality usually saturates by $r=8$--$16$ for a task of this size.
 
-\paragraph{Exercise 25.8} The best-of-$n$ distribution assigns the $i$-th ranked sample
-probability proportional to the chance that it beats $n-1$ others; integrating
-$\log\big(n F(r)^{n-1}\big)$ against its density gives $\log n-\frac{n-1}{n}$ for continuous rewards, and
-ties can only reduce it, hence the upper bound. The lab's $\beta=0.2$ run settles near
-$3.5$\,nats, which corresponds to $\log n-1\approx3.5$, i.e.\ $n\approx e^{4.5}\approx90$. A run at 8 nats
-corresponds to $n\approx e^9\approx8{,}000$ samples per prompt, impractical at inference time, which is why
-PPO's KL ``budget'' is cheaper to spend through training.
+\paragraph{Exercise 25.8.} For a fixed parameter budget, adapting all linear layers
+(with a smaller $r$) usually wins on SFT, because MLP layers hold much of the
+task-relevant capacity. The spam task is easy enough that most placements reach
+similar accuracy. Attention-only placements are slightly weaker on SFT.
 
-\paragraph{Exercise 25.9} Expected outcome: with a small target (1 nat) the controller raises $\beta$ until the
-policy barely moves; the true score improves a little and never degrades. With 3 nats the true score is near
-its best. With 10 nats the controller lets the policy spend KL on the repetition exploit, and the
-true score peaks and then falls while the RM score keeps rising. Plotting true score against final KL
-traces the rise-then-fall curve of Gao et al.
+\paragraph{Exercise 25.9.} In full fine-tuning the weight-gradient GEMMs are about a third
+of matmul time. With LoRA they disappear for frozen weights, while the adapter GEMMs
+are tiny but numerous (two extra small matmuls per adapted layer in each direction).
+On small models these extra kernels and the optimizer step can eat most of the
+theoretical $1.5\times$ saving, so measured speed-ups are often smaller than predicted.
+On large models the prediction is approached.
 
-\paragraph{Exercise 25.10} With prompt plus rubric $\approx288$ tokens and responses of $512$, each judge call
-processes $\approx800$ tokens: $2\cdot70\times10^9\cdot800\cdot512\approx5.7\times10^{16}$ FLOPs per iteration.
-For the 8B policy ($T\approx768$ tokens per sequence): generation $\approx6.3\times10^{15}$, scoring with
-policy, reference and value $\approx1.9\times10^{16}$, and two PPO epochs over actor and critic
-$\approx7.5\times10^{16}$. The judge is therefore about $36\%$ of the FLOPs, and since it sits between
-generation and learning it adds directly to the iteration time. Two remedies: (i) score
-asynchronously, sending each response to a separate judge pool as soon as it finishes so judging overlaps
-with ongoing generation (and with the previous iteration's learning, at one step of staleness,
-\cref{sec:rlsys:async}); (ii) distil the judge into a small reward model trained on its labels, and call the
-judge only on a sample to monitor drift.
+\paragraph{Exercise 25.10.} Block-normalised GPT-2 weights are roughly bell-shaped but
+heavier-tailed than a Gaussian, with occasional outlier channels. NF4 gives lower
+reconstruction error than uniform int4 for the bulk of the weights, because its
+levels are denser near zero, and typically a smaller perplexity increase. Uniform int4
+does relatively better on blocks dominated by an outlier, where the absmax scale
+squeezes the remaining weights into a few levels for both schemes.
+
+\paragraph{Exercise 25.11.} With one adapter, the gather is a broadcast and the cost is
+close to the base model plus two small matmuls. With 8 or 64 distinct adapters, the
+gather materialises per-row copies of $\mat{A}$ and $\mat{B}$ ($B\times r\times d$
+elements), which adds memory traffic proportional to the batch size. That is where
+throughput drops. Fused kernels (Punica's BGMV/SGMV) read each row's adapter directly
+from the adapter pool inside the matmul, never materialising the gathered copies, and
+group rows that share an adapter (segmented GEMM) to recover tensor-core efficiency.

@@ -558,6 +558,10 @@ class Preprocessor:
                 lang = "bash"
             elif "style=plain" in opts:
                 lang = None
+            elif "style=cpp" in opts or "style=cuda" in opts:
+                lang = "cpp"
+            elif "style=cmake" in opts:
+                lang = "cmake"
             else:
                 lang = "python"
             opts = re.sub(r"\s*style\s*=\s*\w+\s*,?", "", opts).strip(", \n\t")

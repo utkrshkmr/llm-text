@@ -1,0 +1,1247 @@
+\chapter{RL Training Systems}\label{ch:rlsys}
+
+Chapters~\ref{ch:grpo} and~\ref{ch:grpo2} implemented reinforcement learning with verifiable
+rewards (RLVR) as a single Python loop: sample a group of answers, grade them, compute
+advantages, take a gradient step, repeat. On one GPU with a 0.6B-parameter model that loop is
+easy to read. It is also hopeless at scale. The models that made RL-trained reasoning famous
+were trained with thousands of accelerators for weeks, and almost none of that engineering
+effort went into the loss function. It went into the \emph{system} that wraps the loss: an
+inference engine that produces millions of tokens per step, a training engine that consumes
+them, a fleet of reward workers that execute untrusted code, and the plumbing that moves
+weights, tokens and log-probabilities between them without leaving expensive hardware idle.
+
+This chapter is about that plumbing. It is written as a graduate systems lecture: we derive cost models, build
+a simulator, and study the design space spanned by today's open frameworks (OpenRLHF,
+veRL/HybridFlow, TRL, NeMo-Aligner and several newer asynchronous systems). The ecosystem moves
+quickly; treat the framework descriptions as a snapshot of designs that were public as of 2025,
+and the cost models as the part that will age well.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  stage/.style={draw=sysblue,fill=sysbluebg,rounded corners=3pt,minimum width=3.0cm,
+    minimum height=1.25cm,align=center,font=\small},
+  num/.style={circle,fill=sysblue,text=white,font=\bfseries\small,inner sep=1.5pt},
+  arr/.style={-{Stealth[length=2.5mm]},thick,sysblue!70}]
+\node[stage] (a) at (0,0) {Anatomy of\\an RL step};
+\node[stage] (b) at (3.6,0) {Memory \&\\placement};
+\node[stage] (c) at (7.2,0) {Weight sync \&\\resharding};
+\node[stage] (d) at (10.8,0) {Sync vs.\\async RL};
+\node[stage] (e) at (0,-2.0) {Long tail \&\\partial rollouts};
+\node[stage] (f) at (3.6,-2.0) {Packing the\\scoring pass};
+\node[stage] (g) at (7.2,-2.0) {Train/inference\\mismatch};
+\node[stage] (h) at (10.8,-2.0) {Reward \&\\sandboxes};
+\foreach \n/\k in {a/1,b/2,c/3,d/4,e/5,f/6,g/7,h/8}
+  \node[num] at (\n.north west) {\k};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d);
+\draw[arr] (d.south) to[out=-90,in=90] (e.north);
+\draw[arr] (e)--(f); \draw[arr] (f)--(g); \draw[arr] (g)--(h);
+\node[draw=labpurple,fill=labpurplebg,rounded corners=3pt,align=center,font=\small,
+  minimum width=6.6cm,minimum height=0.9cm] (lab) at (5.4,-3.7)
+  {Lab 39: packing, varlen log-probs, TIS, pipeline simulator, sandbox};
+\draw[arr,labpurple] (h.south) |- (lab.east);
+\end{tikzpicture}}
+\caption{Roadmap of this chapter. We start from the dataflow of a single RL step, then add
+the systems concerns one at a time, ending with the reward infrastructure. Every stage has
+a counterpart in the lab.}
+\label{fig:rlsys:roadmap}
+\end{figure}
+
+% =====================================================================================
+\section{The anatomy of an RL step}\label{sec:rlsys:anatomy}
+
+Strip GRPO (\cref{ch:grpo}) down to its dataflow and five kinds of work remain. They are
+summarised in \cref{fig:rlsys:dataflow}.
+
+\begin{enumerate}
+\item \textbf{Rollout (generation).} For a batch of $B$ prompts, sample $G$ responses each
+  from the current policy $\pi_{\theta}$. This is pure inference: a prefill per prompt
+  followed by thousands of memory-bound decode steps (\cref{ch:inference}).
+\item \textbf{Reward.} Score each of the $BG$ responses. For RLVR this means extracting an
+  answer and checking it with a math verifier (\cref{ch:eval}) or executing generated code
+  against unit tests; for RLHF it means a forward pass of a learned reward model.
+\item \textbf{Scoring (log-prob) passes.} Compute per-token log-probabilities of every
+  response under the policy that generated it ($\piold$) and, if a KL penalty is used,
+  under a frozen reference policy $\piref$. These are prefill-only forward passes.
+\item \textbf{Advantage computation.} Cheap arithmetic: group means and standard
+  deviations (GRPO), or generalised advantage estimation with a critic (PPO).
+\item \textbf{Training.} One or more optimizer steps on the clipped surrogate objective,
+  each a forward and backward pass over all response tokens.
+\end{enumerate}
+After the update, the inference engine must receive the new weights before the next rollout
+can be on-policy. That arrow---\emph{weight synchronisation}---is what makes RL different
+from both pretraining (no inference engine) and serving (no weight updates).
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw,rounded corners=3pt,minimum height=1.1cm,minimum width=2.7cm,align=center,font=\small},
+  gen/.style={box,fill=fmemory!25,draw=napkin},
+  rew/.style={box,fill=fdata!25,draw=keygreen},
+  trn/.style={box,fill=fcompute!25,draw=sysblue},
+  dat/.style={draw=srcgray,dashed,rounded corners=2pt,font=\scriptsize,align=center,inner sep=3pt},
+  arr/.style={-{Stealth[length=2.3mm]},thick}]
+\node[dat] (p) at (0,0) {prompt\\batch $B$};
+\node[gen] (r) at (3.0,0) {Rollout engine\\(vLLM/SGLang)};
+\node[rew] (w) at (7.0,1.9) {Reward workers\\(verifier, sandbox,\\reward model)};
+\node[trn] (s) at (7.0,-1.9) {Scoring passes\\$\log\piold$, $\log\piref$};
+\node[box,fill=white] (a) at (10.8,0) {Advantages\\(group norm)};
+\node[trn] (t) at (14.4,0) {Trainer\\(FSDP / Megatron)};
+\draw[arr] (p) -- (r);
+\draw[arr] (r.north) |- node[pos=0.75,above,font=\scriptsize]{$BG$ texts} (w.west);
+\draw[arr] ([xshift=6mm]r.south) |- node[pos=0.72,above,font=\scriptsize]{token ids} (s.west);
+\draw[arr] (w.east) -| node[pos=0.25,above,font=\scriptsize]{rewards} (a.north);
+\draw[arr] (s.east) -| node[pos=0.25,below,font=\scriptsize]{log-probs} (a.south);
+\draw[arr] (a) -- (t);
+\draw[arr,fcomm,very thick] (t.south) -- ++(0,-2.9) -| node[pos=0.25,below,font=\scriptsize]
+  {weight sync: $\theta_{k+1}$ $\rightarrow$ engine (resharding, broadcast)} ([xshift=-6mm]r.south);
+\end{tikzpicture}}
+\caption{Dataflow of one RLVR step. Orange = inference workloads (memory-bandwidth bound),
+blue = training-style workloads (compute bound), green = reward computation (often CPU-bound,
+sometimes another model). The purple edge is the weight synchronisation that closes the loop.}
+\label{fig:rlsys:dataflow}
+\end{figure}
+
+\subsection{Where does the time go?}
+
+The single most important fact about RL systems for LLMs is that the stages have
+\emph{different bottlenecks}. Training and scoring passes process all tokens of a sequence in
+parallel and are compute-bound; they want large matrix multiplies and achieve a respectable
+fraction of peak FLOP/s (\cref{ch:pretrain}). Generation emits one token per sequence per
+step, rereads all weights and the KV cache at every step, and is memory-bandwidth-bound
+(\cref{ch:inference}). A configuration that is ideal for one stage is usually wasteful for the
+other: training wants the model sharded with FSDP or tensor+pipeline parallelism across many
+GPUs and a large activation budget; generation wants as few shards as possible (to avoid
+communication on every decode step) and as much free memory as possible for the KV cache.
+
+\begin{napkinmath}[One RL step for an 8B model on 64 H100s]
+Take Qwen3-8B ($N\approx 8.19\times10^9$ parameters, 36 layers, 8 KV heads of dimension 128),
+$B=512$ prompts, $G=8$ samples each, prompts of 200 tokens and responses of 4{,}000 tokens on
+average. That is $BG = 4096$ sequences and $\approx 17.2$M tokens per step.
+\begin{itemize}
+\item \emph{Training:} $6N\cdot 17.2\text{M} \approx 8.5\times10^{17}$ FLOPs. At 40\% MFU on 64
+H100s ($64 \times 989$ TFLOP/s $\times 0.4$) this is about \textbf{33\,s}.
+\item \emph{Scoring:} two forward passes ($\piold$ and $\piref$), $2\times 2N\cdot 17.2$M
+$\approx 5.6\times10^{17}$ FLOPs, about \textbf{22\,s}.
+\item \emph{Generation:} the KV cache costs $2\cdot 36\cdot 8\cdot 128\cdot 2 \approx 147$\,KB per
+token. With 16.4\,GB of bf16 weights and $\sim$8\,GB of runtime overhead, about 55\,GB of an
+80\,GB card is left for KV; at an average live context of 2{,}200 tokens that is $\approx 170$
+concurrent sequences. Each decode step streams $\approx 71$\,GB at 3.35\,TB/s, $\approx$21\,ms,
+so one GPU emits $\approx 8{,}000$ tokens/s and 64 GPUs need $\approx$\textbf{32\,s} for 16.4M
+generated tokens---\emph{if every slot stayed busy}.
+\item \emph{The tail:} if the longest response in the batch is 16{,}000 tokens, the last
+sequence decodes alone at $\approx 5$--6\,ms per token (weights dominate), i.e.\ another
+\textbf{80--85\,s} during which almost the whole generation fleet is idle.
+\end{itemize}
+The idealised generation time already matches training, and the tail more than doubles it.
+This is why practitioners report that rollout generation typically dominates RL wall-clock
+time, and why most of this chapter is about keeping the generator busy.
+\end{napkinmath}
+
+\begin{keyidea}[RL is a pipeline of heterogeneous stages]
+An RL step chains an inference workload (bandwidth-bound, latency-sensitive, variable length)
+with a training workload (compute-bound, fixed shapes) through a weight-update dependency.
+Every design in this chapter (colocation, asynchrony, partial rollouts, packing) is an
+answer to the question ``how do we keep both kinds of hardware busy despite that dependency?''
+\end{keyidea}
+
+% =====================================================================================
+\section{Models, memory, and placement}\label{sec:rlsys:placement}
+
+\subsection{Which models must be resident?}
+
+Classic RLHF with PPO juggles four networks: the \emph{actor} (the policy being trained), the
+\emph{critic} (a value model, usually initialised from the reward model), a frozen
+\emph{reward model}, and a frozen \emph{reference model} used for the KL penalty. GRPO removes
+the critic by estimating the baseline from the group of samples; RLVR replaces the reward
+model with a program; and recent recipes (DAPO, Dr.~GRPO; \cref{ch:grpo2}) often drop the
+reference model by setting the KL coefficient to zero. A modern RLVR run may therefore hold
+only the actor---but the actor exists in two \emph{forms}: as training state and as an
+inference engine.
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}Xrr>{\raggedright\arraybackslash}p{3.6cm}@{}}
+\toprule
+Component & Bytes/param & 8B model & Notes\\
+\midrule
+Actor training state (bf16 w+g, fp32 master, Adam $m,v$) & 16 & 131\,GB & sharded by FSDP/ZeRO-3\\
+Actor activations (per micro-batch) & -- & 10s of GB & checkpointing trades for compute\\
+Reference model (bf16, inference only) & 2 & 16.4\,GB & can be offloaded or dropped\\
+Critic (PPO only) & 16 & 131\,GB & absent in GRPO\\
+Rollout engine weights (bf16) & 2 & 16.4\,GB & per engine replica\\
+Rollout KV cache & -- & rest of HBM & sets decode concurrency\\
+\bottomrule
+\end{tabularx}
+\caption{Memory accounting for the models of an RL run (8B example). Training state is
+sharded across the trainer's GPUs; inference weights are replicated once per rollout engine
+(or sharded by its tensor-parallel degree).}
+\label{tab:rlsys:memory}
+\end{table}
+
+\subsection{Colocated versus disaggregated placement}
+
+There are two basic ways to place the rollout engine and the trainer on a cluster of $G$
+GPUs (\cref{fig:rlsys:placement}).
+
+\paragraph{Colocated (time-shared).} Every GPU hosts both a training shard and an inference
+engine, and the two \emph{take turns}. During generation the optimizer state and gradients are
+offloaded to host memory (or freed), and the engine's KV cache gets most of HBM; for
+training, the engine releases its KV cache (vLLM's ``sleep mode'' and SGLang's memory
+release APIs exist for exactly this), and the trainer reclaims memory. veRL's
+\emph{3D-HybridEngine} (Sheng et al., HybridFlow, 2025) and OpenRLHF's hybrid-engine mode
+follow this pattern. Its virtue is that \emph{no GPU is ever dedicated to a stage that is not
+running}. Its costs are the switch overhead (offload/onload, resharding) and the fact that
+the two stages are strictly serialised.
+
+\paragraph{Disaggregated (split pools).} $G_{\text{gen}}$ GPUs run inference engines and
+$G_{\text{train}} = G - G_{\text{gen}}$ run the trainer. OpenRLHF's original Ray-based design
+placed actor, critic, reward and reference models (and vLLM engines) on separate groups of
+GPUs; most asynchronous systems use split pools. Each pool can use the parallelism layout
+that suits it, and the pools can run \emph{concurrently}---but only if the algorithm tolerates
+data generated by slightly older weights (\cref{sec:rlsys:async}). In a strictly synchronous
+schedule each pool idles while the other works.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[gpu/.style={draw,minimum width=0.95cm,minimum height=0.95cm,font=\scriptsize,align=center},
+  lbl/.style={font=\small\bfseries}]
+% colocated
+\node[lbl] at (2.1,1.5) {(a) Colocated: every GPU time-shares};
+\foreach \i in {0,...,3}{
+  \node[gpu,fill=fmemory!25] (c\i) at (\i*1.15,0.45) {gen};
+  \node[gpu,fill=fcompute!25] at (\i*1.15,-0.55) {train};}
+\node[font=\scriptsize,align=left] at (2.1,-1.6) {same HBM, alternating phases;\\switch = offload optimizer, free KV};
+% disaggregated
+\node[lbl] at (9.8,1.9) {(b) Disaggregated: split pools};
+\foreach \i in {0,...,3}
+  \node[gpu,fill=fmemory!25] at (6.6+\i*1.15,0) {gen\\TP=1};
+\foreach \i in {0,...,3}
+  \node[gpu,fill=fcompute!25] (t\i) at (11.8+\i*1.15,0) {train\\FSDP};
+\draw[-{Stealth},thick,fcomm] (13.5,-0.6) to[bend left=22] node[below,font=\scriptsize]{NCCL broadcast of $\theta$} (8.3,-0.6);
+\draw[-{Stealth},thick,fdata] (8.3,0.6) to[bend left=14] node[above,font=\scriptsize]{rollouts (token ids, log-probs)} (13.5,0.6);
+\end{tikzpicture}}
+\caption{Two placements. (a) Colocation multiplexes both workloads on the same devices, in
+time. (b) Disaggregation dedicates devices to each workload, which permits different
+parallel layouts and concurrent execution, at the price of cross-pool weight transfers and
+potential idleness.}
+\label{fig:rlsys:placement}
+\end{figure}
+
+\subsection{A cost model for the two placements}
+
+Let $W_g$ be the generation work of one step and $W_t$ the training+scoring work, both measured
+in GPU-seconds at perfect scaling. Ignore the tail for now (we return to it in
+\cref{sec:rlsys:tail}). With $G$ GPUs:
+\begin{align}
+T_{\text{coloc}} &= \frac{W_g}{G} + \frac{W_t}{G} + T_{\text{switch}},\label{eq:rlsys:coloc}\\
+T_{\text{sync-split}} &= \frac{W_g}{G_{\text{gen}}} + \frac{W_t}{G - G_{\text{gen}}} + T_{\text{sync}},\label{eq:rlsys:sync}\\
+T_{\text{async-split}} &= \max\!\left(\frac{W_g}{G_{\text{gen}}} + T_{\text{sync}},\ \frac{W_t}{G - G_{\text{gen}}}\right).\label{eq:rlsys:async}
+\end{align}
+Minimising \cref{eq:rlsys:sync} over $G_{\text{gen}}$ gives
+$G_{\text{gen}}^\star/G = \sqrt{W_g}/(\sqrt{W_g}+\sqrt{W_t})$ and
+$T^\star = (\sqrt{W_g}+\sqrt{W_t})^2/G + T_{\text{sync}} \ge (W_g+W_t)/G$: a synchronous split
+is \emph{never} faster than ideal colocation, because each pool idles while the other works.
+\Cref{eq:rlsys:async} is minimised by balancing the two terms,
+$G_{\text{gen}}^\star/G = W_g/(W_g+W_t)$, which yields $T^\star \approx (W_g+W_t)/G$---the same as
+colocation without $T_{\text{switch}}$, but with one step of policy lag. So the trade-off is:
+
+\begin{systemslens}[What disaggregation really buys]
+In the idealised model, splitting pools only helps if (i) the algorithm can run the pools
+concurrently (asynchrony), or (ii) the stages scale \emph{sub-linearly} on shared hardware so
+that specialised layouts recover efficiency (e.g.\ generation with TP$=1$ engines has no
+per-token communication, whereas training needs FSDP across many GPUs), or (iii) the switch
+cost $T_{\text{switch}}$ is large (offloading 131\,GB of optimizer state over PCIe links that deliver a few tens of GB/s per GPU,
+and share host memory bandwidth across 8 GPUs per node, takes seconds per step), or (iv) the hardware is
+heterogeneous---older or inference-optimised accelerators can generate while training GPUs
+train. In practice, all four effects matter, which is why both designs survive.
+\end{systemslens}
+
+% =====================================================================================
+\section{Weight synchronisation and resharding}\label{sec:rlsys:sync}
+
+After every optimizer step the inference engines must receive $\theta_{k+1}$. Two problems
+hide in that sentence: \emph{moving} the bytes and \emph{reshaping} them.
+
+\subsection{Moving the bytes}
+
+\begin{napkinmath}[How long does a weight update take?]
+An 8B model in bf16 is 16.4\,GB.
+\begin{itemize}
+\item Colocated, same GPU: no transfer at all if the engine can be pointed at the trainer's
+tensors (e.g.\ via CUDA IPC handles); otherwise a device-to-device copy at HBM speed, a few ms.
+\item Over NVLink within a node ($\sim$450\,GB/s per direction on H100): $\approx 36$\,ms.
+\item Over one 400\,Gb/s InfiniBand NIC (50\,GB/s): $\approx 0.33$\,s. With 8 NICs per node
+and each trainer rank sending its own shard in parallel, $\approx 0.04$\,s.
+\item Over 100\,Gb/s Ethernet (12.5\,GB/s): $\approx 1.3$\,s; for a 32B model, $\approx 5$\,s.
+\end{itemize}
+A naive point-to-point fan-out to $R$ engines multiplies the sender's time by $R$; a
+pipelined (chunked) broadcast tree costs roughly one payload transfer regardless of $R$
+(\cref{ch:distributed}). Compared with the tens of seconds of a step these numbers are small
+inside a datacenter---but they are \emph{on the critical path} of a synchronous loop, and
+they grow quickly for geo-distributed or heterogeneous-cluster RL.
+\end{napkinmath}
+
+Two common optimisations reduce the payload: send only the \emph{LoRA adapters} when the
+policy is trained with LoRA (\cref{ch:instruct}), so the update is a few hundred MB; and send
+\emph{bucketed} chunks so that transfer overlaps with the engine loading the previous chunk.
+
+\subsection{Reshaping the bytes}
+
+The trainer and the engine rarely agree on layout. A trainer using FSDP holds each parameter
+flattened and split across $D$ data-parallel ranks; a Megatron trainer splits attention and MLP
+weights by tensor-parallel degree $t_{\text{train}}$ and layers by pipeline stage. An inference
+engine typically wants whole layers with tensor parallelism $t_{\text{gen}}$, often
+$t_{\text{gen}} < t_{\text{train}}$, and fused tensors (e.g.\ a single \texttt{qkv\_proj}
+instead of separate $W_Q, W_K, W_V$, or gate and up projections concatenated). Weight sync is
+therefore a \emph{resharding} operation: an all-gather (or partial all-gather) along the
+training sharding, a re-split along the inference sharding, plus name and layout translation
+(\cref{fig:rlsys:reshard}).
+
+\begin{figure}[t]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[sh/.style={draw,minimum height=0.6cm,font=\scriptsize},
+  arr/.style={-{Stealth[length=2.2mm]},thick}]
+\node[font=\small\bfseries] at (1.6,1.2) {Trainer: FSDP over 4 ranks};
+\foreach \i/\c in {0/fcompute!15,1/fcompute!30,2/fcompute!45,3/fcompute!60}
+  \node[sh,fill=\c,minimum width=0.8cm] at (\i*0.85+0.3,0.4) {r\i};
+\node[font=\scriptsize,align=center] at (1.6,-0.35) {flat shard of every\\parameter on every rank};
+\node[draw,rounded corners,fill=fcomm!15,align=center,font=\scriptsize] (g) at (5.6,0.4)
+  {all-gather per layer\\+ rename / fuse\\(\texttt{q,k,v}$\to$\texttt{qkv})};
+\node[font=\small\bfseries] at (10.0,1.2) {Engine: TP=2 per replica};
+\node[sh,fill=fmemory!25,minimum width=1.6cm] (e0) at (9.2,0.4) {cols $0{:}d/2$};
+\node[sh,fill=fmemory!45,minimum width=1.6cm] (e1) at (10.9,0.4) {cols $d/2{:}d$};
+\node[font=\scriptsize,align=center] at (10.0,-0.35) {column/row splits of\\whole layers (\cref{ch:distributed})};
+\draw[arr] (3.6,0.4) -- (g.west);
+\draw[arr] (g.east) -- (8.3,0.4);
+\end{tikzpicture}}
+\caption{Weight synchronisation is a resharding problem: parameters sharded for training
+must be gathered, renamed, fused and re-split for the inference engine. veRL's
+3D-HybridEngine organises the colocated case so that each GPU only gathers the slice its
+inference shard needs, avoiding a full replica in memory.}
+\label{fig:rlsys:reshard}
+\end{figure}
+
+\begin{pitfall}[Silent layout bugs]
+A transposed projection, a swapped \texttt{gate}/\texttt{up} pair, or a RoPE layout mismatch
+(interleaved vs.\ rotate-half, \cref{ch:modern}) produces an engine that still emits fluent
+text---just from the \emph{wrong} model. Rewards then drift for reasons unrelated to learning.
+Always check, after each sync during bring-up, that engine log-probs on a fixed prompt match
+the trainer's to within numerical tolerance (\cref{sec:rlsys:mismatch}).
+\end{pitfall}
+% =====================================================================================
+\section{Synchronous versus asynchronous RL}\label{sec:rlsys:async}
+
+\subsection{On-policy in theory, slightly off-policy in practice}
+
+The GRPO objective of \cref{ch:grpo} is an expectation over responses sampled from
+$\piold$, the policy at the start of the step. A \emph{synchronous} system enforces this
+literally: rollouts for step $k+1$ start only after the weights of step $k$ are in the
+engine. An \emph{asynchronous} system lets the generator run ahead. If a sample used in the
+update to $\theta_{k+1}$ was produced by $\theta_{k-s}$, we say it has \emph{staleness} $s$.
+
+Off-policy data is not a catastrophe; PPO itself performs several minibatch updates per batch,
+so all but the first minibatch is already slightly off-policy, and the clipped ratio
+$\pitheta/\piold$ exists precisely to bound how far one batch can push the policy. What
+asynchrony changes is that the \emph{behaviour policy} that produced a sample, call it
+$\mu = \pi_{\theta_{k-s}}$, is now distinct from the proximal policy around which we clip.
+Several systems therefore use a \emph{decoupled} objective (AReaL, Fu et al., 2025, gives a
+clear derivation): importance-weight by $\pi_{\text{prox}}/\mu$ to correct for staleness, and
+clip $\pitheta/\pi_{\text{prox}}$ to bound the update,
+\begin{equation}
+\mathcal{L}(\theta) = -\E_{y\sim\mu}\left[\frac{\pi_{\text{prox}}(y)}{\mu(y)}\,
+\min\!\Big(r_\theta A,\ \clip(r_\theta,1-\epsilon,1+\epsilon)A\Big)\right],\qquad
+r_\theta = \frac{\pitheta(y)}{\pi_{\text{prox}}(y)}.
+\label{eq:rlsys:decoupled}
+\end{equation}
+With $s=0$, $\mu=\pi_{\text{prox}}=\piold$ and \cref{eq:rlsys:decoupled} reduces to the
+standard clipped objective. The same structure reappears in \cref{sec:rlsys:mismatch}, where
+the behaviour policy differs from $\piold$ not because of staleness but because of numerics.
+
+\subsection{Three schedules}
+
+\Cref{fig:rlsys:timelines} draws the three schedules that bracket the design space.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[x=0.55cm,y=0.6cm,
+  g/.style={draw=napkin,fill=fmemory!30,minimum height=0.45cm},
+  t/.style={draw=sysblue,fill=fcompute!30,minimum height=0.45cm},
+  lab/.style={font=\scriptsize\bfseries,anchor=east}]
+\newcommand{\blk}[5]{\draw[#1] (#2,#3) rectangle node[font=\tiny]{#5} (#4,#3+0.75);}
+% (a) synchronous colocated
+\node[lab] at (-0.3,0.4) {(a) sync};
+\blk{g}{0}{0}{5}{gen$_0$}\blk{t}{5}{0}{7.5}{train$_0$}
+\blk{g}{8}{0}{13}{gen$_1$}\blk{t}{13}{0}{15.5}{train$_1$}
+\blk{g}{16}{0}{21}{gen$_2$}\blk{t}{21}{0}{23.5}{train$_2$}
+\draw[fcomm,very thick] (7.5,0.375)--(8,0.375); \draw[fcomm,very thick] (15.5,0.375)--(16,0.375);
+% (b) one-step async split pools
+\node[lab] at (-0.3,-1.35) {(b) async};
+\node[lab,font=\tiny] at (-0.3,-1.85) {gen pool};
+\node[lab,font=\tiny] at (-0.3,-2.8) {train pool};
+\blk{g}{0}{-2.2}{5}{gen$_0$}\blk{g}{5.5}{-2.2}{10.5}{gen$_1$ ($\theta_0$)}
+\blk{g}{11}{-2.2}{16}{gen$_2$ ($\theta_1$)}\blk{g}{16.5}{-2.2}{21.5}{gen$_3$ ($\theta_2$)}
+\blk{t}{5}{-3.2}{7.5}{train$_0$}\blk{t}{10.5}{-3.2}{13}{train$_1$}\blk{t}{16}{-3.2}{18.5}{train$_2$}
+\blk{t}{21.5}{-3.2}{24}{train$_3$}
+% (c) partial rollouts
+\node[lab] at (-0.3,-4.6) {(c) partial};
+\blk{g}{0}{-5}{3}{gen$_0$}\blk{t}{3}{-5}{5.5}{train$_0$}
+\blk{g}{6}{-5}{9}{gen$_1$}\blk{t}{9}{-5}{11.5}{train$_1$}
+\blk{g}{12}{-5}{15}{gen$_2$}\blk{t}{15}{-5}{17.5}{train$_2$}
+\draw[densely dotted,thick,warnred] (3,-4.25) .. controls (4.5,-3.7) .. (6,-4.25);
+\draw[densely dotted,thick,warnred] (9,-4.25) .. controls (10.5,-3.7) .. (12,-4.25);
+\node[font=\tiny,warnred,align=left,anchor=west] at (17.8,-4.6) {unfinished rollouts\\carried over (mixed $\theta$)};
+\draw[-{Stealth},thin] (0,-5.7) -- (24.5,-5.7) node[right,font=\scriptsize]{time};
+\end{tikzpicture}}
+\caption{Schedules for RL. (a) Synchronous: the generator idles during training (and vice
+versa in split pools). (b) One-step asynchronous: batch $k{+}1$ is generated with
+$\theta_{k-1}$ or $\theta_k$ while batch $k$ trains; staleness $\le 1$. (c) Partial rollouts:
+each generation phase stops once enough responses have finished; long responses continue in
+the next phase under newer weights. Purple ticks are weight syncs.}
+\label{fig:rlsys:timelines}
+\end{figure}
+
+\begin{description}
+\item[Synchronous.] Simple and exactly on-policy. Throughput is limited by
+$T_{\text{gen}}+T_{\text{train}}$, and the generator's long tail is fully exposed.
+\item[One-step (bounded-staleness) asynchronous.] Generation of batch $k+1$ overlaps training
+on batch $k$. In steady state the step time is $\max(T_{\text{gen}},T_{\text{train}})$ and the
+staleness is bounded by a pipeline depth $s$ (the generator may not run more than $s$ versions
+ahead). This is the schedule of several open systems and of our simulator's \texttt{async}
+policy. Fully asynchronous variants (AReaL; PipelineRL, which even swaps weights
+\emph{in flight} between decode steps of an ongoing sequence) push this further.
+\item[Partial rollouts.] Keep more responses in flight than one batch needs; end each
+generation phase once $B$ responses have finished and resume the unfinished ones in the next
+phase. The tail no longer blocks a step, but some samples are produced by \emph{several}
+policies, and the batches over-represent short responses until the long ones catch up. The
+Kimi~k1.5 report (2025) describes using partial rollouts for long-context RL.
+\end{description}
+
+% =====================================================================================
+\section{The long-tail problem}\label{sec:rlsys:tail}
+
+Reasoning-model response lengths are heavy-tailed: most answers to a batch of math problems
+end after a few hundred to a few thousand tokens, but a handful run to the length cap. With
+continuous batching (\cref{ch:serving}) a decode engine admits new work whenever a slot frees
+up, but a \emph{synchronous} RL step has no new work to admit---it needs \emph{these}
+$BG$ responses before it can train. The engine's occupancy therefore decays as short
+responses finish, and the last few sequences decode almost alone.
+
+We can quantify this with a toy model. Suppose response lengths are log-normal with mean
+$\bar L$ and shape $\sigma$, all $n$ responses start together on $n$ slots, and each slot
+decodes at a constant $r$ tokens/s. The step's generation time is $\max_i L_i/r$ while the
+useful work is $\sum_i L_i/r$, so the generator's utilisation is
+\begin{equation}
+U = \frac{\sum_i L_i}{n\,\max_i L_i} \;\approx\; \frac{\bar L}{\E[\max_i L_i]}.
+\end{equation}
+For log-normal lengths $\E[\max_i L_i]$ grows roughly like $e^{\mu + \sigma\sqrt{2\ln n}}$, so
+utilisation falls quickly with $\sigma$. \Cref{fig:rlsys:occupancy} shows the decay of
+occupancy computed by the simulator from the lab (\ident{generation_occupancy}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.85\linewidth,height=5.2cm,xlabel={time (fraction of step generation time)},
+  ylabel={busy decode slots},ymin=0,ymax=1.05,xmin=0,xmax=1,grid=major,grid style={gray!20},
+  legend style={font=\scriptsize,at={(0.98,0.97)},anchor=north east},
+  every axis plot/.append style={thick}]
+\addplot[color=keygreen,mark=none] coordinates {
+(0.00,1.000) (0.05,0.766) (0.10,0.445) (0.15,0.289) (0.20,0.164) (0.25,0.117) (0.30,0.102) (0.35,0.086) (0.40,0.047) (0.45,0.039) (0.50,0.031) (0.55,0.023) (0.60,0.016) (0.65,0.016) (0.70,0.008) (0.75,0.008) (0.80,0.008) (0.85,0.008) (0.90,0.008) (0.95,0.008) (1.00,0.000)};;
+\addlegendentry{$\sigma=1.0$}
+\addplot[color=sysblue,mark=none,dashed] coordinates {
+(0.00,1.000) (0.05,1.000) (0.10,0.992) (0.15,0.906) (0.20,0.797) (0.25,0.688) (0.30,0.484) (0.35,0.352) (0.40,0.219) (0.45,0.164) (0.50,0.117) (0.55,0.102) (0.60,0.070) (0.65,0.047) (0.70,0.031) (0.75,0.023) (0.80,0.016) (0.85,0.008) (0.90,0.008) (0.95,0.008) (1.00,0.000)};;
+\addlegendentry{$\sigma=0.5$}
+\addplot[color=napkin,mark=none,dotted] coordinates {
+(0.00,1.000) (0.05,1.000) (0.10,1.000) (0.15,1.000) (0.20,1.000) (0.25,1.000) (0.30,1.000) (0.35,0.961) (0.40,0.867) (0.45,0.789) (0.50,0.688) (0.55,0.477) (0.60,0.320) (0.65,0.195) (0.70,0.125) (0.75,0.094) (0.80,0.047) (0.85,0.031) (0.90,0.008) (0.95,0.008) (1.00,0.000)};;
+\addlegendentry{$\sigma=0.25$}
+\end{axis}
+\end{tikzpicture}
+\caption{Occupancy of 128 decode slots during one synchronous generation phase with
+log-normal response lengths (simulated with \ident{llmsys.rlsys.sim.generation_occupancy}).
+The area above each curve is wasted generator capacity: utilisation is 56\%, 33\% and 13\% for
+$\sigma=0.25$, $0.5$ and $1$; with $\sigma=1$ almost 87\% of slot-time is idle because a few
+responses run far longer than the rest.}
+\label{fig:rlsys:occupancy}
+\end{figure}
+
+Mitigations, roughly in order of how much they change the algorithm:
+\begin{enumerate}
+\item \textbf{Length caps and length-aware rewards.} A hard cap bounds $\max_i L_i$; DAPO
+(Yu et al., 2025) adds a soft overlong penalty so the policy learns to avoid truncation.
+Capping changes the task (truncated responses score zero) and should be monitored as the
+``clip ratio'' of truncated samples.
+\item \textbf{Bigger batches.} More concurrent responses amortise the tail across more useful
+work, until KV memory runs out.
+\item \textbf{Over-provisioning with dropping.} Launch more prompts than needed and train on
+the first $B$ groups to finish. This is \emph{biased}: it systematically discards long, often
+hard, responses. Use with care.
+\item \textbf{Partial rollouts.} Resume, do not drop, the stragglers (\cref{fig:rlsys:timelines}c).
+\item \textbf{Asynchrony.} Let the next batch's generation fill the idle slots.
+\end{enumerate}
+
+\begin{systemslens}[Dynamic sampling interacts with the tail]
+DAPO's \emph{dynamic sampling} (\cref{ch:grpo2}) discards groups whose $G$ rewards are all
+equal, since their advantages are zero, and keeps sampling until the batch is full of
+informative groups. From a systems standpoint this is an over-provisioning policy with a
+data-dependent acceptance rate: early in training most groups fail and late in training most
+succeed, so the number of rollouts per optimizer step varies severalfold over a run. An
+asynchronous generator that streams groups into a buffer handles this gracefully; a
+synchronous one has to guess how many prompts to launch.
+\end{systemslens}
+
+\subsection{Simulating the schedules}
+
+The lab's simulator (\ident{llmsys/rlsys/sim.py}) implements the four policies of
+\cref{fig:rlsys:timelines} on top of an event-driven model of continuous batching:
+\code{n\_slots} decode slots at \code{tokens\_per\_sec} each, log-normal lengths, training
+time proportional to tokens, and fixed costs for switching and weight sync.
+\Cref{lst:rlsys:rungen} shows its core.
+
+\begin{lstlisting}[caption={Continuous-batching generation with an early-stop for partial
+rollouts (from \texttt{llmsys/rlsys/sim.py}).},label={lst:rlsys:rungen}]
+def run_generation(pending, n_slots, tps, stop_after, version):
+    queue = list(pending)
+    heap = []                  # (finish_time, seq, rollout, start_time)
+    t, busy, seq = 0.0, 0.0, 0
+    finished = []
+
+    def admit(now):
+        nonlocal seq
+        while queue and len(heap) < n_slots:
+            r = queue.pop(0)
+            if not r.versions or r.versions[-1] != version:
+                r.versions.append(version)          # this policy touched r
+            heapq.heappush(heap, (now + r.remaining / tps, seq, r, now))
+            seq += 1
+
+    admit(0.0)
+    while heap:
+        t, _, r, start = heapq.heappop(heap)
+        busy += t - start
+        r.remaining = 0.0
+        finished.append(r)
+        if stop_after is not None and len(finished) >= stop_after:
+            break                                   # partial rollouts: stop early
+        admit(t)
+    unfinished = []
+    for (ft, _, r, start) in heap:                  # account partial progress
+        busy += t - start
+        r.remaining = max(0.0, (ft - t) * tps)
+        unfinished.append(r)
+    return t, finished, unfinished + queue, busy
+\end{lstlisting}
+
+\Cref{fig:rlsys:simresults} reports the throughput of each policy as the tail gets heavier.
+Two lessons stand out. First, one-step asynchrony helps a lot when the stages are balanced and
+the tail is light ($\sigma=0.25$: $+64\%$), but almost nothing when generation is dominated by
+a few stragglers---overlapping training with a mostly idle generator does not make the
+generator busier. Second, partial rollouts attack the tail directly and keep throughput
+roughly constant as $\sigma$ grows, at the price of 45--85\% of samples containing tokens from
+more than one policy version and of a length-biased batch composition.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[ybar,width=0.9\linewidth,height=5.6cm,bar width=7pt,
+  symbolic x coords={0.25,0.5,1.0,1.5},xtick=data,
+  xlabel={log-normal shape $\sigma$ of response lengths},ylabel={samples / s (simulated)},
+  ymin=0,legend style={font=\scriptsize,at={(0.5,1.03)},anchor=south,legend columns=4},
+  enlarge x limits=0.18,grid=major,grid style={gray!15}]
+\addplot[fill=srcgray!50] coordinates {(0.25,2.013) (0.5,1.448) (1.0,0.744) (1.5,0.449)};
+\addplot[fill=fmemory!60] coordinates {(0.25,2.045) (0.5,1.465) (1.0,0.748) (1.5,0.451)};
+\addplot[fill=fcompute!60] coordinates {(0.25,3.362) (0.5,2.039) (1.0,0.873) (1.5,0.492)};
+\addplot[fill=fdata!70] coordinates {(0.25,2.709) (0.5,2.719) (1.0,2.821) (1.5,3.300)};
+\legend{colocated,sync split,async ($s{=}1$),partial}
+\end{axis}
+\end{tikzpicture}
+\caption{Throughput of four RL schedules in the lab simulator (128 slots, batch 128, mean
+length 1{,}000 tokens, default costs; \texttt{python labs/lab27\_rlsys/bench.py sim}).
+These are outputs of a model, not measurements of a real cluster; their value is in the
+trends.}
+\label{fig:rlsys:simresults}
+\end{figure}
+
+\begin{pitfall}[Partial rollouts bias the batch toward short answers]
+In each phase, the responses that finish first are the short ones. Early in a run, the
+gradient therefore over-weights short responses, and long responses reach the trainer one or
+more versions late. If the reward correlates with length (it usually does for reasoning),
+this is a systematic bias. Log the length distribution of \emph{trained} samples, not only of
+generated ones.
+\end{pitfall}
+
+% =====================================================================================
+\section{Packing the scoring and training passes}\label{sec:rlsys:packing}
+
+Once rollouts exist, the trainer runs prefill-style passes over them: the $\piold$ and $\piref$
+log-prob passes and the forward/backward of the update. Their cost is linear in tokens (plus a
+quadratic attention term), so every padding token is wasted work. With heavy-tailed lengths,
+padding to the longest sequence in a micro-batch can waste most of the compute
+(\cref{fig:rlsys:packing}).
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[tk/.style={draw=white,minimum width=0.32cm,minimum height=0.32cm,inner sep=0pt},
+  x=0.32cm,y=0.36cm]
+\node[font=\small\bfseries,anchor=west] at (0,4.0) {(a) padded micro-batch};
+\foreach \r/\L/\c in {0/18/fcompute,1/5/fdata,2/9/fmemory,3/3/fcomm}{
+  \foreach \i in {1,...,\L} \node[tk,fill=\c!60] at (\i,-\r+2.6) {};
+  \pgfmathtruncatemacro{\s}{\L+1}
+  \ifnum\L<18 \foreach \i in {\s,...,18} \node[tk,fill=gray!20] at (\i,-\r+2.6) {}; \fi}
+\node[font=\scriptsize,anchor=west] at (0,-1.9) {35 real / 72 computed (49\%)};
+\node[font=\small\bfseries,anchor=west] at (22,4.0) {(b) packed row + block-diagonal mask};
+\foreach \i in {1,...,18} \node[tk,fill=fcompute!60] at (21+\i,2.6) {};
+\foreach \i in {1,...,5} \node[tk,fill=fdata!60] at (21+\i,1.6) {};
+\foreach \i in {6,...,14} \node[tk,fill=fmemory!60] at (21+\i,1.6) {};
+\foreach \i in {15,...,17} \node[tk,fill=fcomm!60] at (21+\i,1.6) {};
+\node[tk,fill=gray!20] at (39,1.6) {};
+\node[font=\scriptsize,anchor=west] at (22,0.5) {35 real / 36 computed (97\%)};
+% mask
+\begin{scope}[shift={(44,-1.8)},x=0.2cm,y=0.2cm]
+\fill[gray!12] (0,0) rectangle (17,17);
+\fill[fdata!60] (0,17) -- (5,12) -- (0,12) -- cycle;
+\fill[fmemory!60] (5,12) -- (14,3) -- (5,3) -- cycle;
+\fill[fcomm!60] (14,3) -- (17,0) -- (14,0) -- cycle;
+\draw (0,0) rectangle (17,17);
+\node[font=\scriptsize,align=center] at (8.5,-2.2) {row 2 mask: attend within\\own segment, causally};
+\end{scope}
+\end{tikzpicture}}
+\caption{Padding vs.\ packing for four responses of lengths 18, 5, 9 and 3. Packing
+concatenates sequences into rows of a fixed token budget; a block-diagonal causal mask (or a
+varlen kernel driven by \texttt{cu\_seqlens}) prevents attention across sequence boundaries,
+and position ids restart at 0 for every segment.}
+\label{fig:rlsys:packing}
+\end{figure}
+
+Three ingredients make packing correct:
+\begin{enumerate}
+\item \textbf{Bin packing.} Group sequences into rows under a token budget. First-fit
+decreasing (FFD) is simple and provably uses at most $\tfrac{11}{9}\mathrm{OPT}+\tfrac{6}{9}$ bins
+(the tight bound is due to D\'osa, 2007).
+\item \textbf{Segment-aware attention.} Each token may attend only to earlier tokens of its
+own sequence. FlashAttention's \texttt{varlen} interface takes cumulative sequence lengths
+(\texttt{cu\_seqlens}) and never materialises the mask; we build the mask explicitly.
+\item \textbf{Per-segment positions.} RoPE angles (or GPT-2 position embeddings) must restart
+at 0 for each sequence; otherwise the second sequence in a row sees shifted positions.
+\end{enumerate}
+
+\begin{lstlisting}[caption={Block-diagonal causal mask and a packed log-prob pass
+(\texttt{llmsys/rlsys/packing.py}, abridged).},label={lst:rlsys:packing}]
+def block_causal_mask(cu_seqlens):
+    N = int(cu_seqlens[-1])
+    seg = torch.zeros(N, dtype=torch.long)
+    for k in range(len(cu_seqlens) - 1):
+        seg[int(cu_seqlens[k]):int(cu_seqlens[k + 1])] = k
+    same = seg[:, None] == seg[None, :]
+    causal = torch.ones(N, N, dtype=torch.bool).tril()
+    return ~(same & causal)                     # True = forbidden
+
+def packed_completion_logprobs(model, seqs, prompt_lens, max_tokens):
+    out = [0.0] * len(seqs)
+    for bin_ in ffd_pack([len(s) for s in seqs], max_tokens):
+        ids, pos, cu = build_packed_row([seqs[i] for i in bin_])
+        logp = torch.log_softmax(varlen_forward(model, ids, pos, cu)[0].float(), -1)
+        for j, i in enumerate(bin_):
+            s, e = int(cu[j]), int(cu[j + 1])
+            tok_lp = logp[s:e - 1].gather(-1, ids[0, s + 1:e, None]).squeeze(-1)
+            out[i] = float(tok_lp[prompt_lens[i] - 1:].sum())
+    return out
+\end{lstlisting}
+
+The function \ident{varlen_forward} reuses the \emph{weights} of the core
+\ident{Qwen3Model} or \ident{GPTModel} but runs its own attention with the packed mask and
+per-token RoPE positions. The lab's test checks that every packed log-prob equals the
+unpacked \ident{sequence_logprob} of \cref{ch:refine} to within $10^{-3}$. On a CPU with a tiny
+model and 64 log-normal-length sequences, the packed pass took 17\,s against 42\,s for
+padded batches of 8 in our runs, with a real-token fraction of 96\% vs.\ 39\%.
+
+\begin{pitfall}[Loss normalisation across micro-batches and ranks]
+Token-level losses (DAPO, \cref{ch:grpo2}) are defined as a sum over \emph{all} tokens in the
+global batch divided by the global token count. If each micro-batch computes its own
+token-mean and gradients are then averaged over micro-batches and data-parallel ranks,
+micro-batches with few tokens are silently up-weighted, and the result depends on how the
+packer happened to group sequences. The fix is to divide each micro-batch's token \emph{sum} by
+the global token count (an all-reduce of a scalar before the backward passes). Several
+frameworks have had bugs of exactly this kind.
+\end{pitfall}
+
+\begin{systemslens}[Dynamic batch size by token budget]
+Fixed-size micro-batches of variable-length sequences produce wildly varying memory peaks.
+Production trainers instead form micro-batches by a \emph{token budget} (veRL calls this
+dynamic batch size; the idea is general), which makes activation memory roughly constant and
+lets the budget be tuned to the largest value that fits. With packing, the token budget is
+literally the row length.
+\end{systemslens}
+
+% =====================================================================================
+\section{Train/inference mismatch}\label{sec:rlsys:mismatch}
+
+A subtle problem appeared once RL systems began using high-throughput inference engines: even
+with \emph{identical} weights, the engine's token probabilities $\mu(y_t)$ differ from those the
+trainer computes, $\piold(y_t)$. Engines use different kernels (fused attention, paged KV,
+different GEMM tilings), different reduction orders, batch-size-dependent algorithms,
+sometimes FP8 or quantised KV caches, and sampling-time logit processing. All of these are
+harmless for serving and all of them change the low bits of the logits. Over thousands of
+tokens and a vocabulary of 150k entries, low-bit differences become occasional large ratio
+differences on low-probability tokens---exactly the tokens a sampler sometimes picks.
+
+\begin{figure}[t]
+\centering
+\resizebox{0.9\linewidth}{!}{%
+\begin{tikzpicture}[box/.style={draw,rounded corners,align=center,font=\small,minimum height=1cm},
+  arr/.style={-{Stealth},thick}]
+\node[box,fill=gray!10] (w) at (0,0) {same weights $\theta$};
+\node[box,fill=fmemory!25] (e) at (4.2,1.1) {inference engine\\paged KV, fused kernels,\\bf16/FP8, batch-variant};
+\node[box,fill=fcompute!25] (t) at (4.2,-1.1) {trainer\\eager / FSDP kernels,\\bf16, fixed shapes};
+\node[box] (mu) at (8.6,1.1) {$\mu(y_t \mid y_{<t})$\\sampled \& logged};
+\node[box] (pi) at (8.6,-1.1) {$\piold(y_t \mid y_{<t})$\\recomputed};
+\draw[arr] (w) -- (e); \draw[arr] (w) -- (t);
+\draw[arr] (e) -- (mu); \draw[arr] (t) -- (pi);
+\node[draw=warnred,fill=warnredbg,rounded corners,font=\small,align=center] at (12.2,0)
+  {$\rho_t=\dfrac{\piold(y_t)}{\mu(y_t)}\neq 1$\\heavy tails on\\rare tokens};
+\draw[arr,warnred] (mu.east) -- (10.9,0.35); \draw[arr,warnred] (pi.east) -- (10.9,-0.35);
+\end{tikzpicture}}
+\caption{Train/inference mismatch: the samples come from the engine's distribution $\mu$,
+while the policy-gradient estimator assumes they come from $\piold$.}
+\label{fig:rlsys:mismatch}
+\end{figure}
+
+Because $y\sim\mu$, the unbiased policy gradient is
+\begin{equation}
+\nabla_\theta J = \E_{y\sim\mu}\left[\sum_t \frac{\piold(y_t\mid y_{<t})}{\mu(y_t\mid y_{<t})}
+\nabla_\theta \min\!\big(r_t A,\ \clip(r_t,1\pm\epsilon) A\big)\right],
+\end{equation}
+where we have used a per-token approximation of the sequence-level ratio, as PPO does.
+Ignoring $\rho_t = \piold/\mu$ (i.e.\ setting it to 1) introduces a bias that has been
+reported to destabilise long runs. Since $\rho_t$ is occasionally huge, the naive correction
+has high variance. Two practical estimators, both implemented in
+\ident{llmsys/rlsys/mismatch.py}:
+\begin{itemize}
+\item \textbf{Truncated importance sampling (TIS):} $w_t = \min(\rho_t, C)$ with $C\approx 2$.
+This was popularised for LLM RL in a 2025 analysis by Yao et al.\ of the mismatch in
+vLLM+FSDP systems; it is the same truncation idea as in off-policy actor--critic methods.
+\item \textbf{Masked importance sampling (MIS):} $w_t = \mathbf{1}[1/C\le\rho_t\le C]$, which
+drops outlier tokens instead of down-weighting them; variants operate at the sequence level.
+\end{itemize}
+The weights are \emph{detached}---they rescale gradients and are never optimised.
+
+\begin{lstlisting}[caption={Clipped surrogate with truncated importance-sampling correction.},
+label={lst:rlsys:tis}]
+def is_weights(logp_train, logp_rollout, cap=2.0, mode="truncate"):
+    ratio = torch.exp((logp_train - logp_rollout).detach())
+    if mode == "truncate":
+        return ratio.clamp(max=cap)
+    if mode == "mask":
+        return ((ratio >= 1.0 / cap) & (ratio <= cap)).to(ratio.dtype)
+    return torch.ones_like(ratio)
+
+def clipped_pg_loss(logp_new, logp_old, adv, mask, clip_eps=0.2,
+                    logp_rollout=None, tis_cap=None, tis_mode="truncate"):
+    adv = adv[:, None] if adv.dim() == 1 else adv
+    ratio = torch.exp(logp_new - logp_old.detach())
+    surr = torch.minimum(ratio * adv,
+                         ratio.clamp(1 - clip_eps, 1 + clip_eps) * adv)
+    if logp_rollout is not None and tis_cap is not None:
+        surr = surr * is_weights(logp_old, logp_rollout, tis_cap, tis_mode)
+    m = mask.to(surr.dtype)
+    return -(surr * m).sum() / m.sum().clamp(min=1)
+\end{lstlisting}
+
+Correction is one approach; \emph{elimination} is the other. Making inference kernels
+\emph{batch-invariant}---so the result for a sequence does not depend on what else is in the
+batch---removes a major source of nondeterminism, and with matching kernels in the trainer it
+is possible to run bitwise on-policy RL (Thinking Machines Lab, ``Defeating nondeterminism in
+LLM inference'', 2025). Others have argued for higher-precision formats (e.g.\ fp16 with its
+larger mantissa instead of bf16) to shrink the mismatch. These remedies cost inference
+throughput; TIS costs almost nothing. A reasonable default is: always log the mismatch, always
+recompute $\piold$ in the trainer rather than trusting engine log-probs for the ratio, and
+enable TIS or MIS.
+
+\begin{napkinmath}[How big is the mismatch from precision alone?]
+The lab evaluates the same tiny Qwen3 model in fp32 and in bf16 on random token sequences
+(\ident{token_logprobs} with \code{dtype=torch.bfloat16}). On our CPU runs the mean
+absolute log-prob difference was $\approx 0.09$ nats, the per-token ratio ranged over
+$[0.70,\,1.37]$, and the $k_3$ KL estimate was $\approx 7\times10^{-3}$. A random tiny model
+has nearly uniform outputs and is not representative of a trained model; run
+\texttt{bench.py mismatch --qwen3\_dir} on real weights to see the long tail on rare
+tokens that motivates TIS.
+\end{napkinmath}
+
+\begin{keyidea}[Monitor these every step]
+Mean $|\log\piold-\log\mu|$; the $k_3$ estimate of $\KL(\mu\,\|\,\piold)$; the fraction of
+tokens with $\rho_t\notin[0.5,2]$; the maximum $\rho_t$. A sudden increase is often the first
+sign of a weight-sync bug, a kernel change, or a numerically unstable model state.
+\end{keyidea}
+% =====================================================================================
+\section{Configuring the rollout engine for RL}\label{sec:rlsys:engine}
+
+A serving engine tuned for chat traffic is not automatically a good rollout engine. Several
+settings that are harmless (or desirable) for serving change the \emph{distribution} that RL
+assumes it is sampling from, or waste the structure of RL workloads.
+
+\paragraph{Sampling parameters define $\mu$.} The policy-gradient estimator assumes samples
+come from the policy whose log-probabilities appear in the ratio. If the engine samples with
+temperature $\tau\neq 1$, top-$p$ or top-$k$ (\cref{ch:scaling}), it samples from a
+\emph{transformed} distribution. Either sample at $\tau=1$ without truncation, or compute the
+training-side log-probabilities under the same transformation---including the truncation
+mask: renormalise over exactly the token set that was available at sampling time (one of the
+GRPO modifications listed in \cref{ch:grpo2}). Repetition penalties, logit biases and
+grammar-constrained decoding all fall under the same rule.
+
+\paragraph{Exploit the shared prompt.} GRPO samples $G$ responses per prompt. An engine that
+supports parallel sampling (\texttt{n}$=G$ in vLLM) or prefix caching (\cref{ch:serving})
+prefills each prompt once and forks its KV blocks copy-on-write for the $G$ continuations
+(\cref{ch:scaling}). For long prompts (agentic tasks with large contexts, or long
+system prompts) this removes up to a factor $G$ of prefill work and of KV memory for the
+prompt.
+
+\paragraph{Return token ids, not text.} The trainer must score exactly the token sequence the
+engine sampled. Decoding to text and re-tokenising can change the sequence (merges across the
+prompt/response boundary, normalisation of whitespace or special tokens), which silently
+breaks the ratio. Pass token ids end to end; this is sometimes called a
+``token-in, token-out'' interface.
+
+\paragraph{CUDA graphs, cache size and preemption.} Decode steps of small models are dominated
+by kernel-launch overhead unless captured in CUDA graphs (\cref{ch:inference}); engines
+capture graphs for a set of batch sizes at start-up, which costs time and memory each time an
+engine is woken in a colocated setup. The KV cache budget determines concurrency; when it is
+exhausted the engine preempts sequences (swap or recompute), which for RL does not change the
+result but can multiply the tail.
+
+\begin{systemslens}[Rollout engines are throughput servers with no SLOs]
+Serving engines trade throughput for latency SLOs (TTFT, inter-token latency). An RL rollout
+has no per-request latency target at all: only the time until the \emph{whole batch} (or the
+first $B$ groups) is done matters. Scheduling should therefore maximise concurrency and
+prioritise requests that are likely to be long (start them first, a longest-processing-time
+heuristic) rather than serve requests in arrival order. Length predictors trained on previous
+steps' rollouts have been proposed for exactly this purpose.
+\end{systemslens}
+
+% =====================================================================================
+\section{Multi-turn and agentic rollouts}\label{sec:rlsys:agentic}
+
+The RLVR loop in this book generates one response per prompt. Agentic RL---training models to
+use tools, browse, or edit a code repository---turns each rollout into a \emph{conversation with
+an environment}: the model emits a tool call, generation pauses, the environment executes the
+call (a shell command, a search query, a unit test), and the observation is appended to the
+context before generation resumes (\cref{fig:rlsys:agentic}).
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[x=0.5cm,y=0.55cm,
+  g/.style={draw=napkin,fill=fmemory!30},
+  e/.style={draw=keygreen,fill=fdata!25},
+  lab/.style={font=\scriptsize\bfseries,anchor=east}]
+\newcommand{\seg}[5]{\draw[#1] (#2,#3) rectangle node[font=\tiny]{#5} (#4,#3+0.8);}
+\node[lab] at (-0.3,0.4) {rollout 1};
+\seg{g}{0}{0}{4}{decode}\seg{e}{4}{0}{9}{tool: run tests}\seg{g}{9}{0}{11}{prefill+dec}
+\seg{e}{11}{0}{12.5}{env}\seg{g}{12.5}{0}{16}{decode}
+\node[lab] at (-0.3,-0.9) {rollout 2};
+\seg{g}{0}{-1.3}{2}{dec}\seg{e}{2}{-1.3}{3}{env}\seg{g}{3}{-1.3}{6}{decode}\seg{e}{6}{-1.3}{14}{tool: slow search}
+\seg{g}{14}{-1.3}{17}{decode}
+\node[lab] at (-0.3,-2.2) {rollout 3};
+\seg{g}{0}{-2.6}{7}{decode}\seg{e}{7}{-2.6}{8}{env}\seg{g}{8}{-2.6}{10}{dec}
+\draw[-{Stealth},thin] (0,-3.3) -- (18,-3.3) node[right,font=\scriptsize]{time};
+\node[font=\scriptsize,align=left,anchor=west] at (18.6,-0.6)
+ {GPU slot is free while a\\rollout waits on its tool:\\admit another sequence,\\keep (or offload) its KV};
+\end{tikzpicture}}
+\caption{Agentic rollouts interleave decoding (orange) with environment steps (green) whose
+latency can exceed the decoding time. An engine that blocks a slot while a tool runs wastes
+the slot; asynchronous rollout workers release it and re-admit the sequence when the
+observation arrives, ideally with its KV cache still resident (prefix caching).}
+\label{fig:rlsys:agentic}
+\end{figure}
+
+This changes the systems picture in four ways:
+\begin{enumerate}
+\item \textbf{Rollouts become state machines.} A rollout worker drives the loop
+generate $\rightarrow$ parse tool call $\rightarrow$ execute $\rightarrow$ append observation
+$\rightarrow$ generate, typically with \texttt{asyncio} over many concurrent episodes so that
+environment latency overlaps other episodes' decoding.
+\item \textbf{The KV cache must survive pauses.} Re-prefilling the whole context after every
+tool call is quadratic in the number of turns; prefix caching (or explicitly pinned sessions)
+keeps the conversation's KV resident between turns.
+\item \textbf{Loss masks get more complex.} Only tokens the model generated should receive
+gradient; tool outputs and environment observations are context, so they are masked out of
+the loss exactly like prompt tokens in SFT (\cref{ch:instruct}). The token-in/token-out rule
+matters even more because observations are spliced between generated segments.
+\item \textbf{Environments are infrastructure.} Each episode may need its own container
+(a repository checkout, a browser, a database), with start-up costs of seconds; environment
+pools, snapshotting, and failure handling become as important as the GPU schedule.
+\end{enumerate}
+
+% =====================================================================================
+\section{Reward infrastructure}\label{sec:rlsys:reward}
+
+In RLVR the reward is a program. That sounds cheap until one counts: 4{,}096 responses per
+step, each requiring answer extraction, normalisation and a symbolic-equivalence check
+(\cref{ch:eval}), or the execution of model-written code against a test suite. Reward
+computation is therefore a \emph{service} with its own throughput, latency, and isolation
+requirements (\cref{fig:rlsys:reward}).
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[box/.style={draw,rounded corners,align=center,font=\small,minimum height=1cm},
+  arr/.style={-{Stealth},thick}]
+\node[box,fill=fmemory!25] (eng) at (0,0) {rollout\\engine};
+\node[box,fill=gray!8,minimum width=2.4cm] (q) at (3.4,0) {request queue\\(per sample,\\streaming)};
+\node[box,fill=fdata!20] (math) at (7.4,1.6) {math verifier pool\\(CPU, sympy,\\per-call timeout)};
+\node[box,fill=fdata!20] (code) at (7.4,0) {code sandboxes\\(micro-VMs / gVisor,\\no network, rlimits)};
+\node[box,fill=fdata!20] (rm) at (7.4,-1.6) {reward-model /\\judge server (GPU)};
+\node[box,fill=gray!8] (agg) at (11.2,0) {aggregate\\normalise per\\component};
+\node[box,fill=fcompute!25] (tr) at (14.2,0) {advantages\\$\rightarrow$ trainer};
+\draw[arr] (eng) -- (q);
+\draw[arr] (q.east) -- (math.west); \draw[arr] (q.east) -- (code.west); \draw[arr] (q.east) -- (rm.west);
+\draw[arr] (math.east) -- (agg.west); \draw[arr] (code.east) -- (agg.west); \draw[arr] (rm.east) -- (agg.west);
+\draw[arr] (agg) -- (tr);
+\end{tikzpicture}}
+\caption{Reward computation as a service. Samples are scored as soon as they finish, so
+reward latency hides behind the generation tail. Different reward types run on different
+resources; multi-reward training normalises each component before combining them
+(\cref{ch:grpo2}).}
+\label{fig:rlsys:reward}
+\end{figure}
+
+\paragraph{Streaming.} Because responses finish at very different times, the reward of the
+first finished response can be computed while the last ones are still decoding. A reward
+service that consumes a stream of completions hides almost all of its latency behind the
+generation tail.
+
+\paragraph{Timeouts everywhere.} Symbolic equivalence checking can take unbounded time on
+adversarial expressions, and generated code can loop forever. Every reward call needs a hard
+wall-clock timeout, a defined reward on timeout (usually 0), and a metric counting timeouts.
+
+\paragraph{Isolation.} Executing model-written code is executing untrusted code. A policy
+under optimisation pressure will discover anything that raises its reward: deleting or
+monkeypatching the tests, reading the expected outputs from disk, exiting with status 0
+before the assertions run, or exhausting resources to crash the grader into a default score.
+Production sandboxes use containers with seccomp filters, user-space kernels (gVisor),
+micro-VMs (Firecracker), or jail tools (nsjail), with no network, read-only base images,
+cgroup CPU/memory limits, and a pool of pre-warmed workers to amortise start-up cost.
+
+\begin{lstlisting}[caption={A teaching sandbox: a fresh interpreter, empty environment,
+resource limits and a timeout. Not a security boundary.},label={lst:rlsys:sandbox}]
+def _limits(cpu_sec, mem_mb):
+    def fn():
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_sec, cpu_sec))
+        mem = mem_mb * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (1 << 20, 1 << 20))
+        os.setsid()
+    return fn
+
+def run_python_reward(code, tests, timeout=2.0, mem_mb=512):
+    program = code + "\n\n" + tests + "\n"
+    t0 = time.perf_counter()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "prog.py")
+        with open(path, "w") as f:
+            f.write(program)
+        try:
+            p = subprocess.run([sys.executable, "-I", "-S", path], cwd=tmp,
+                               env={}, capture_output=True, text=True,
+                               timeout=timeout,
+                               preexec_fn=_limits(int(timeout) + 1, mem_mb))
+        except subprocess.TimeoutExpired:
+            return SandboxResult("timeout", 0.0, time.perf_counter() - t0)
+    ok = p.returncode == 0
+    status = "pass" if ok else ("fail" if "AssertionError" in p.stderr else "error")
+    return SandboxResult(status, float(ok), time.perf_counter() - t0, p.stderr[-500:])
+\end{lstlisting}
+
+\begin{pitfall}[Reward hacking through the grader]
+\Cref{lst:rlsys:sandbox} concatenates the tests after the code, so a response that calls
+\code{os.\_exit(0)} at import time ``passes'' every test. Real graders run tests in a
+separate process or namespace from the candidate code, check that the expected number of
+tests actually ran, and treat any deviation from the protocol as failure. Audit samples with
+suspiciously high reward.
+\end{pitfall}
+
+\begin{napkinmath}[Sandbox capacity]
+A cold Python process costs tens of milliseconds to start; a container, hundreds of
+milliseconds; a micro-VM from a snapshot, on the order of 100\,ms. If 4{,}096 code responses
+per step each run a 0.5\,s test suite and the generation phase lasts 60\,s, we need at least
+$4096\times 0.5/60\approx 34$ concurrent workers just to keep up with the stream---and several
+times that to keep reward latency off the critical path when completions arrive in a burst at
+the end of a synchronous phase.
+\end{napkinmath}
+
+% =====================================================================================
+\section{A tour of open RL frameworks}\label{sec:rlsys:frameworks}
+
+With the vocabulary of the previous sections we can place the open frameworks in a common
+design space (\cref{tab:rlsys:frameworks}). The table describes designs as they were
+documented around 2025; all of these projects evolve quickly, often converging on each
+other's best ideas, so consult their current documentation before relying on a detail.
+
+\begin{table}[t]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Framework & Orchestration & Training / rollout engines & Placement \& notable ideas\\
+\midrule
+TRL (Hugging Face) & single program on top of \texttt{accelerate} &
+Transformers + DeepSpeed/FSDP; vLLM for generation & vLLM either as a separate server
+process or colocated in the training process; easiest entry point, HF-ecosystem native\\
+OpenRLHF (Hu et al., 2024) & Ray actors & DeepSpeed ZeRO; vLLM &
+originally separate GPU groups per model (actor, critic, reward, reference, vLLM); later a
+hybrid-engine colocation mode and asynchronous options\\
+veRL / HybridFlow (Sheng et al., 2025) & hybrid: single controller (Ray driver) for the
+RL dataflow, SPMD workers inside each model & FSDP or Megatron-LM; vLLM or SGLang &
+3D-HybridEngine for colocated, low-redundancy resharding between training and generation
+layouts; token-budget dynamic batching\\
+NeMo-Aligner (Shen et al., 2024) & Megatron-based distributed jobs & Megatron-LM;
+TensorRT-LLM-accelerated generation & large-scale PPO/RLHF in the NVIDIA stack; continued
+in NVIDIA's newer NeMo-RL\\
+AReaL (Fu et al., 2025) & asynchronous generation and training services &
+SGLang rollouts; FSDP/Megatron training & fully asynchronous with bounded staleness and a
+decoupled PPO objective; interruptible rollouts\\
+\bottomrule
+\end{tabularx}
+\caption{Design choices of several open RL frameworks for LLMs (snapshot of public designs
+around 2025). Other actively developed systems include slime, ROLL, SkyRL, PipelineRL and
+prime-rl; the space changes month to month.}
+\label{tab:rlsys:frameworks}
+\end{table}
+
+\subsection{Single controller versus multi-controller}
+
+The HybridFlow paper frames a useful distinction. In a \emph{multi-controller} (SPMD) program,
+every GPU runs the same script and coordination is implicit in collectives---the natural style
+for training a single model (\cref{ch:distributed}). In a \emph{single-controller} program, one
+driver issues remote calls to groups of workers---the natural style for a dataflow of several
+models, because the RL algorithm reads like the loop of \cref{ch:grpo}:
+
+\begin{lstlisting}[caption={The RL loop as a single-controller program (pseudocode in the
+style of Ray-based frameworks). Each call fans out to an SPMD worker group.},
+label={lst:rlsys:controller}]
+for step in range(num_steps):
+    batch = dataloader.next()
+    rollouts = rollout_group.generate(batch, n=G)           # vLLM/SGLang workers
+    rewards = reward_service.score(rollouts)                # CPU pool / sandboxes
+    old_lp = actor_group.compute_logprobs(rollouts)         # FSDP workers, packed
+    ref_lp = ref_group.compute_logprobs(rollouts) if beta > 0 else None
+    adv = group_normalise(rewards, G)                       # on the driver
+    metrics = actor_group.update(rollouts, adv, old_lp, ref_lp)
+    rollout_group.load_weights(actor_group.export_weights())  # weight sync
+\end{lstlisting}
+
+The driver handles only small metadata (or references to data held by workers, as Ray object
+references), so it does not become a bandwidth bottleneck, while each \code{*\_group} call is an
+SPMD collective program internally. HybridFlow argues that this hybrid gives the
+flexibility of single-controller dataflow with the efficiency of SPMD execution.
+
+% =====================================================================================
+\section{Checkpointing and fault tolerance}\label{sec:rlsys:ft}
+
+An RL run's state is larger than a pretraining run's: actor weights and optimizer state,
+critic state (PPO), the frozen reference (re-loadable), data-loader position and RNG state,
+\emph{and} the in-flight rollout state of an asynchronous pipeline---the replay buffer of
+finished but untrained samples, partially generated responses, and the policy version that
+produced each. Two pragmatic rules:
+\begin{itemize}
+\item \textbf{Checkpoint at step boundaries and drop in-flight rollouts on restart.} The lost
+work is at most one step of generation, and restart logic stays simple. Record the policy
+version in every sample so that resumed async pipelines can enforce the staleness bound.
+\item \textbf{Make rollout engines stateless and restartable.} Engines crash (OOMs from
+unexpectedly long sequences, driver errors). A controller that can re-launch an engine,
+reload the latest weights and re-issue its unfinished prompts turns a crash into a slowdown.
+\end{itemize}
+Sharded, asynchronous checkpointing of the trainer (\cref{ch:pretrain}) applies unchanged.
+
+% =====================================================================================
+\section{Putting it together: a design worksheet}\label{sec:rlsys:design}
+
+\begin{napkinmath}[Sizing an 8B RLVR run on 64 GPUs]
+Using the numbers from \cref{sec:rlsys:anatomy}: $W_t \approx 64\times(33+22)$\,GPU-s
+$\approx 3{,}500$\,GPU-s of training and scoring per step, and
+$W_g \approx 64 \times 32 \approx 2{,}050$\,GPU-s of generation if slots stay busy.
+\begin{itemize}
+\item \emph{Colocated, synchronous:} $(W_g+W_t)/64 \approx 87$\,s plus the tail ($\sim$80\,s) plus
+switch overhead: $\sim$170--180\,s per step.
+\item \emph{Split, one-step async:} balance $G_{\text{gen}}/G = W_g/(W_g+W_t)\approx 0.37$,
+i.e.\ 24 generation GPUs and 40 training GPUs; the per-step time approaches
+$\max(W_g/24, W_t/40)\approx 87$\,s, but the tail now sits inside the generation term: unless it
+is mitigated (partial rollouts, caps), generation takes $\approx 85+80 = 165$\,s and the
+trainer idles half the time.
+\item \emph{Split, async + partial rollouts:} with the tail absorbed into the next phase, step
+time approaches the balanced $\approx 90$\,s, a $\sim$2$\times$ improvement over the synchronous
+baseline, at the cost of staleness $\le 1$--2 and mixed-policy samples.
+\end{itemize}
+These figures are idealised, but they show where to look first: the tail, then the balance
+between pools, then the constant overheads.
+\end{napkinmath}
+
+A checklist for a new RL system:
+\begin{enumerate}
+\item Measure the response-length distribution before choosing a schedule; it determines
+whether asynchrony or tail mitigation matters more.
+\item Recompute $\piold$ in the trainer and log mismatch metrics; enable TIS/MIS.
+\item Pack the scoring and training passes; normalise token-level losses by the global token
+count.
+\item Bound staleness explicitly, record policy versions per sample, and correct with
+importance weights where staleness is non-zero.
+\item Stream rewards; put timeouts and isolation around every reward call.
+\item Verify weight sync with a log-prob comparison during bring-up.
+\end{enumerate}
+
+% =====================================================================================
+\section{Summary}\label{sec:rlsys:summary}
+\begin{itemize}
+\item An RL step chains bandwidth-bound generation, CPU-bound or GPU-bound rewards, and
+compute-bound scoring/training through a weight-update dependency. Generation usually
+dominates wall-clock time, mostly because of the long tail of response lengths.
+\item Colocation time-shares devices (no idle pools, switch overhead); disaggregation
+dedicates devices (specialised layouts, concurrency) but only beats colocation when combined
+with asynchrony, heterogeneous hardware, or high switch costs.
+\item Weight sync is a resharding problem as much as a bandwidth problem; validate it by
+comparing log-probs.
+\item Asynchronous RL bounds staleness and corrects for it with importance weights (decoupled
+objectives); partial rollouts tame the tail at the cost of mixed-policy, length-biased batches.
+\item Packing with block-diagonal masks and per-segment positions removes padding waste in
+scoring and training passes; loss normalisation must use global token counts.
+\item Inference engines sample from $\mu\neq\piold$ even with identical weights; truncated or
+masked importance sampling corrects this cheaply, batch-invariant kernels remove it.
+\item Rewards are a service: stream them, time them out, and isolate code execution; assume the
+policy will find any loophole in the grader.
+\end{itemize}
+
+% =====================================================================================
+\section{Exercises}\label{sec:rlsys:exercises}
+
+\begin{exercise}[Optimal split]
+Derive the optimal $G_{\text{gen}}$ for \cref{eq:rlsys:sync} and show that
+$T^\star_{\text{sync-split}} \ge T_{\text{coloc}} - T_{\text{switch}}$ with equality iff one stage
+has zero work. For which values of $T_{\text{switch}}$ does the synchronous split win?
+\end{exercise}
+
+\begin{exercise}[KV budget]
+Repeat the generation napkin math of \cref{sec:rlsys:anatomy} for Qwen3-4B (36 layers, 8 KV
+heads, head dimension 128) on an 80\,GB GPU with average live context 6{,}000 tokens. How many
+concurrent sequences fit, and what is the upper bound on decode tokens/s per GPU?
+\end{exercise}
+
+\begin{exercise}[Staleness bound]
+In the \texttt{async} policy of the simulator, generation of batch $k$ may start only after
+training step $k-s-1$ has finished. Prove that every sample of batch $k$ has staleness at most
+$s$, and show with a timeline that $s=0$ recovers the synchronous split schedule.
+\end{exercise}
+
+\begin{exercise}[Loss normalisation bug]
+Two micro-batches contain 100 and 1{,}000 response tokens with mean token losses $\ell_1$ and
+$\ell_2$. Compute the effective loss when (a) micro-batch means are averaged, and (b) the
+token-level definition is used. Write the one-line fix for a gradient-accumulation loop.
+\end{exercise}
+
+\begin{exercise}[TIS bias and variance]
+For a single token with $\rho\sim$ a log-normal distribution with $\E_\mu[\rho]=1$, compute the
+bias $\E_\mu[\min(\rho,C)]-1$ as a function of $C$ and the log-normal variance. Why is a
+small bias acceptable here?
+\end{exercise}
+
+\begin{exercise}[Packing efficiency]
+Show that FFD never uses more than $2\,\mathrm{OPT}$ bins with a short argument (the full
+$\tfrac{11}{9}$ bound is harder). Then use \ident{efficiency_report} to compare padding,
+length-sorted padding and packing on log-normal lengths with $\sigma\in\{0.25,0.5,1\}$.
+\end{exercise}
+
+\begin{exercise}[Partial-rollout bias]
+Using the simulator, record the mean length of samples consumed in each step under
+\texttt{partial} and compare with the generated length distribution. How many steps does it
+take for the consumed-length distribution to match the generated one? How does
+\code{oversample} change this?
+\end{exercise}
+
+\begin{exercise}[Weight sync across sites]
+A 32B policy is trained in one datacenter and rolled out in another over a 100\,Gb/s link.
+Estimate the sync time in bf16, fp8 and with LoRA rank 64 on all linear layers. Which
+schedule from \cref{sec:rlsys:async} would you use?
+\end{exercise}
+
+\begin{exercise}[Attacking the grader]
+List five ways a policy could obtain reward from \cref{lst:rlsys:sandbox} without solving the
+task, and give a mitigation for each. Implement two of them as tests for your own sandbox.
+\end{exercise}
+
+\begin{exercise}[Measurement]
+Run \texttt{bench.py sim} and add a policy \texttt{async+partial} to the simulator (partial
+rollouts in a generator pool that runs concurrently with training). Plot throughput and
+mean staleness against \code{oversample}.
+\end{exercise}
+
+\begin{exercise}[Design]
+You have 32 H100s and a 14B model. Propose a placement, schedule and parallel layout for an
+RLVR run with $B=256$, $G=16$, mean response length 6{,}000 and a cap of 32{,}000 tokens.
+Justify each choice with a napkin estimate.
+\end{exercise}
+
+% =====================================================================================
+\section{Lab 39: Building blocks of an RL training system}\label{sec:rlsys:lab}
+
+\begin{labbox}{39}{Building blocks of an RL training system}
+\labdir{lab39_rlsys}
+\labsection{Goals}
+Implement and measure the pieces that surround the GRPO update in a production RL framework:
+packed scoring passes, mismatch correction, schedule simulation and sandboxed rewards.
+
+\labsection{Setup}
+\begin{lstlisting}[style=shell]
+cd code
+pytest -q labs/lab39_rlsys                    # grades starter.py
+LAB_IMPL=solution pytest -q labs/lab39_rlsys  # reference implementation
+\end{lstlisting}
+Everything runs on a CPU in under a minute with tiny models; \texttt{bench.py} accepts a real
+Qwen3 checkpoint for the mismatch measurement.
+
+\labsection{Tasks}
+\begin{enumerate}
+\item \textbf{Packing.} Implement \ident{ffd_pack} and \ident{efficiency_report} (padded,
+length-sorted padded, packed real-token fractions).
+\item \textbf{Varlen log-probs.} Implement \ident{block_causal_mask} and
+\ident{packed_completion_logprobs} on top of the provided \ident{varlen_forward}. The tests
+compare against unpacked \ident{sequence_logprob} for both Qwen3- and GPT-shaped models.
+\item \textbf{Mismatch.} Implement \ident{is_weights} (truncate/mask/none),
+\ident{mismatch_metrics} (including the $k_3$ KL estimate) and \ident{clipped_pg_loss} with an
+optional TIS factor. Check that the gradient at $\pitheta=\piold$ is $-A/n_{\text{tokens}}$.
+\item \textbf{Pipeline simulation.} Implement \ident{run_generation} (continuous batching with
+an early stop) and \ident{weight_sync_seconds}; the provided \ident{simulate} drives your code
+through the colocated, sync, async and partial policies.
+\item \textbf{Sandboxed reward.} Implement \ident{run_python_reward} and \ident{score_batch}
+with timeouts, resource limits and an empty environment.
+\end{enumerate}
+
+\labsection{Measurements}
+\begin{itemize}
+\item \texttt{bench.py sim}: throughput, utilisation, staleness and mixed-policy fraction for
+each policy as $\sigma$ varies. Expect async to help most for light tails and partial rollouts
+to dominate for heavy tails (\cref{fig:rlsys:simresults}).
+\item \texttt{bench.py packing}: wall time of padded vs.\ packed log-prob passes and the
+real-token fractions. Expect a large gap whenever lengths are heavy-tailed.
+\item \texttt{bench.py mismatch}: bf16-vs-fp32 mismatch metrics, ideally on real Qwen3-0.6B
+weights; look at the maximum ratio and the fraction outside $[0.5, 2]$.
+\end{itemize}
+
+\labsection{Deliverables}
+Passing tests; a one-page note with the simulator sweep (a plot like
+\cref{fig:rlsys:simresults}), the packing timings, and the mismatch metrics, each with a
+sentence of interpretation.
+
+\labsection{Stretch goals}
+\begin{itemize}
+\item Add an \texttt{async+partial} policy and a staleness-aware sampler that drops samples
+older than $s$ versions; plot throughput vs.\ staleness.
+\item Wire \ident{clipped_pg_loss} with TIS into your GRPO loop from \cref{ch:grpo2}, generate
+rollouts with a bf16 copy of the model and train in fp32; compare reward curves with and without
+TIS.
+\item Replace the dense mask in \ident{varlen_forward} with a loop over segments that calls
+\texttt{F.scaled\_dot\_product\_attention} per segment, and measure the speedup.
+\end{itemize}
+\end{labbox}

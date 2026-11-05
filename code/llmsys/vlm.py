@@ -1,4 +1,4 @@
-"""A minimal vision-language model in the LLaVA mould (Chapter 31).
+"""A minimal vision-language model in the LLaVA mould (Chapter 41).
 
 image -> patches -> small ViT -> MLP projector -> spliced into the token-embedding
 sequence at <image> placeholder positions -> a core ``Qwen3Model`` decoder.

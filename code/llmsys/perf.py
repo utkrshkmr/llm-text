@@ -1,4 +1,4 @@
-"""Single-device performance engineering toolkit (Chapter 13).
+"""Single-device performance engineering toolkit (Chapter 16).
 
 Benchmarking
     ``time_fn``            warm-up + synchronise + repeat; returns mean/std/median/min/all.

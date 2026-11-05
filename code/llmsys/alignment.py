@@ -1,10 +1,10 @@
-"""Generalist post-training utilities (Chapter 31).
+"""Generalist post-training utilities (Chapter 41).
 
 Three groups of tools:
 
 * **Data**: temperature-based mixture sampling over instruction sources, n-gram
   decontamination against eval sets, and a *streaming* concat-and-chunk SFT packer with
-  rank sharding and a resumable cursor (Chapter 17's packer is the in-memory, bin-packing
+  rank sharding and a resumable cursor (Chapter 25's packer is the in-memory, bin-packing
   variant).
 * **Evaluation at scale**: stop-string truncation, a multi-suite runner with a result
   cache and throughput accounting, position-debiased pairwise judging, win rates with
@@ -87,7 +87,7 @@ class PackedSFTStream:
 
     Each yielded item is a dict of (seq_len,) tensors:
         input_ids, labels (IGNORE_INDEX where loss is masked), doc_ids
-    ``doc_ids`` lets you build a block-diagonal mask (Chapter 17) if you do not want
+    ``doc_ids`` lets you build a block-diagonal mask (Chapter 25) if you do not want
     tokens of one document to attend to the previous document in the same row.
 
     Parameters
@@ -190,7 +190,7 @@ def _cache_key(model_id: str, prompt: str, gen_cfg: dict) -> str:
 class MultiSuiteRunner:
     """Run several suites through one batched generator with a persistent cache.
 
-    ``generate_fn(prompts, max_new_tokens) -> list[str]`` is your engine call (Chapter 19's
+    ``generate_fn(prompts, max_new_tokens) -> list[str]`` is your engine call (Chapter 27's
     LLMEngine, vLLM, or a plain loop). Results are cached in a JSONL file keyed by
     (model id, prompt, generation config), so re-running after a crash, or re-scoring with
     a new parser, costs nothing.

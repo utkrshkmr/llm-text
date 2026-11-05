@@ -96,6 +96,45 @@
   backgroundcolor=\color{codebg},
   breaklines=true, columns=fullflexible, keepspaces=true, showstringspaces=false
 }
+\lstdefinestyle{cpp}{
+  language=C++,
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestr},
+  showstringspaces=false, breaklines=true, columns=fullflexible, keepspaces=true,
+  frame=leftline, framerule=2pt, rulecolor=\color{warnred!50},
+  xleftmargin=8pt, framexleftmargin=6pt,
+  numbers=left, numberstyle=\tiny\color{codecomment}, numbersep=6pt, tabsize=4, upquote=true,
+  literate={≈}{{$\approx$}}1 {→}{{$\rightarrow$}}1 {×}{{$\times$}}1 {≤}{{$\le$}}1 {≥}{{$\ge$}}1,
+  morekeywords={constexpr,nullptr,override,final,noexcept,static_assert,decltype,auto,
+    int8_t,int16_t,int32_t,int64_t,uint8_t,uint16_t,uint32_t,uint64_t,size_t,
+    Tensor,TORCH_LIBRARY,TORCH_LIBRARY_IMPL,TORCH_CHECK,TORCH_LIBRARY_FRAGMENT}
+}
+\lstdefinestyle{cuda}{
+  style=cpp,
+  rulecolor=\color{keygreen!60},
+  morekeywords={__global__,__device__,__host__,__shared__,__restrict__,__launch_bounds__,
+    __syncthreads,__syncwarp,__shfl_sync,__shfl_xor_sync,__shfl_down_sync,__ballot_sync,
+    threadIdx,blockIdx,blockDim,gridDim,warpSize,dim3,cudaStream_t,cudaError_t,
+    half,__half,__nv_bfloat16,bf16,float2,float4,int4,uint4,
+    cp_async,wmma,mma,ldmatrix,cudaMalloc,cudaMemcpy,cudaMemcpyAsync,cudaFree,cudaDeviceSynchronize}
+}
+\lstdefinestyle{cmake}{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestr},
+  frame=leftline, framerule=2pt, rulecolor=\color{keygreen!50},
+  xleftmargin=8pt, framexleftmargin=6pt,
+  breaklines=true, columns=fullflexible, keepspaces=true, showstringspaces=false,
+  morekeywords={cmake_minimum_required,project,add_library,add_executable,target_link_libraries,
+    find_package,set,target_include_directories,target_compile_options,target_compile_features,
+    add_subdirectory,install,option,if,else,endif,message,enable_language,pybind11_add_module},
+  morecomment=[l]{\#}, morestring=[b]"
+}
 \lstset{style=py}
 \renewcommand{\lstlistingname}{Listing}
 % \code{...} inline code

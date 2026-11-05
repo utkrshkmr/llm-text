@@ -106,7 +106,7 @@ def _matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K,
     for k0 in range(0, K, BK):
         a = tl.load(a_ptrs, mask=(rm[:, None] < M) & (rk[None, :] + k0 < K), other=0.0)
         b = tl.load(b_ptrs, mask=(rk[:, None] + k0 < K) & (rn[None, :] < N), other=0.0)
-        acc += tl.dot(a, b)                     # tensor cores on GPU
+        acc += tl.dot(a, b, input_precision="ieee")   # exact fp32 (tensor cores would use TF32)
         a_ptrs += BK * stride_ak
         b_ptrs += BK * stride_bk
     c_ptrs = c_ptr + rm[:, None] * stride_cm + rn[None, :] * stride_cn
@@ -141,7 +141,7 @@ def _w8a16_kernel(x_ptr, w_ptr, s_ptr, y_ptr, M, N, K,
         # int8 weights are read from HBM (1 byte each) and widened in registers
         w = tl.load(w_ptr + rn[None, :] * stride_wn + (k0 + rk)[:, None] * stride_wk,
                     mask=(rn[None, :] < N) & ((k0 + rk)[:, None] < K), other=0)
-        acc += tl.dot(x.to(tl.float32), w.to(tl.float32))
+        acc += tl.dot(x.to(tl.float32), w.to(tl.float32), input_precision="ieee")
     s = tl.load(s_ptr + rn, mask=rn < N, other=0.0)   # per-output-channel scale, applied once
     acc = acc * s[None, :]
     tl.store(y_ptr + rm[:, None] * stride_ym + rn[None, :] * stride_yn, acc,
@@ -187,7 +187,7 @@ def _flash_fwd_kernel(q_ptr, k_ptr, v_ptr, o_ptr, T, S, sm_scale,
                     mask=offs_n[:, None] < S, other=0.0).to(tl.float32)
         v = tl.load(v_ptr + base + offs_n[:, None] * stride_t + offs_d[None, :],
                     mask=offs_n[:, None] < S, other=0.0).to(tl.float32)
-        s = tl.dot(q, tl.trans(k)) * sm_scale
+        s = tl.dot(q, tl.trans(k), input_precision="ieee") * sm_scale
         valid = offs_n[None, :] < S
         if CAUSAL:
             valid = valid & (offs_n[None, :] <= offs_m[:, None] + shift)
@@ -196,7 +196,7 @@ def _flash_fwd_kernel(q_ptr, k_ptr, v_ptr, o_ptr, T, S, sm_scale,
         p = tl.exp(s - m_new[:, None])
         alpha = tl.exp(m_i - m_new)
         l_i = l_i * alpha + tl.sum(p, axis=1)
-        acc = acc * alpha[:, None] + tl.dot(p, v)
+        acc = acc * alpha[:, None] + tl.dot(p, v, input_precision="ieee")
         m_i = m_new
     acc = acc / l_i[:, None]
     tl.store(o_ptr + base + offs_m[:, None] * stride_t + offs_d[None, :], acc,

@@ -1,85 +1,75 @@
-\subsection*{Chapter 17: Instruction Fine-Tuning and Parameter-Efficient Adaptation}
+\subsection*{Chapter 17: Distributed Training Systems}
 
-\paragraph{Exercise 17.1.} Replace \code{format\_alpaca} by \code{format\_phi3} in both the
-dataset and the generation prompt, and extract responses by splitting on
-\code{<|assistant|>} instead of the Alpaca header. The Phi-3 template removes roughly
-25--30 tokens per example, so total training tokens drop by roughly a quarter to a
-third and epoch time falls accordingly. Judge scores are usually similar. Note that
-\code{<|user|>} is not a special token for GPT-2 and is split into several BPE pieces,
-which is harmless but slightly less compact than the name suggests.
+\paragraph{Exercise 17.1 (Ring all-reduce cost).}
+Each of the $p-1$ reduce-scatter steps and $p-1$ all-gather steps sends one chunk of $n/p$
+bytes per rank, all links busy in parallel: $2(p-1)(\alpha+\frac np\beta)$, which is
+\cref{eq:dist:ring}. Recursive halving: in round $j=1..\log_2p$ each rank exchanges half of its
+current working set with a partner at distance $p/2^j$, i.e.\ $n/2,n/4,\dots,n/p$ bytes, summing
+to $n(p-1)/p$ in $\log_2p$ messages; recursive doubling for the all-gather mirrors it. Total
+$2\log_2p\,\alpha+2\frac{p-1}{p}n\beta$.
 
-\paragraph{Exercise 17.2.} Losses averaged over response tokens only are not comparable
-with losses averaged over all tokens, because prompt tokens (especially the fixed
-preamble) are easy to predict and pull the full-sequence average down. Evaluate both
-models on the same response-only target set. Response-only training usually matches or
-slightly beats full-sequence training on judge score. Full-sequence loss can win when
-responses are very short and prompts carry useful in-domain text, because it then
-provides much more gradient signal per example.
+\paragraph{Exercise 17.2 (Two-level all-reduce).}
+Reduce-scatter inside the node: $\frac78\,n/B_1$; all-reduce of the $n/8$ shards across $N$
+nodes (each GPU uses its own NIC): $2\frac{N-1}{N}\frac n8/B_2$; all-gather inside the node:
+$\frac78\,n/B_1$. For large $N$: $\approx1.75\,n/B_1+0.25\,n/B_2$. A flat ring over $8N$ GPUs is
+limited by its inter-node hops: $\approx2n/B_2$. With $B_1=450$, $B_2=50$\,GB/s: $0.0089\,n$ vs
+$0.040\,n$ seconds per GB, about $4.5\times$ faster hierarchically (latency terms aside).
 
-\paragraph{Exercise 17.3.} Two microbatches with $n_1=10$ and $n_2=90$ target tokens and
-mean losses $\bar\ell_1,\bar\ell_2$: averaging the means gives
-$\tfrac12(\bar\ell_1+\bar\ell_2)$, so each token of microbatch 1 has weight $1/20$ and
-each token of microbatch 2 has weight $1/180$. The per-token mean of the full step gives
-every token weight $1/100$. Fix: compute \code{F.cross\_entropy(..., reduction="sum")}
-per microbatch, count non-ignored targets, and divide the accumulated sum by the total
-count before \code{backward} (or scale each microbatch's sum by $1/n_{\text{total}}$,
-which requires knowing $n_{\text{total}}$ in advance, for example by pre-counting the
-step's targets).
+\paragraph{Exercise 17.3 (Bucket size).}
+Require $\alpha\le0.05\,n\beta$, i.e.\ $n\ge20\alpha/\beta=20\cdot\SI{20}{\micro s}\cdot\SI{50}{GB/s}
+=\SI{20}{MB}$. Very large buckets fill late: the first all-reduce starts only after a large
+fraction of the backward pass, and the final (exposed) bucket is large, so less communication is
+hidden.
 
-\paragraph{Exercise 17.4.} Random batches with dynamic padding typically waste 30--50\% on
-instruction data with a long-tailed length distribution; bucketing reduces this to a few
-percent; FFD packing into 512- or 1{,}024-token rows leaves only the tail of the last
-rows empty, usually below 2\%. For attention, a dense row mask costs $T^2$ per row
-regardless of content. A varlen kernel costs $\sum_i\ell_i^2$, which for documents of
-about 100 tokens packed into $T=1024$ is about 10 documents $\times\,100^2 = 10^5$
-versus $1024^2\approx10^6$, a $10\times$ reduction in attention FLOPs.
+\paragraph{Exercise 17.4 (No-sync accumulation).}
+Add a flag \code{self.sync=True} and a context manager that sets it to \code{False}; in
+\code{\_on\_grad\_ready} return immediately when \code{not self.sync} (gradients simply keep
+accumulating in \code{.grad}); on the last micro-batch the flag is \code{True} and buckets
+launch as usual, carrying the accumulated sums. Without it, $k$-step accumulation performs $k$
+all-reduces; with it, one---so communication time drops by $\approx k\times$.
 
-\paragraph{Exercise 17.5.} Probe: fix document 2, vary document 1 in the same packed row,
-and compare the logits at a position in document 2. With naive packing they change.
-With the block-diagonal mask and position reset they are identical up to floating-point
-error. After fine-tuning on naively packed data the model learns to use the preceding
-documents, for example by copying formatting or answers from the previous example.
-The effect is visible as degraded single-example performance at inference time, where
-no preceding documents exist.
+\paragraph{Exercise 17.5 (ZeRO arithmetic).}
+\Cref{tab:dist:zero} follows from $\Psi=7.5$B, $N_d=64$, $K=12$. For 13B on 16 GPUs: DP 208\,GB
+(no); ZeRO-1 $(4+12/16)\cdot13=61.8$\,GB (18\,GB left, no); ZeRO-2 $(2+14/16)\cdot13=37.4$\,GB
+(42.6\,GB left, yes). ZeRO-2 is the lowest stage that works.
 
-\paragraph{Exercise 17.6.} Reference answers should score near the top of the scale and
-wrong answers near the bottom; deviations reveal judge bias or prompt problems.
-Correlations between two different judges are typically high (Pearson 0.7--0.9) on
-clearly separable answers but lower among mediocre ones, and mean absolute differences
-of 5--15 points are common. A single reported score therefore has an uncertainty of
-several points from the judge alone, on top of sampling uncertainty from 110 test
-items (standard error $\approx\sigma/\sqrt{110}$).
+\paragraph{Exercise 17.6 (TP backward).}
+$\mat Y_r=\mat X\mat W_r^\top$ for every $r$, so $\mathcal L$ depends on $\mat X$ through all
+$\mat Y_r$ and $\partial\mathcal L/\partial\mat X=\sum_r(\partial\mathcal L/\partial\mat Y_r)\mat W_r$.
+Rank $r$ only knows its own term, hence the all-reduce in the backward of $f$. For the row-parallel
+layer $\mat Y=\sum_r\mat X_r\mat W_r^\top$, so $\partial\mathcal L/\partial\mat X_r=
+(\partial\mathcal L/\partial\mat Y)\mat W_r$: the output gradient is replicated after $g$'s
+(identity) backward, and each rank needs only its own $\mat W_r$---no communication.
 
-\paragraph{Exercise 17.7.} With $\alpha=2r$, the effective update scale $\alpha/r=2$ is
-constant, so the magnitude of $\Delta W$ produced by a given learning rate is roughly
-independent of $r$, and one learning rate works across ranks. With fixed $\alpha=16$,
-$\alpha/r$ shrinks as $r$ grows (16 at $r=1$, 0.25 at $r=64$), so large ranks
-effectively train with a smaller step and appear worse unless the learning rate is
-re-tuned. Quality usually saturates by $r=8$--$16$ for a task of this size.
+\paragraph{Exercise 17.7 (Attention under TP).}
+Give each rank $H/t$ query heads with their Q/K/V columns (column-parallel) and the matching
+$H/t\cdot\dhead$ input columns of the output projection (row-parallel); softmax and the causal mask
+act per head, so they stay local. Constraint: $t$ divides $H$. With GQA, each rank also needs the KV
+heads its query heads use; if $t$ exceeds the number of KV groups $G$, KV heads must be replicated
+on $t/G$ ranks (and their gradients all-reduced among those replicas), which wastes memory and
+compute and caps useful TP at $G$ for KV projections.
 
-\paragraph{Exercise 17.8.} For a fixed parameter budget, adapting all linear layers
-(with a smaller $r$) usually wins on SFT, because MLP layers hold much of the
-task-relevant capacity. The spam task is easy enough that most placements reach
-similar accuracy. Attention-only placements are slightly weaker on SFT.
+\paragraph{Exercise 17.8 (Bubbles).}
+For $p=8$ both schedules give $7/(m+7)$: $46.7\%$, $30.4\%$, $17.9\%$, $9.9\%$ for
+$m=8,16,32,64$. Peak in-flight micro-batches: GPipe $m$ on every stage; 1F1B $\min(8-s,m)$, i.e.\
+at most 8. With $v=2$ interleaving the bubble becomes $3.5/(m+3.5)$ (e.g.\ $9.9\%$ at $m=32$).
 
-\paragraph{Exercise 17.9.} In full fine-tuning the weight-gradient GEMMs are about a third
-of matmul time. With LoRA they disappear for frozen weights, while the adapter GEMMs
-are tiny but numerous (two extra small matmuls per adapted layer in each direction).
-On small models these extra kernels and the optimizer step can eat most of the
-theoretical $1.5\times$ saving, so measured speed-ups are often smaller than predicted.
-On large models the prediction is approached.
+\paragraph{Exercise 17.9 (Causal load balance).}
+With contiguous chunks, device $i$'s queries attend to key blocks $0..i$: $i+1$ block pairs (the
+diagonal one half-masked), so device $c-1$ does $c$ times the work of device 0. Split the sequence
+into $2c$ chunks and give device $i$ chunks $i$ and $2c-1-i$: it computes $(i+1)+(2c-i)=2c+1$
+block pairs, the same for every device.
 
-\paragraph{Exercise 17.10.} Block-normalised GPT-2 weights are roughly bell-shaped but
-heavier-tailed than a Gaussian, with occasional outlier channels. NF4 gives lower
-reconstruction error than uniform int4 for the bulk of the weights, because its
-levels are denser near zero, and typically a smaller perplexity increase. Uniform int4
-does relatively better on blocks dominated by an outlier, where the absmax scale
-squeezes the remaining weights into a few levels for both schemes.
-
-\paragraph{Exercise 17.11.} With one adapter, the gather is a broadcast and the cost is
-close to the base model plus two small matmuls. With 8 or 64 distinct adapters, the
-gather materialises per-row copies of $\mat{A}$ and $\mat{B}$ ($B\times r\times d$
-elements), which adds memory traffic proportional to the batch size. That is where
-throughput drops. Fused kernels (Punica's BGMV/SGMV) read each row's adapter directly
-from the adapter pool inside the matmul, never materialising the gathered copies, and
-group rows that share an adapter (segmented GEMM) to recover tensor-core efficiency.
+\paragraph{Exercise 17.10 (Plan a 405B run).}
+One defensible plan (close to the layout Meta reported for Llama~3 405B at 8k context): TP $=8$
+(one node), PP $=16$ ($\approx8$ layers per stage, first/last stage lighter), CP $=1$, DP $=128$
+with ZeRO-1. Parameters per GPU $405\text{B}/128=3.2$B; ZeRO-1 states
+$(4+12/128)\cdot3.2\approx13$\,GB. Global batch 16M tokens $=2{,}048$ sequences, i.e.\ 16
+micro-batches per pipeline. Plain 1F1B would idle $15/31\approx48\%$, so use interleaving with
+$v=4$ virtual stages: $3.75/(16+3.75)\approx19\%$. Activations with FlashAttention and TP+SP:
+$8192\cdot16{,}384\cdot34/8\approx0.57$\,GB per layer per micro-batch; stage 0 can hold up to 16
+micro-batches $\times$ 8 layers, so selective or full recomputation is needed (full recompute:
+$\approx4$\,GB). DP traffic: each rank reduces a 6.4\,GB bf16 gradient shard over 128 replicas,
+$\approx0.26$\,s at 50\,GB/s, well hidden behind $\approx6$\,s of compute per step at 40\% MFU. The
+remaining inefficiency is the pipeline bubble, which is why larger batches or zero-bubble
+schedules are attractive at this scale.

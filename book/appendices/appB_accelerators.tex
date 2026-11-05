@@ -983,19 +983,19 @@ repeated on other hardware, and doing so is the best way to make this appendix c
 
 \begin{itemize}
   \item \textbf{GB10 / DGX Spark.} It runs the CUDA stack, so every lab runs unchanged. Use it for
-    the long-context and large-model variants (Qwen3-8B and 14B inference in Lab~18,
-    LoRA/QLoRA in Lab~17, GRPO on 1.7B in Lab~27), and use the planning numbers of
+    the long-context and large-model variants (Qwen3-8B and 14B inference in Lab~26,
+    LoRA/QLoRA in Lab~25, GRPO on 1.7B in Lab~37), and use the planning numbers of
     \cref{tab:accel:gb10} to predict decode speed before measuring it.
-  \item \textbf{Tenstorrent (n150/n300, TT-QuietBox).} Repeat the decode-roofline experiment of Lab~18
+  \item \textbf{Tenstorrent (n150/n300, TT-QuietBox).} Repeat the decode-roofline experiment of Lab~26
     with a TT-NN model demo: measure batch-1 tokens/s with DRAM-resident weights, then with block-fp8
     weights, and compare with \code{decode\_tokens\_per\_s\_bound}. Port the Qwen3 block of Lab~6
     op by op using \cref{tab:accel:ttnn}, checking per-block correlation against the PyTorch
     reference. On a multi-chip box, measure an all-gather's time against message size, as in
     \cref{lst:sharding:bench}, to obtain your mesh's $\alpha$ and $\beta$ for the TP napkin math of
     \cref{sec:accel:tt}.
-  \item \textbf{TPU VMs.} Re-implement the Lab~9 training loop in JAX with the sharding annotations of
+  \item \textbf{TPU VMs.} Re-implement the Lab~12 training loop in JAX with the sharding annotations of
     \cref{lst:accel:jax} and measure MXU utilisation against batch size to reproduce
-    \cref{fig:accel:util}. The Lab~15 accounting functions apply with $W$ set to the ICI bandwidth of the
+    \cref{fig:accel:util}. The Lab~18 accounting functions apply with $W$ set to the ICI bandwidth of the
     axis you shard over.
 \end{itemize}
 

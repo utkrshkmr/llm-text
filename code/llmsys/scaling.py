@@ -1,4 +1,4 @@
-"""Scaling laws in practice (Chapter 12).
+"""Scaling laws in practice (Chapter 15).
 
 Three layers, from the bottom up:
 
@@ -99,7 +99,7 @@ def config_for_params(n_target: float, tokens: int = 0, aspect: float = 64.0,
     """Choose (n_layer, d_model) with 12 L d^2 ~= n_target and d/L ~= ``aspect``.
 
     d_model is rounded to a multiple of ``head_dim`` and d_ff to a multiple of 64 near 8/3 d,
-    which keeps every matmul dimension hardware-friendly (Chapter 13). ``tokens`` is rounded
+    which keeps every matmul dimension hardware-friendly (Chapter 16). ``tokens`` is rounded
     down to a whole number of batches.
     """
     # 12 L d^2 = N and d = aspect * L  ->  L = (N / (12 aspect^2))^(1/3)

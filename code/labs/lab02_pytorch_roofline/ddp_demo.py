@@ -28,17 +28,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 def setup(rank: int, world_size: int, port: str = "29512"):
     os.environ.setdefault("MASTER_ADDR", "localhost")
     os.environ.setdefault("MASTER_PORT", port)
-    backend = "nccl" if torch.cuda.is_available() else "gloo"
+    # NCCL needs one GPU per rank; with fewer visible GPUs than ranks, fall back to CPU + gloo.
+    use_cuda = torch.cuda.is_available() and torch.cuda.device_count() >= world_size
+    backend = "nccl" if use_cuda else "gloo"
     dist.init_process_group(backend, rank=rank, world_size=world_size)
     if backend == "nccl":
         torch.cuda.set_device(rank)
+    return use_cuda
 
 
 def worker(rank: int, world_size: int, epochs: int, out_dir: str | None, port: str):
     from solution import ToyDataset, build_mlp  # reference building blocks
 
-    setup(rank, world_size, port)
-    device = torch.device(f"cuda:{rank}") if torch.cuda.is_available() else torch.device("cpu")
+    use_cuda = setup(rank, world_size, port)
+    device = torch.device(f"cuda:{rank}") if use_cuda else torch.device("cpu")
     torch.manual_seed(0)                       # identical init on every rank
     model = build_mlp(2, [16, 16], 2).to(device)
     ddp = DDP(model, device_ids=[rank] if device.type == "cuda" else None)

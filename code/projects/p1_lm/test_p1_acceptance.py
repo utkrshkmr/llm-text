@@ -1,4 +1,4 @@
-"""Acceptance tests for Project 1 (Chapter 32).
+"""Acceptance tests for Project 1 (Chapter 42).
 
 Skipped unless P1_IMPL points to your implementation of ``p1_template.py``:
     P1_IMPL=/path/to/p1_impl.py python -m pytest code/projects/p1_lm -q

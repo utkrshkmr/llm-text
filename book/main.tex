@@ -6,7 +6,7 @@
   \Large Building, Training, Serving, and Teaching Language Models to Reason\\[0.3em]
   \large A systems-first textbook with labs}
 \author{utkrshkmr}
-\date{Edition 1.0 \quad November 2026}
+\date{Edition 3.0 \quad November 2026}
 
 \begin{document}
 \frontmatter
@@ -29,50 +29,67 @@
 \include{chapters/ch06_modern_arch}
 \include{chapters/ch07_arch_design}
 \include{chapters/ch08_attention_alternatives}
+\include{chapters/ch09_encoders}
+\include{chapters/ch10_moe}
+\include{chapters/ch11_anatomy}
 % =====================================================================
 \part{Pretraining at Scale}
-\include{chapters/ch09_optimizers}
-\include{chapters/ch10_pretraining}
-\include{chapters/ch11_pretraining_data}
-\include{chapters/ch12_scaling_laws}
-\include{chapters/ch13_perf_engineering}
-\include{chapters/ch14_distributed}
-\include{chapters/ch15_sharding}
+\include{chapters/ch12_optimizers}
+\include{chapters/ch13_pretraining}
+\include{chapters/ch14_pretraining_data}
+\include{chapters/ch15_scaling_laws}
+\include{chapters/ch16_perf_engineering}
+\include{chapters/ch17_distributed}
+\include{chapters/ch18_sharding}
+\include{chapters/ch19_shardcalc}
+% =====================================================================
+\part{From Python to the Metal}
+\include{chapters/ch20_cpp_pytorch}
+\include{chapters/ch21_cuda_kernels}
+\include{chapters/ch22_attn_moe_kernels}
+\include{chapters/ch23_compilers}
 % =====================================================================
 \part{Fine-Tuning}
-\include{chapters/ch16_classification}
-\include{chapters/ch17_instruction_lora}
+\include{chapters/ch24_classification}
+\include{chapters/ch25_instruction_lora}
 % =====================================================================
 \part{Inference and Serving}
-\include{chapters/ch18_inference}
-\include{chapters/ch19_serving_engine}
-\include{chapters/ch20_efficient_inference}
+\include{chapters/ch26_inference}
+\include{chapters/ch27_serving_engine}
+\include{chapters/ch28_efficient_inference}
+\include{chapters/ch29_ondevice}
+\include{chapters/ch30_retrieval}
 % =====================================================================
 \part{Reasoning and Post-Training}
-\include{chapters/ch21_evaluation}
-\include{chapters/ch22_inference_scaling}
-\include{chapters/ch23_self_refinement}
-\include{chapters/ch24_policy_gradients}
-\include{chapters/ch25_rlhf_ppo}
-\include{chapters/ch26_dpo}
-\include{chapters/ch27_grpo}
-\include{chapters/ch28_improving_grpo}
-\include{chapters/ch29_rl_systems}
-\include{chapters/ch30_distillation}
-\include{chapters/ch31_alignment_multimodal}
+\include{chapters/ch31_evaluation}
+\include{chapters/ch32_inference_scaling}
+\include{chapters/ch33_self_refinement}
+\include{chapters/ch34_policy_gradients}
+\include{chapters/ch35_rlhf_ppo}
+\include{chapters/ch36_dpo}
+\include{chapters/ch37_grpo}
+\include{chapters/ch38_improving_grpo}
+\include{chapters/ch39_rl_systems}
+\include{chapters/ch40_distillation}
+\include{chapters/ch41_alignment_multimodal}
 % =====================================================================
 \part{Capstone Projects}
-\include{chapters/ch32_proj_basics}
-\include{chapters/ch33_proj_systems}
-\include{chapters/ch34_proj_scaling}
-\include{chapters/ch35_proj_data}
-\include{chapters/ch36_proj_alignment}
+\include{chapters/ch42_proj_basics}
+\include{chapters/ch43_proj_systems}
+\include{chapters/ch44_proj_scaling}
+\include{chapters/ch45_proj_data}
+\include{chapters/ch46_proj_alignment}
+\include{chapters/ch47_proj_serving}
+\include{chapters/ch48_proj_cpu_runtime}
+\include{chapters/ch49_proj_moe}
+\include{chapters/ch50_proj_profiler}
 % =====================================================================
 \appendix
 \include{appendices/appA_triton}
 \include{appendices/appB_accelerators}
-\include{appendices/appC_setup}
-\include{appendices/appD_references}
-\include{appendices/appE_solutions}
+\include{appendices/appC_jax}
+\include{appendices/appD_setup}
+\include{appendices/appE_references}
+\include{appendices/appF_solutions}
 
 \end{document}

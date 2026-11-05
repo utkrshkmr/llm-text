@@ -1,4 +1,4 @@
-# Project 3 infrastructure (Chapter 34): a budgeted scaling study
+# Project 3 infrastructure (Chapter 44): a budgeted scaling study
 
 Tooling for a study in which you train nothing yourself: you buy runs from a training service
 with a wall-clock budget. Nothing here fits a scaling law or chooses runs for you; that is the

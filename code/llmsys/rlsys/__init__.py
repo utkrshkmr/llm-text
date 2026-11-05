@@ -1,4 +1,4 @@
-"""RL training-systems utilities (Chapter 29).
+"""RL training-systems utilities (Chapter 39).
 
 packing   -- FFD bin packing, packed (varlen) forward, packed log-prob pass
 sim       -- event-driven simulator: colocated / sync / async / partial rollouts

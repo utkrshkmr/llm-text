@@ -18,7 +18,7 @@ That is exactly the data a reward model is trained on in RLHF.
 The SFT warm-start demonstrations never repeat a word (they sample *without*
 replacement). The reward model therefore never sees a repetition, cannot learn the
 repetition penalty, and is exploitable: a policy optimised hard enough against it learns
-to repeat the positive words. ``run.py`` in Lab 25 demonstrates this over-optimisation.
+to repeat the positive words. ``run.py`` in Lab 35 demonstrates this over-optimisation.
 """
 from __future__ import annotations
 

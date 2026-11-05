@@ -1,4 +1,4 @@
-"""Policy-gradient foundations for LLM reinforcement learning (Chapter 24).
+"""Policy-gradient foundations for LLM reinforcement learning (Chapter 34).
 
 Everything here uses the book's own API and toy settings:
 
@@ -8,7 +8,7 @@ Everything here uses the book's own API and toy settings:
 * group advantages, loss aggregation that survives gradient accumulation,
 * on-policy, importance-weighted and clipped per-token losses, rejection fine-tuning,
 * a toy verifiable task (``DigitSumTask``) on which a tiny Qwen3-shaped policy learns
-  from scratch on a CPU in seconds, plus a small trainer used by Lab 24.
+  from scratch on a CPU in seconds, plus a small trainer used by Lab 34.
 """
 from __future__ import annotations
 

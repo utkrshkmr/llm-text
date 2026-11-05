@@ -14,3 +14,10 @@ ckpt/
 site/
 _webbuild/
 web/__pycache__/
+code/build/
+code/*.egg-info/
+code/llmsys/_C*.so
+code/llmsys/_C.*.pyd
+code/.ninja_*
+site/
+results/a100/*.pickle
