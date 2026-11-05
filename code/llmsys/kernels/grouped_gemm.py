@@ -52,7 +52,8 @@ def max_tiles(n_rows: int, n_experts: int, bm: int) -> int:
 
 
 # --------------------------------------------------------------------------- references
-def grouped_gemm_reference(xs: torch.Tensor, counts: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+def grouped_gemm_reference(xs: torch.Tensor, counts: torch.Tensor,
+                           w: torch.Tensor) -> torch.Tensor:
     """y[seg_e] = xs[seg_e] @ w[e] for every expert e; xs (M, K), w (E, K, N) -> (M, N)."""
     out = xs.new_empty(xs.shape[0], w.shape[2])
     start = 0
@@ -90,7 +91,7 @@ if HAS_TRITON:
         pid_m = tl.program_id(0)                        # global m-tile id over all experts
         pid_n = tl.program_id(1)
         n_tiles = tl.load(tile_off_ptr + E)
-        if pid_m >= n_tiles:                            # grid is an upper bound: spare programs exit
+        if pid_m >= n_tiles:                            # the grid is an upper bound: spares exit
             return
         # ---- which expert owns this tile?  e = #{i : tile_off[i] <= pid_m} - 1
         offs_e = tl.arange(0, E_P2)
@@ -112,7 +113,8 @@ if HAS_TRITON:
             x_ptrs += BK * stride_xk
             w_ptrs += BK * stride_wk
         y_ptrs = y_ptr + rm[:, None] * stride_ym + rn[None, :] * stride_yn
-        tl.store(y_ptrs, acc.to(y_ptr.dtype.element_ty), mask=(rm[:, None] < row_end) & (rn[None, :] < N))
+        tl.store(y_ptrs, acc.to(y_ptr.dtype.element_ty),
+                 mask=(rm[:, None] < row_end) & (rn[None, :] < N))
 
 
 def grouped_gemm(xs: torch.Tensor, counts: torch.Tensor, w: torch.Tensor,
@@ -155,7 +157,9 @@ class GroupedGEMM(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dy):
         xs, counts, w = ctx.saved_tensors
-        dx = grouped_gemm(dy.contiguous(), counts, w.transpose(1, 2)) if ctx.needs_input_grad[0] else None
+        dx = None
+        if ctx.needs_input_grad[0]:
+            dx = grouped_gemm(dy.contiguous(), counts, w.transpose(1, 2))
         dw = None
         if ctx.needs_input_grad[2]:
             dw = torch.zeros_like(w)

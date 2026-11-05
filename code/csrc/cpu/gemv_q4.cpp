@@ -17,6 +17,7 @@
 // SIMD: AVX2 (+FMA, F16C), AVX-512 (F, BW) and NEON paths plus a scalar fallback, selected at run
 // time with __builtin_cpu_supports; `gemv_set_simd` forces a level so the paths can be compared.
 #include <algorithm>
+#include <atomic>
 #include <optional>
 
 #include <c10/util/Half.h>
@@ -455,6 +456,22 @@ at::Tensor dequantize_q4_g_cpu(const at::Tensor& packed, const at::Tensor& scale
   return dequantize_q4_impl(packed, scales, zc.data_ptr<uint8_t>(), group);
 }
 
+// The DRAM roofline: read every byte of t with wide loads and nothing else, so the measured rate is
+// what the memory system can deliver to this many threads. The XOR keeps the loads alive.
+int64_t mem_read_xor(const at::Tensor& t) {
+  LLMSYS_CHECK_CPU(t);
+  const auto tc = t.contiguous();
+  const int64_t words = tc.numel() * tc.element_size() / static_cast<int64_t>(sizeof(uint64_t));
+  const uint64_t* p = static_cast<const uint64_t*>(tc.data_ptr());
+  std::atomic<uint64_t> total{0};
+  at::parallel_for(0, words, /*grain_size=*/1 << 16, [&](int64_t w0, int64_t w1) {
+    uint64_t acc = 0;
+    for (int64_t w = w0; w < w1; ++w) acc ^= p[w];
+    total.fetch_xor(acc, std::memory_order_relaxed);
+  });
+  return static_cast<int64_t>(total.load());
+}
+
 // 0 scalar, 1 AVX2, 2 AVX-512, 3 NEON. `level < 0` restores automatic detection.
 int64_t gemv_set_simd(int64_t level) {
   g_forced_level = level < 0 ? -1 : static_cast<int>(level);
@@ -473,6 +490,7 @@ TORCH_LIBRARY_FRAGMENT(llmsys, m) {
   m.def("dequantize_q4_g(Tensor packed, Tensor scales, Tensor zeros, int group) -> Tensor");
   m.def("gemv_set_simd(int level) -> int", &llmsys::gemv_set_simd);
   m.def("gemv_simd_level() -> int", &llmsys::gemv_simd_level);
+  m.def("mem_read_xor(Tensor t) -> int", &llmsys::mem_read_xor);
 }
 
 TORCH_LIBRARY_IMPL(llmsys, CPU, m) {

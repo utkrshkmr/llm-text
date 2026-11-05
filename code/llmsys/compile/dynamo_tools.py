@@ -6,6 +6,8 @@
     list_guards(fn)                   the guards of every cache entry attached to ``fn``'s code object
     inductor_output_code(fn, *args)   the Python wrapper(s) Inductor generated, with the kernels inline
     kernel_names(code) / summarize_kernels(code)   which kernels exist and what each one fused
+    partition_report(fn, *args)       what AOTAutograd saves between forward and backward, per partitioner
+    triton_artifacts(cache_dir)       the IR stages Triton left in its cache for each kernel
 
 Nothing here needs a GPU: on the CPU Inductor emits C++/OpenMP kernels instead of Triton ones,
 and the same helpers read them.
@@ -13,6 +15,8 @@ and the same helpers read them.
 from __future__ import annotations
 
 import contextlib
+import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -93,6 +97,11 @@ def count_recompiles(fn: Callable, inputs: Sequence[tuple], dynamic: Optional[bo
     for a in inputs:
         compiled(*a)
     return cap.compiles
+
+
+def counters() -> Dict[str, Dict[str, int]]:
+    """A copy of Dynamo's process-wide counters (frames, graph breaks, unique graphs, resumes)."""
+    return {k: dict(v) for k, v in dynamo.utils.counters.items()}
 
 
 # ----------------------------------------------------------------------------- guards
@@ -200,3 +209,88 @@ def extern_calls(code: str) -> List[str]:
     """Library kernels the wrapper calls instead of generating (cuBLAS/MKL GEMMs, SDPA, ...)."""
     return sorted(set(re.findall(r"extern_kernels\.(\w+)\(", code)) |
                   set(re.findall(r"(aten\.[\w.]+)\(", code)))
+
+
+# ----------------------------------------------------------------------------- AOTAutograd
+@dataclass
+class PartitionReport:
+    partitioner: str
+    forward_ops: int
+    backward_ops: int
+    saved_tensors: int
+    saved_bytes: int
+    forward: fx.GraphModule
+    backward: fx.GraphModule
+
+    def __str__(self) -> str:
+        return (f"{self.partitioner:8s} forward {self.forward_ops:3d} ops, backward "
+                f"{self.backward_ops:3d} ops, saves {self.saved_tensors} tensors, "
+                f"{self.saved_bytes} bytes")
+
+
+def _value_bytes(node: fx.Node) -> int:
+    v = node.meta.get("val")
+    return v.numel() * v.element_size() if isinstance(v, torch.Tensor) else 0
+
+
+def partition_report(fn: Callable, *args, partitioner: str = "min_cut",
+                     params: Sequence[torch.Tensor] = ()) -> PartitionReport:
+    """Trace ``fn`` and its backward jointly and report how the graph was cut.
+
+    ``partitioner`` is ``"default"`` (everything runs in forward, save whatever backward reads) or
+    ``"min_cut"`` (what torch.compile uses: recompute cheap ops in backward when that saves bytes).
+    ``fn`` must return one tensor. The saved tensors are the forward graph's outputs beyond that
+    result, and the forward's inputs that backward reads do not count: they are alive anyway.
+    """
+    from torch._functorch.aot_autograd import aot_function
+    from torch._functorch.partitioners import default_partition, min_cut_rematerialization_partition
+
+    choice = dict(default=default_partition, min_cut=min_cut_rematerialization_partition)[partitioner]
+    graphs: Dict[str, fx.GraphModule] = {}
+
+    def keep(name: str) -> Callable:
+        def compiler(gm: fx.GraphModule, _):
+            graphs[name] = gm
+            return gm
+        return compiler
+
+    traced = aot_function(fn, fw_compiler=keep("fw"), bw_compiler=keep("bw"), partition_fn=choice)
+    traced(*args).sum().backward()
+    fw, bw = graphs["fw"], graphs["bw"]
+    returned = next(n for n in fw.graph.nodes if n.op == "output").args[0]
+    saved = [n for n in returned[1:] if isinstance(n, fx.Node) and n.op != "placeholder"]
+    calls = lambda g: sum(1 for n in g.graph.nodes if n.op == "call_function")
+    return PartitionReport(partitioner, calls(fw), calls(bw), len(saved),
+                           sum(_value_bytes(n) for n in saved), fw, bw)
+
+
+# ----------------------------------------------------------------------------- Triton's cache
+def triton_artifacts(cache_dir: Optional[str] = None) -> List[Dict[str, object]]:
+    """One row per compiled kernel in Triton's on-disk cache: stage sizes and machine-code metadata.
+
+    Each kernel variant is a directory named by a hash of (source, compiler, target, constexprs),
+    holding ``<kernel>.ttir .ttgir .llir .ptx .cubin .json``. ``cache_dir`` defaults to
+    ``$TRITON_CACHE_DIR``, then ``~/.triton/cache``.
+    """
+    root = cache_dir or os.environ.get("TRITON_CACHE_DIR") or os.path.expanduser("~/.triton/cache")
+    rows: List[Dict[str, object]] = []
+    if not os.path.isdir(root):
+        return rows
+    for key in sorted(os.listdir(root)):
+        folder = os.path.join(root, key)
+        if not os.path.isdir(folder):
+            continue
+        for name in sorted(os.listdir(folder)):
+            stem, ext = os.path.splitext(name)
+            if ext != ".cubin":
+                continue
+            sizes = {e: os.path.getsize(os.path.join(folder, stem + "." + e))
+                     for e in ("ttir", "ttgir", "llir", "ptx", "cubin")
+                     if os.path.exists(os.path.join(folder, stem + "." + e))}
+            meta: Dict[str, object] = {}
+            path = os.path.join(folder, stem + ".json")
+            if os.path.exists(path):
+                with open(path) as fh:
+                    meta = {k: v for k, v in json.load(fh).items() if k != "child_paths"}
+            rows.append(dict(kernel=stem, key=key, sizes=sizes, meta=meta))
+    return rows

@@ -2,24 +2,33 @@
 //
 // The autograd registration in cpu/silu_mul.cpp re-dispatches to these kernels for CUDA tensors;
 // nothing autograd-related appears here. Grid-stride elementwise kernels, fp32 maths, output in
-// the input dtype; vectorised loads are the subject of Chapter 21.
+// the input dtype (fp64 stays fp64); vectorised loads are the subject of Chapter 21.
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <cuda_runtime.h>
 
+#include <algorithm>
+#include <type_traits>
+
 #include "../common.h"
 
 namespace llmsys {
+
+// fp32 maths for fp32/bf16/fp16, fp64 for fp64 (gradcheck on the GPU), as on the CPU.
+template <typename scalar_t>
+using work_t = std::conditional_t<std::is_same_v<scalar_t, double>, double, float>;
+__device__ __forceinline__ float dev_exp(float x) { return __expf(x); }
+__device__ __forceinline__ double dev_exp(double x) { return exp(x); }
 
 template <typename scalar_t>
 __global__ void silu_mul_kernel(const scalar_t* __restrict__ g, const scalar_t* __restrict__ u,
                                 scalar_t* __restrict__ y, int64_t n) {
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
   for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += stride) {
-    const float gf = static_cast<float>(g[i]);
-    const float s = 1.0f / (1.0f + __expf(-gf));
-    y[i] = static_cast<scalar_t>(gf * s * static_cast<float>(u[i]));
+    using W = work_t<scalar_t>;
+    const W gw = static_cast<W>(g[i]);
+    y[i] = static_cast<scalar_t>(gw * static_cast<W>(u[i]) / (W(1) + dev_exp(-gw)));
   }
 }
 
@@ -29,10 +38,11 @@ __global__ void silu_mul_bwd_kernel(const scalar_t* __restrict__ dy, const scala
                                     scalar_t* __restrict__ du, int64_t n) {
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
   for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += stride) {
-    const float gf = static_cast<float>(g[i]), uf = static_cast<float>(u[i]), d = static_cast<float>(dy[i]);
-    const float s = 1.0f / (1.0f + __expf(-gf));
-    du[i] = static_cast<scalar_t>(d * gf * s);
-    dg[i] = static_cast<scalar_t>(d * uf * s * (1.0f + gf * (1.0f - s)));
+    using W = work_t<scalar_t>;
+    const W gw = static_cast<W>(g[i]), uw = static_cast<W>(u[i]), d = static_cast<W>(dy[i]);
+    const W s = W(1) / (W(1) + dev_exp(-gw));
+    du[i] = static_cast<scalar_t>(d * gw * s);
+    dg[i] = static_cast<scalar_t>(d * uw * s * (W(1) + gw * (W(1) - s)));
   }
 }
 
@@ -64,7 +74,9 @@ at::Tensor silu_mul_cuda(const at::Tensor& gate, const at::Tensor& up) {
 std::tuple<at::Tensor, at::Tensor> silu_mul_backward_cuda(const at::Tensor& grad, const at::Tensor& gate,
                                                           const at::Tensor& up) {
   LLMSYS_CHECK_CUDA(gate);
-  TORCH_CHECK(gate.sizes() == up.sizes() && gate.sizes() == grad.sizes(), "silu_mul_backward: shapes differ");
+  TORCH_CHECK(gate.sizes() == up.sizes() && gate.sizes() == grad.sizes() &&
+                  gate.scalar_type() == up.scalar_type() && gate.scalar_type() == grad.scalar_type(),
+              "silu_mul_backward: inputs must match in shape and dtype");
   const c10::cuda::CUDAGuard guard(gate.device());
   const auto dy = grad.contiguous(), g = gate.contiguous(), u = up.contiguous();
   auto dg = at::empty_like(g), du = at::empty_like(u);

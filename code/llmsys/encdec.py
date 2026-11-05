@@ -130,6 +130,10 @@ class EncoderDecoder(nn.Module):
         self.dec_norm = LayerNorm(cfg["emb_dim"])
         self.out_head = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False)
         self.out_head.weight = self.encoder.tok_emb.weight
+        # the same small init as the encoder, or the decoder's unit-variance position table
+        # would swamp the tied, std 0.02 token table on the decoder side
+        self.dec_pos_emb.apply(EncoderModel._init_weights)
+        self.dec_blocks.apply(EncoderModel._init_weights)
 
     @property
     def n_dec_layers(self) -> int:

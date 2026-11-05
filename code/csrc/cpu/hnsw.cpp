@@ -14,13 +14,15 @@
 //
 // Threading: ``add`` inserts a batch in parallel through at::parallel_for; each node's neighbour
 // lists are protected by their own mutex and the entry point by a global one (the hnswlib scheme).
-// ``add`` and ``search`` must not run concurrently; searches may run in parallel with each other.
+// The first SERIAL_PREFIX nodes of an index go in one at a time, because threads racing to insert
+// into a nearly empty graph cannot see each other and leave it poorly connected. ``add`` and
+// ``search`` must not run concurrently; searches may run in parallel with each other.
 #include "../common.h"
 
 #include <torch/custom_class.h>
 
 #include <algorithm>
-#include <cstring>
+#include <atomic>
 #include <deque>
 #include <limits>
 #include <mutex>
@@ -106,6 +108,7 @@ struct HNSW : torch::CustomClassHolder {
   using Cand = std::pair<float, int32_t>;  // (distance to the query, node id)
   using MinHeap = std::priority_queue<Cand, std::vector<Cand>, std::greater<Cand>>;
   using MaxHeap = std::priority_queue<Cand>;
+  static constexpr int64_t SERIAL_PREFIX = 1024;
 
   HNSW(int64_t dim, int64_t M, int64_t ef_construction, std::string metric)
       : dim_(dim), M_(M), M0_(2 * M), efc_(ef_construction), metric_(parse_metric(metric)),
@@ -150,7 +153,9 @@ struct HNSW : torch::CustomClassHolder {
       locks_.emplace_back();
     }
     size_ += n_new;
-    at::parallel_for(0, n_new, /*grain_size=*/1, [&](int64_t b, int64_t e) {
+    const int64_t serial = std::min(n_new, std::max<int64_t>(0, SERIAL_PREFIX - start));
+    for (int64_t i = 0; i < serial; ++i) insert(static_cast<int32_t>(start + i));
+    at::parallel_for(serial, n_new, /*grain_size=*/1, [&](int64_t b, int64_t e) {
       for (int64_t i = b; i < e; ++i) insert(static_cast<int32_t>(start + i));
     });
     return at::arange(start, start + n_new, at::kLong);
@@ -162,6 +167,7 @@ struct HNSW : torch::CustomClassHolder {
     LLMSYS_CHECK_CPU(q);
     TORCH_CHECK(q.dim() == 2 && q.size(1) == dim_, "HNSW.search: expected (nq, ", dim_, ") queries");
     TORCH_CHECK(size_ > 0, "HNSW.search: the index is empty");
+    TORCH_CHECK(k > 0, "HNSW.search: k must be positive");
     auto qf = q.to(at::kFloat).contiguous();
     if (metric_ == Metric::Cosine) qf = qf / qf.norm(2, 1, true).clamp_min(1e-12);
     const int64_t nq = qf.size(0);
@@ -193,6 +199,27 @@ struct HNSW : torch::CustomClassHolder {
   int64_t entry_point() const { return entry_; }
   int64_t max_level() const { return max_level_; }
   at::Tensor levels() const { return at::tensor(levels_, at::kLong); }
+  // Distance evaluations inside SEARCH-LAYER since the last reset: the cost model's unit of work.
+  int64_t distance_computations() const { return n_dist_.load(std::memory_order_relaxed); }
+  void reset_counters() { n_dist_.store(0, std::memory_order_relaxed); }
+  // Bytes held by vectors, neighbour ids and level tables (excludes allocator and mutex overhead).
+  int64_t nbytes() const {
+    int64_t links = 0;
+    for (const auto& nb : links_) links += static_cast<int64_t>(nb.capacity() * sizeof(int32_t));
+    return static_cast<int64_t>(data_.size() * sizeof(float)) + links +
+           static_cast<int64_t>((levels_.size() + offsets_.size()) * sizeof(int64_t));
+  }
+  // Stored vectors of the given nodes (cosine indexes return the normalised rows).
+  at::Tensor vectors(const at::Tensor& ids) const {
+    const auto idc = ids.to(at::kLong).contiguous();
+    auto out = at::empty({idc.numel(), dim_}, at::kFloat);
+    for (int64_t i = 0; i < idc.numel(); ++i) {
+      const int64_t id = idc.data_ptr<int64_t>()[i];
+      TORCH_CHECK(id >= 0 && id < size_, "HNSW.vectors: id out of range");
+      std::copy_n(row(static_cast<int32_t>(id)), dim_, out.data_ptr<float>() + i * dim_);
+    }
+    return out;
+  }
   at::Tensor neighbors(int64_t node, int64_t level) const {
     TORCH_CHECK(node >= 0 && node < size_ && level >= 0 && level <= levels_[node], "HNSW: bad node/level");
     const auto& nb = links_[offsets_[node] + level];
@@ -269,6 +296,7 @@ struct HNSW : torch::CustomClassHolder {
     result.emplace(ep_dist, ep);
     vis.tag[ep] = tag;
     std::vector<int32_t> copy;
+    int64_t evals = 0;
     while (!cands.empty()) {
       const Cand c = cands.top();
       if (c.first > result.top().first) break;  // nearest frontier node is worse than our worst result
@@ -283,6 +311,7 @@ struct HNSW : torch::CustomClassHolder {
         if (vis.tag[e] == tag) continue;
         vis.tag[e] = tag;
         const float d = dist(q, e);
+        ++evals;
         if (static_cast<int64_t>(result.size()) < ef || d < result.top().first) {
           cands.emplace(d, e);
           result.emplace(d, e);
@@ -290,6 +319,7 @@ struct HNSW : torch::CustomClassHolder {
         }
       }
     }
+    n_dist_.fetch_add(evals, std::memory_order_relaxed);
     std::vector<Cand> out;
     out.reserve(result.size());
     while (!result.empty()) { out.push_back(result.top()); result.pop(); }
@@ -378,6 +408,7 @@ struct HNSW : torch::CustomClassHolder {
   std::vector<std::vector<int32_t>> links_;
   mutable std::deque<std::mutex> locks_;      // deque: push_back never moves existing mutexes
   std::mutex global_;                         // guards entry_ / max_level_
+  mutable std::atomic<int64_t> n_dist_{0};    // one relaxed add per SEARCH-LAYER, not per distance
 };
 
 }  // namespace llmsys
@@ -394,6 +425,10 @@ TORCH_LIBRARY_FRAGMENT(llmsys, m) {
       .def("entry_point", &llmsys::HNSW::entry_point)
       .def("max_level", &llmsys::HNSW::max_level)
       .def("levels", &llmsys::HNSW::levels)
+      .def("distance_computations", &llmsys::HNSW::distance_computations)
+      .def("reset_counters", &llmsys::HNSW::reset_counters)
+      .def("nbytes", &llmsys::HNSW::nbytes)
+      .def("vectors", &llmsys::HNSW::vectors)
       .def("neighbors", &llmsys::HNSW::neighbors)
       .def("state", &llmsys::HNSW::state)
       .def("load_state", &llmsys::HNSW::load_state);

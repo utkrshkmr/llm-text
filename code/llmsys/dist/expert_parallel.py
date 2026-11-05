@@ -8,7 +8,8 @@ With expert parallelism (EP) every rank keeps a disjoint slice of the experts an
                     -> unsort -> all_to_all (combine) -> unpermute (local)
 
 ``ep_dispatch`` / ``ep_combine`` are those two exchanges written with
-``torch.distributed.all_to_all_single``; they run on gloo (CPU tests) and NCCL alike.
+``torch.distributed.all_to_all_single``, wrapped in a custom autograd function because
+collectives do not record gradients by themselves; they run on gloo (CPU tests) and NCCL alike.
 ``ExpertParallelMoE`` wraps a ``MoELayer`` so that ``forward`` on a rank's shard of tokens
 equals the single-process layer on the same tokens.
 
@@ -28,7 +29,7 @@ import torch.distributed as dist
 import torch.nn as nn
 
 from ..moe_layer import (Experts, MoELayer, MoEShape, Permuted, moe_params, permute_tokens,
-                         segment_gemm, unpermute_tokens)
+                         unpermute_tokens)
 
 
 # --------------------------------------------------------------------------- collectives
@@ -60,22 +61,57 @@ def plan_dispatch(counts: torch.Tensor, world: int, group=None) -> DispatchPlan:
     return DispatchPlan(send_splits, recv_splits, recv_counts, order, recv_counts.sum(0))
 
 
+def _exchange(x: torch.Tensor, send: list[int], recv: list[int], group=None) -> torch.Tensor:
+    """all_to_all of rows: ``send[r]`` rows go to rank r, ``recv[r]`` rows arrive from rank r."""
+    out = x.new_empty(sum(recv), x.shape[1])
+    dist.all_to_all_single(out, x.contiguous(), output_split_sizes=recv, input_split_sizes=send,
+                           group=group)                         # split sizes count dim-0 rows
+    return out
+
+
+class RowExchange(torch.autograd.Function):
+    """Differentiable all-to-all: the backward pass is the same exchange with the splits swapped.
+
+    A training step therefore performs four data all-to-alls per MoE layer: dispatch and
+    combine forward, their adjoints backward. Every rank must run them in the same order;
+    the layer's backward graph is a chain, so autograd guarantees that.
+    """
+
+    @staticmethod
+    def forward(ctx, x, send, recv, group):
+        ctx.send, ctx.recv, ctx.group = send, recv, group
+        return _exchange(x, send, recv, group)
+
+    @staticmethod
+    def backward(ctx, grad):
+        return _exchange(grad, ctx.recv, ctx.send, ctx.group), None, None, None
+
+
 def ep_dispatch(xs: torch.Tensor, plan: DispatchPlan, group=None) -> torch.Tensor:
     """all_to_all of the permuted token copies; returns rows grouped by local expert."""
-    recv = xs.new_empty(sum(plan.recv_splits), xs.shape[1])
-    dist.all_to_all_single(recv, xs.contiguous(), output_split_sizes=plan.recv_splits,
-                           input_split_sizes=plan.send_splits, group=group)
+    recv = RowExchange.apply(xs, plan.send_splits, plan.recv_splits, group)
     return recv[plan.order]
 
 
 def ep_combine(ys_local: torch.Tensor, plan: DispatchPlan, group=None) -> torch.Tensor:
     """Inverse exchange: expert outputs go back to the ranks that own the tokens."""
-    ys = torch.empty_like(ys_local)
-    ys[plan.order] = ys_local                                          # undo the regrouping
-    out = ys.new_empty(sum(plan.send_splits), ys.shape[1])
-    dist.all_to_all_single(out, ys.contiguous(), output_split_sizes=plan.send_splits,
-                           input_split_sizes=plan.recv_splits, group=group)
-    return out
+    inverse = torch.empty_like(plan.order)
+    inverse[plan.order] = torch.arange(plan.order.numel(), device=plan.order.device)
+    return RowExchange.apply(ys_local[inverse], plan.recv_splits, plan.send_splits, group)
+
+
+def global_load_balancing_loss(scores: torch.Tensor, topk_idx: torch.Tensor, n_experts: int,
+                               group=None) -> torch.Tensor:
+    """Aux loss with f_e over the *global* batch and P_e over this rank's tokens.
+
+    Averaged over equally sized ranks this is the single-process loss on the whole batch; a
+    per-rank f_e is noisy for small micro-batches and pushes each rank toward its own balance.
+    """
+    counts = torch.bincount(topk_idx.reshape(-1), minlength=n_experts)
+    dist.all_reduce(counts, group=group)
+    f = counts.to(scores.dtype) / counts.sum()
+    p = scores / scores.sum(dim=-1, keepdim=True)
+    return n_experts * torch.sum(f * p.mean(dim=0))
 
 
 class ExpertParallelMoE(nn.Module):
@@ -88,15 +124,23 @@ class ExpertParallelMoE(nn.Module):
         self.n_experts, self.top_k = layer.n_experts, layer.top_k
         e_local = layer.n_experts // world
         self.router = layer.router
+        self.router.sync_counts = self._global_counts
         self.shared = layer.shared
         self.local_experts: Experts = layer.experts.slice(rank * e_local, (rank + 1) * e_local)
         self.gemm = layer.gemm
         self.last_plan: DispatchPlan | None = None
+        self.last_aux_loss = torch.tensor(0.0)
+
+    def _global_counts(self, counts: torch.Tensor) -> torch.Tensor:
+        dist.all_reduce(counts, group=self.group)
+        return counts
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shape = x.shape
         x2d = x.reshape(-1, shape[-1])
         r = self.router(x2d)
+        self.last_aux_loss = global_load_balancing_loss(r.scores, r.topk_idx, self.n_experts,
+                                                        self.group)
         p: Permuted = permute_tokens(x2d, r.topk_idx, r.topk_weight, self.n_experts)
         plan = plan_dispatch(p.counts, self.world, self.group)
         self.last_plan = plan
@@ -110,34 +154,30 @@ class ExpertParallelMoE(nn.Module):
 
 
 # --------------------------------------------------------------------------- cost models
-def expected_remote_fraction(n_experts: int, top_k: int, world: int) -> float:
-    """Fraction of a token's k copies that leave its GPU under uniform routing: 1 - 1/W."""
-    return 1.0 - 1.0 / world if n_experts >= world else 0.0
-
-
 def ep_bytes_per_token(d_model: int, top_k: int, world: int, bytes_per_el: int = 2) -> dict:
     """All-to-all traffic per token per MoE layer per rank, each direction (uniform routing).
 
     Dispatch sends k copies of the d-vector, (1 - 1/W) of which cross the link; combine
     returns the same amount. Per direction per rank: 2 * k * d * b * (1 - 1/W).
     """
-    f = expected_remote_fraction(10**9, top_k, world)
-    one_way = top_k * d_model * bytes_per_el * f
+    one_way = top_k * d_model * bytes_per_el * (1.0 - 1.0 / world)
     return dict(dispatch=one_way, combine=one_way, total=2 * one_way)
 
 
 def tp_bytes_per_token(d_model: int, world: int, bytes_per_el: int = 2) -> dict:
-    """Megatron-style TP of the MoE FFN: two ring all-reduces of the (tokens, d) activation
-    per layer in the forward pass; each moves 2(W-1)/W * d * b bytes per rank."""
+    """Megatron-style TP of the MoE FFN (Chapter 17): one all-reduce of the (tokens, d) output in
+    the forward pass, one of the input gradient in the backward pass. A ring all-reduce moves
+    2(W-1)/W * d * b bytes per rank. Inference pays ``forward``, training ``train``."""
     per_allreduce = 2 * (world - 1) / world * d_model * bytes_per_el
-    return dict(per_allreduce=per_allreduce, total=2 * per_allreduce)
+    return dict(forward=per_allreduce, train=2 * per_allreduce)
 
 
 def ep_layer_time(n_tokens: int, d_model: int, top_k: int, world: int, link_bw: float,
                   latency: float = 30e-6, bytes_per_el: int = 2) -> dict:
-    """Seconds spent in the two all-to-alls of one MoE layer (alpha-beta model)."""
+    """Seconds in one forward MoE layer's all-to-alls (alpha-beta model): the counts exchange,
+    dispatch and combine, so three latencies; the count bytes are negligible."""
     b = ep_bytes_per_token(d_model, top_k, world, bytes_per_el)["total"] * n_tokens
-    return dict(bytes=b, time=2 * latency + b / link_bw)
+    return dict(bytes=b, time=3 * latency + b / link_bw)
 
 
 def expected_distinct(n_bins: int, n_experts: int, top_k: int) -> float:
@@ -225,7 +265,8 @@ def offload_step_time(s: MoEShape, n_layers: int, batch: int, cache_fraction: fl
                 tokens_per_s=batch / (t_pcie + t_hbm))
 
 
-__all__ = ["DispatchPlan", "plan_dispatch", "ep_dispatch", "ep_combine", "ExpertParallelMoE",
-           "ep_bytes_per_token", "tp_bytes_per_token", "ep_layer_time", "expected_distinct",
+__all__ = ["DispatchPlan", "plan_dispatch", "ep_dispatch", "ep_combine", "RowExchange",
+           "global_load_balancing_loss", "ExpertParallelMoE", "ep_bytes_per_token",
+           "tp_bytes_per_token", "ep_layer_time", "expected_distinct",
            "hierarchical_dispatch_bytes", "expected_active_experts", "decode_weight_bytes",
-           "decode_step_time", "offload_step_time", "segment_gemm"]
+           "decode_step_time", "offload_step_time"]

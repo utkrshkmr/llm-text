@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -36,7 +36,7 @@ class Routing:
     """Result of a token-choice router for N tokens."""
     topk_idx: torch.Tensor      # (N, k) expert ids, long
     topk_weight: torch.Tensor   # (N, k) combine weights (float32)
-    scores: torch.Tensor        # (N, E) gate scores before top-k (softmax probs or sigmoid affinities)
+    scores: torch.Tensor        # (N, E) gate scores before top-k (softmax or sigmoid values)
     logits: torch.Tensor        # (N, E) raw router logits (float32), for the z-loss
 
 
@@ -49,11 +49,17 @@ class ExpertChoice:
 
 
 # --------------------------------------------------------------------------- token choice
-def topk_softmax_router(logits: torch.Tensor, k: int, normalize: bool = True) -> Routing:
-    """Softmax over experts, keep the k largest, optionally renormalise the kept weights."""
+def topk_softmax_router(logits: torch.Tensor, k: int, normalize: bool = True,
+                        bias: Optional[torch.Tensor] = None) -> Routing:
+    """Softmax over experts, keep the k largest, optionally renormalise the kept weights.
+
+    As with the sigmoid gate, a balancing ``bias`` only affects which experts are selected.
+    """
     logits = logits.float()
     probs = torch.softmax(logits, dim=-1)
-    w, idx = torch.topk(probs, k, dim=-1)
+    selection = probs if bias is None else probs + bias.to(probs.dtype)
+    _, idx = torch.topk(selection, k, dim=-1)
+    w = torch.gather(probs, 1, idx)
     if normalize:
         w = w / w.sum(dim=-1, keepdim=True)
     return Routing(idx, w, probs, logits)
@@ -94,7 +100,7 @@ def group_limited_router(logits: torch.Tensor, k: int, n_groups: int, topk_group
     selection = s if bias is None else s + bias.to(s.dtype)
     grouped = selection.view(N, n_groups, E // n_groups)
     gscore = grouped.topk(min(group_score_topk, E // n_groups), dim=-1).values.sum(-1)  # (N, G)
-    top_groups = gscore.topk(topk_groups, dim=-1).indices                              # (N, g)
+    top_groups = gscore.topk(topk_groups, dim=-1).indices                                # (N, g)
     group_mask = torch.zeros(N, n_groups, dtype=torch.bool, device=logits.device)
     group_mask.scatter_(1, top_groups, True)
     allowed = group_mask[:, :, None].expand(N, n_groups, E // n_groups).reshape(N, E)
@@ -114,13 +120,14 @@ def expert_choice_router(logits: torch.Tensor, capacity: int) -> ExpertChoice:
     tokens by p[:, e]. A token may be picked by many experts or by none (it then passes
     through the residual connection unchanged). Load is exactly C tokens per expert.
     """
-    probs = torch.softmax(logits.float(), dim=-1)          # (N, E)
-    w, tok = torch.topk(probs.t(), capacity, dim=-1)       # (E, C)
+    probs = torch.softmax(logits.float(), dim=-1)                       # (N, E)
+    w, tok = torch.topk(probs.t(), min(capacity, probs.shape[0]), dim=-1)  # (E, C)
     return ExpertChoice(tok, w, probs)
 
 
 # --------------------------------------------------------------------------- balancing
-def load_balancing_loss(scores: torch.Tensor, topk_idx: torch.Tensor, n_experts: int) -> torch.Tensor:
+def load_balancing_loss(scores: torch.Tensor, topk_idx: torch.Tensor,
+                        n_experts: int) -> torch.Tensor:
     """Switch-Transformer auxiliary loss  E * sum_e f_e P_e.
 
     f_e: fraction of (token, slot) assignments sent to expert e (a count, no gradient);
@@ -182,6 +189,9 @@ class Router(nn.Module):
     ``gate``: "softmax" or "sigmoid". ``n_groups > 1`` enables group-limited routing with
     ``topk_groups`` groups per token. ``aux_free_gamma > 0`` enables the bias balancer (the
     bias is a buffer, saved with the model but never trained by the optimiser).
+    ``sync_counts``, when set, reduces the batch's expert counts before the bias update:
+    replicated routers under expert parallelism must see the global load, or their biases
+    drift apart and the replicas stop agreeing on where a token goes.
     """
 
     def __init__(self, d_model: int, n_experts: int, top_k: int, gate: str = "softmax",
@@ -194,8 +204,7 @@ class Router(nn.Module):
         self.weight = nn.Parameter(torch.randn(n_experts, d_model) * init_std)
         self.register_buffer("bias", torch.zeros(n_experts))
         self.balancer = AuxFreeBalancer(n_experts, aux_free_gamma) if aux_free_gamma > 0 else None
-        if self.balancer is not None:
-            self.balancer.bias = self.bias           # share storage with the saved buffer
+        self.sync_counts: Optional[Callable[[torch.Tensor], torch.Tensor]] = None
 
     def forward(self, x2d: torch.Tensor) -> Routing:
         logits = F.linear(x2d.float(), self.weight.float())      # router math in fp32
@@ -204,10 +213,14 @@ class Router(nn.Module):
             r = group_limited_router(logits, self.top_k, self.n_groups, self.topk_groups,
                                      gate=self.gate, bias=bias, normalize=self.normalize)
         elif self.gate == "softmax":
-            r = topk_softmax_router(logits, self.top_k, self.normalize)
+            r = topk_softmax_router(logits, self.top_k, self.normalize, bias=bias)
         else:
             r = topk_sigmoid_router(logits, self.top_k, self.normalize, bias=bias)
         if self.balancer is not None and self.training:
             with torch.no_grad():
-                self.balancer.update(torch.bincount(r.topk_idx.reshape(-1), minlength=self.n_experts))
+                counts = torch.bincount(r.topk_idx.reshape(-1), minlength=self.n_experts)
+                if self.sync_counts is not None:
+                    counts = self.sync_counts(counts)
+                self.balancer.bias = self.bias       # .to(device) replaces the buffer's tensor
+                self.balancer.update(counts)
         return r

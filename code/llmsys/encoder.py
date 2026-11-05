@@ -11,6 +11,9 @@ the serving pattern (one forward pass per sequence, no KV cache). This module pr
 * the model:        ``BidirectionalAttention``, ``EncoderBlock``, ``EncoderModel``, ``MLMHead``
 * embedding heads:  ``pool``, ``SentenceEmbedder``, ``info_nce_loss``, ``matryoshka_loss``,
                     ``late_interaction_score``, ``CrossEncoderReranker``, ``build_pair_input``
+* serving:          ``length_sorted_batches``, ``padding_waste``, ``pack_sequences``, and the cost
+                    model ``encoder_flops_per_sequence``, ``encoder_activation_bytes_per_sequence``,
+                    ``batch_for_compute_bound``
 
 Everything reuses the norms, MLP and attention core of ``llmsys.layers``.
 """
@@ -91,10 +94,13 @@ def random_spans_noise_mask(length: int, noise_density: float, mean_span_length:
     """T5's span mask: ``length`` positions, about ``noise_density`` of them noise, grouped in
     spans of mean length ``mean_span_length``. Noise and non-noise spans alternate, starting
     with a non-noise span, so the sequence never begins with a sentinel. Returns a bool (T,) mask."""
+    if length < 2:
+        raise ValueError("span corruption needs at least two tokens")
     n_noise = int(round(length * noise_density))
     n_noise = min(max(n_noise, 1), length - 1)
-    n_spans = max(1, int(round(n_noise / mean_span_length)))
     n_nonnoise = length - n_noise
+    # every noise span needs a clean span in front of it, so neither side can run out of tokens
+    n_spans = max(1, min(int(round(n_noise / mean_span_length)), n_noise, n_nonnoise))
 
     def segment(n_items: int, n_segments: int) -> torch.Tensor:
         # positive integer lengths summing to n_items: pick n_segments-1 cut points
@@ -121,8 +127,9 @@ def span_corrupt(ids: torch.Tensor, sentinel_start: int, noise_density: float = 
     the next unused sentinel (then ``eos_id`` if given). Returns (encoder_input, decoder_target).
     """
     noise = random_spans_noise_mask(len(ids), noise_density, mean_span_length, generator)
+    noise = noise.to(ids.device)
     # a span *starts* where noise is True and the previous position was not noise
-    prev = torch.cat([torch.zeros(1, dtype=torch.bool), noise[:-1]])
+    prev = torch.cat([torch.zeros(1, dtype=torch.bool, device=ids.device), noise[:-1]])
     starts = noise & ~prev
     span_id = torch.cumsum(starts.long(), 0) - 1                    # which span each noise pos is in
     sentinels = sentinel_start + span_id
@@ -132,10 +139,10 @@ def span_corrupt(ids: torch.Tensor, sentinel_start: int, noise_density: float = 
         if starts[pos]:
             tgt_full.append(int(sentinels[pos]))
         tgt_full.append(int(ids[pos]))
-    tgt = torch.tensor(tgt_full, dtype=ids.dtype)
-    tail = [sentinel_start + int(starts.sum())] + ([eos_id] if eos_id is not None else [])
-    tgt = torch.cat([tgt, torch.tensor(tail, dtype=ids.dtype)])
-    return enc, tgt
+    tgt_full.append(sentinel_start + int(starts.sum()))
+    if eos_id is not None:
+        tgt_full.append(eos_id)
+    return enc, torch.tensor(tgt_full, dtype=ids.dtype, device=ids.device)
 
 
 def prefix_lm_targets(ids: torch.Tensor, prefix_len: int):
@@ -229,12 +236,16 @@ class EncoderModel(nn.Module):
                 nn.init.zeros_(m.bias)
 
     def forward(self, ids: torch.Tensor, pad_mask: Optional[torch.Tensor] = None,
-                attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        B, T = ids.shape
-        if T > self.cfg["context_length"]:
-            raise ValueError("sequence exceeds context_length; truncate the input")
-        pos = torch.arange(T, device=ids.device)
-        x = self.drop_emb(self.tok_emb(ids) + self.pos_emb(pos)[None])
+                attn_mask: Optional[torch.Tensor] = None,
+                position_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """position_ids: optional (B, T) positions, needed only for packed batches, where each
+        sequence restarts at zero inside one long row (see ``pack_sequences``)."""
+        T = ids.shape[1]
+        if position_ids is None:
+            if T > self.cfg["context_length"]:
+                raise ValueError("sequence exceeds context_length; truncate the input")
+            position_ids = torch.arange(T, device=ids.device)[None]
+        x = self.drop_emb(self.tok_emb(ids) + self.pos_emb(position_ids))
         for blk in self.blocks:
             x = blk(x, pad_mask, attn_mask)
         return self.final_norm(x)
@@ -255,6 +266,8 @@ class MLMHead(nn.Module):
         if labels is not None:
             keep = labels != IGNORE_INDEX
             hidden, labels = hidden[keep], labels[keep]
+            if labels.numel() == 0:  # a short batch can draw no masks; cross_entropy would give NaN
+                return hidden.new_zeros(0, self.bias.numel()), hidden.sum() * 0.0
         logits = F.linear(self.transform(hidden), self.decoder_weight, self.bias)
         if labels is None:
             return logits
@@ -343,8 +356,8 @@ def build_pair_input(q_ids: Sequence[int], d_ids: Sequence[int], cls_id: int, se
                      pad_id: int, max_len: int):
     """[CLS] q [SEP] d [SEP] with padding; returns (ids, pad_mask, segment_ids) as 1-D tensors.
     The document is truncated first (queries are short and must survive intact)."""
-    budget = max_len - 3 - len(q_ids)
-    d_ids = list(d_ids)[: max(budget, 0)]
+    q_ids = list(q_ids)[: max_len - 3]
+    d_ids = list(d_ids)[: max_len - 3 - len(q_ids)]
     ids = [cls_id, *q_ids, sep_id, *d_ids, sep_id]
     seg = [0] * (len(q_ids) + 2) + [1] * (len(d_ids) + 1)
     n_pad = max_len - len(ids)
@@ -374,6 +387,52 @@ class CrossEncoderReranker(nn.Module):
         return self.score(enc.final_norm(x)[:, 0]).squeeze(-1)      # (B,)
 
 
+# --------------------------------------------------------------------------- dynamic batching
+def length_sorted_batches(lengths: Sequence[int], max_tokens: int,
+                          max_batch: Optional[int] = None) -> list[list[int]]:
+    """Group sequence indices into batches of similar length, under a budget of padded tokens.
+
+    Sort by length and fill each batch while ``len(batch) * longest <= max_tokens``. The budget
+    is on padded tokens because that, not the sequence count, sets the time and memory of the
+    forward. A single sequence longer than the budget still gets a batch of its own."""
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])
+    batches, cur = [], []
+    for i in order:                                 # ascending, so lengths[i] is the longest so far
+        full = max_batch is not None and len(cur) == max_batch
+        if cur and (full or (len(cur) + 1) * lengths[i] > max_tokens):
+            batches.append(cur)
+            cur = []
+        cur.append(i)
+    if cur:
+        batches.append(cur)
+    return batches
+
+
+def padding_waste(lengths: Sequence[int], batches: Sequence[Sequence[int]]) -> float:
+    """Fraction of the padded matrix that is padding, summed over ``batches`` of indices."""
+    real = sum(lengths[i] for b in batches for i in b)
+    padded = sum(len(b) * max(lengths[i] for i in b) for b in batches)
+    return 1.0 - real / padded
+
+
+def pack_sequences(seqs: Sequence[torch.Tensor]):
+    """Concatenate sequences into one row with no padding at all (the "unpadded" layout).
+
+    Returns (ids, position_ids, attn_mask, spans): ids and position_ids have shape (1, sum T_i),
+    attn_mask is the block-diagonal (1, 1, sum T_i, sum T_i) forbidden-mask that keeps every
+    sequence to itself, and spans lists (start, end) per sequence. A dense mask is the clearest
+    statement of the semantics, but it costs (sum T_i)^2 scores; a varlen attention kernel gets
+    the same answer from the spans alone in sum T_i^2."""
+    device = seqs[0].device
+    ids = torch.cat(list(seqs))[None]
+    position_ids = torch.cat([torch.arange(len(s), device=device) for s in seqs])[None]
+    seq_of_token = torch.cat([torch.full((len(s),), n, device=device) for n, s in enumerate(seqs)])
+    attn_mask = (seq_of_token[:, None] != seq_of_token[None, :])[None, None]
+    ends = torch.tensor([len(s) for s in seqs]).cumsum(0).tolist()
+    spans = list(zip([0] + ends[:-1], ends))
+    return ids, position_ids, attn_mask, spans
+
+
 # --------------------------------------------------------------------------- cost model
 def encoder_flops_per_sequence(n_params_nonembed: float, T: int, n_layers: int, d_model: int):
     """Forward FLOPs for one sequence of T tokens: 2*params per token for the GEMMs plus the
@@ -381,10 +440,25 @@ def encoder_flops_per_sequence(n_params_nonembed: float, T: int, n_layers: int, 
     return 2.0 * n_params_nonembed * T + 4.0 * T * T * d_model * n_layers
 
 
+def encoder_activation_bytes_per_sequence(T: int, n_layers: int, d_model: int, ffn_mult: float = 4,
+                                          bytes_per_el: float = 2) -> float:
+    """HBM bytes of activations read and written per sequence, counted one matrix at a time.
+
+    In elements per token per layer: 6d for the Q, K, V projections (read x, write each), 2d for
+    QK^T's inputs, 2d for PV (read V, write the context), 2d for the output projection, about 6d
+    for the norms and residuals, and (2 + 2m)d for the two MLP GEMMs. The total is (20 + 2m)d."""
+    return (20 + 2 * ffn_mult) * d_model * T * n_layers * bytes_per_el
+
+
 def batch_for_compute_bound(weight_bytes: float, flops_per_seq: float, peak_flops: float,
-                            hbm_bw: float) -> int:
-    """Smallest batch (sequences per forward) at which the GEMM time exceeds the time to stream
-    the weights once from HBM, i.e. the point past which the encoder is compute bound."""
-    t_weights = weight_bytes / hbm_bw
-    t_seq = flops_per_seq / peak_flops
-    return max(1, math.ceil(t_weights / t_seq))
+                            hbm_bw: float, activation_bytes_per_seq: float = 0.0) -> int:
+    """Smallest batch at which the forward's intensity reaches the machine balance.
+
+    A batch of b sequences does b*F FLOPs and moves W + b*A bytes (the weights once, activations
+    per sequence). It is compute bound when bF / peak >= (W + bA) / bw, which solves to
+    b >= W / (F*bw/peak - A). If activations alone exceed that budget no batch size reaches the
+    compute roof, and a ValueError says so."""
+    slack = flops_per_seq * hbm_bw / peak_flops - activation_bytes_per_seq
+    if slack <= 0:
+        raise ValueError("activation traffic alone keeps this model memory bound")
+    return max(1, math.ceil(weight_bytes / slack))

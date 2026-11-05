@@ -26,7 +26,10 @@ def ensure_simulated_devices(n: int = DEFAULT_DEVICE_COUNT) -> bool:
 
     XLA reads ``XLA_FLAGS`` once, when the backend is initialised, so the flag has to be set
     before ``import jax`` anywhere in the process. An existing device-count flag is respected.
+    The simulated mesh only exists on the CPU backend, so we also default ``JAX_PLATFORMS`` to
+    ``cpu``; set it to ``gpu`` or ``tpu`` yourself to run the same code on real devices.
     """
+    os.environ.setdefault("JAX_PLATFORMS", "cpu")
     flag = f"--xla_force_host_platform_device_count={n}"
     flags = os.environ.get("XLA_FLAGS", "")
     if "xla_force_host_platform_device_count" in flags:

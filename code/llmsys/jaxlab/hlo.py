@@ -21,21 +21,26 @@ import jax
 COLLECTIVES: tuple[str, ...] = ("all-reduce", "all-gather", "reduce-scatter", "all-to-all",
                                 "collective-permute")
 
-# An HLO instruction `%name = type op(operands), attrs`; also the StableHLO spelling with `_`.
-# Async pairs (`all-reduce-start` / `all-reduce-done`) count once.
-_COLLECTIVE_RE = re.compile(
-    r"[\s\"](all[-_]reduce|all[-_]gather|reduce[-_]scatter|all[-_]to[-_]all|collective[-_]permute)"
-    r"(-start|-done)?[\s(\"]")
+# An HLO definition `%name = shape op(operands), attrs` (async pairs `op-start`/`op-done` count once)
+# or the StableHLO spelling `stablehlo.op`. Matching on the instruction form, not the bare word, is
+# what keeps `metadata={op_name="reduce_scatter"}` and instruction *names* out of the count.
+_OPS = "all-reduce|all-gather|reduce-scatter|all-to-all|collective-permute"
+_HLO_COLLECTIVE_RE = re.compile(rf"^\s*(?:ROOT\s+)?%?\S+\s*=\s*.*?\s({_OPS})(-start|-done)?\(")
+_SHLO_COLLECTIVE_RE = re.compile(rf"stablehlo\.({_OPS.replace('-', '_')})\b")
 _FUSION_RE = re.compile(r"=\s*\S+\s+fusion\((?:[^)]*)\),\s*kind=k(\w+)")
 
 
 def count_collectives(hlo_text: str) -> dict[str, int]:
     """Number of collective instructions of each kind in HLO (or StableHLO) text."""
     counts = {c: 0 for c in COLLECTIVES}
-    for m in _COLLECTIVE_RE.finditer(hlo_text):
-        if m.group(2) == "-done":
+    for line in hlo_text.splitlines():
+        m = _HLO_COLLECTIVE_RE.match(line)
+        if m is not None:
+            if m.group(2) != "-done":
+                counts[m.group(1)] += 1
             continue
-        counts[m.group(1).replace("_", "-")] += 1
+        for op in _SHLO_COLLECTIVE_RE.findall(line):
+            counts[op.replace("_", "-")] += 1
     return counts
 
 
@@ -89,18 +94,22 @@ def dump_hlo(fn: Callable, args: Iterable, stem: str) -> tuple[str, str]:
     paths = (stem + ".stablehlo.mlir", stem + ".hlo.txt")
     for path, text in zip(paths, (report["stablehlo"], report["hlo"])):
         with open(path, "w") as fh:
-            fh.write(text)
+            fh.write(readable_hlo(text) if path.endswith(".txt") else text)
     return paths
 
 
 def collective_instructions(hlo_text: str) -> list[str]:
     """The HLO lines that define a collective, trimmed: what to read first in a big module."""
-    lines = []
-    for line in hlo_text.splitlines():
-        s = line.strip()
-        if "=" in s and _COLLECTIVE_RE.search(" " + s.split("=", 1)[1][:80] + " "):
-            lines.append(s.split(", metadata=")[0])
-    return lines
+    return [line.strip().split(", metadata=")[0] for line in hlo_text.splitlines()
+            if _HLO_COLLECTIVE_RE.match(line)]
+
+
+def readable_hlo(hlo_text: str) -> str:
+    """Optimised HLO without source-location tables and metadata, for reading or for a book."""
+    table = re.compile(r"^(\d+ |FileNames|FunctionNames|FileLocations|StackFrames)")
+    lines = [line.split(", metadata=")[0] for line in hlo_text.splitlines()
+             if not table.match(line)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)) + "\n"
 
 
 # --------------------------------------------------------------------------- profiles
@@ -122,15 +131,17 @@ def profile_trace(fn: Callable, args: Iterable, logdir: str, repeats: int = 3) -
 def summarize_trace(path: str, top: int = 10) -> list[tuple[str, float, int]]:
     """Top ``top`` trace events by total duration (name, total microseconds, count).
 
-    Reads the Chrome-trace JSON that ``profile_trace`` produced. On a GPU/TPU the ``X`` events
-    on device rows are kernels and collectives; on CPU they are XLA's thunks.
+    Reads the Chrome-trace JSON that ``profile_trace`` produced. Events whose names start with
+    ``$`` are Python frames and are skipped. On a GPU/TPU the ``X`` events on device rows are
+    kernels and collectives; on CPU they carry the HLO instruction names of the executable's
+    thunks, so ``psum_invariant.7`` or ``ynn_fusion`` can be matched back to the HLO text.
     """
     opener = gzip.open if path.endswith(".gz") else open
     with opener(path, "rt") as fh:
         events = json.load(fh).get("traceEvents", [])
     total, count = Counter(), Counter()
     for ev in events:
-        if ev.get("ph") == "X" and "dur" in ev:
+        if ev.get("ph") == "X" and "dur" in ev and not ev["name"].startswith("$"):
             total[ev["name"]] += float(ev["dur"])
             count[ev["name"]] += 1
     return [(name, total[name], count[name]) for name, _ in total.most_common(top)]

@@ -13,8 +13,9 @@ Everything imports on a CPU-only machine; ONNX, ONNX Runtime and the CUDA-graph 
 from __future__ import annotations
 
 from . import dynamo_tools, export_tools, fx_passes  # noqa: F401
-from .dynamo_tools import (capture_graphs, count_recompiles, explain, inductor_output_code,  # noqa: F401
-                           kernel_names, list_guards, summarize_kernels)
+from .dynamo_tools import (capture_graphs, count_recompiles, counters, explain, extern_calls,  # noqa: F401
+                           fused_ops, inductor_output_code, kernel_names, list_guards,
+                           partition_report, summarize_kernels, triton_artifacts)
 from .export_tools import (HAS_ONNX, HAS_ORT, CUDAGraphDecoder, compare_ort_torch,  # noqa: F401
                            export_onnx, export_program, graph_decode_step, ort_session)
 from .fx_passes import (eliminate_dead_code, fuse_rmsnorm, fuse_silu_mul, fused_rmsnorm,  # noqa: F401

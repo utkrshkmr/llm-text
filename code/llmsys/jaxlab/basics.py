@@ -91,17 +91,40 @@ def stack_blocks(blocks: list[Params]) -> Params:
 def gpt_forward_scan(params: Params, idx: jax.Array, n_heads: int) -> jax.Array:
     """Same model, but the layer loop is a ``lax.scan``: one traced body, L iterations at run time.
 
-    The compiled program has one copy of the block instead of L; compile time and program size
-    stop growing with depth. This is how every production JAX LLM stacks its layers.
+    The compiled program has one copy of the block instead of L, so program size stops growing
+    with depth. ``params["blocks"]`` may be a list (stacked here, at run time, on every call) or
+    an already stacked pytree, which is how a production JAX LLM stores its layers.
     """
     T = idx.shape[-1]
     x = params["tok_emb"][idx] + params["pos_emb"][:T]
+    blocks = params["blocks"]
+    stacked = stack_blocks(blocks) if isinstance(blocks, list) else blocks
 
     def body(x, blk):
         return transformer_block(blk, x, n_heads), None
 
-    x, _ = jax.lax.scan(body, x, stack_blocks(params["blocks"]))
+    x, _ = jax.lax.scan(body, x, stacked)
     return layer_norm(params["final_norm"], x) @ params["out_head"]
+
+
+def count_traces(fn, inputs: list[Any]) -> list[int]:
+    """Run ``jit(fn)`` on each input and return the running number of Python traces.
+
+    A trace happens once per new (shape, dtype, static argument) signature: the counter in the
+    Python body only moves on a cache miss. This is the shape-specialisation cost made visible.
+    """
+    calls = [0]
+
+    def counted(*args):
+        calls[0] += 1
+        return fn(*args)
+
+    jitted = jax.jit(counted)
+    history = []
+    for args in inputs:
+        jax.block_until_ready(jitted(*args))
+        history.append(calls[0])
+    return history
 
 
 # --------------------------------------------------------------------------- initialisation

@@ -7,7 +7,6 @@ and the [CLS] token used for pooling.
 """
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 import torch
@@ -84,8 +83,9 @@ class ViTEncoder(nn.Module):
         B, N, _ = x.shape
         pos = self.pos_emb
         if N != self.grid ** 2:                                         # other resolution
-            g = int(math.isqrt(N))
-            pos = interpolate_pos_embed(self.pos_emb, self.grid, g)
+            P = self.cfg["patch"]
+            size = (img.shape[-2] // P, img.shape[-1] // P)
+            pos = interpolate_pos_embed(self.pos_emb, self.grid, size)
         x = torch.cat([self.cls_token.expand(B, -1, -1), x], dim=1) + pos
         x = self.drop(x)
         for blk in self.blocks:
@@ -99,14 +99,17 @@ class ViTEncoder(nn.Module):
         return tokens[:, 1:].mean(1)
 
 
-def interpolate_pos_embed(pos_emb: torch.Tensor, old_grid: int, new_grid: int) -> torch.Tensor:
-    """Resize a (1, 1+g^2, d) position table to a new g' x g' grid by bicubic interpolation of the
-    patch part; the [CLS] slot is kept. This is how a ViT trained at 224 px is run at 384 px."""
+def interpolate_pos_embed(pos_emb: torch.Tensor, old_grid: int,
+                          new_grid: int | tuple[int, int]) -> torch.Tensor:
+    """Resize a (1, 1+g^2, d) position table to a new grid (g' x g', or rows x columns) by bicubic
+    interpolation of the patch part; the [CLS] slot is kept. This is how a ViT trained at 224 px
+    is run at 384 px."""
+    rows, cols = (new_grid, new_grid) if isinstance(new_grid, int) else new_grid
     cls, grid = pos_emb[:, :1], pos_emb[:, 1:]
     d = grid.shape[-1]
     grid = grid.reshape(1, old_grid, old_grid, d).permute(0, 3, 1, 2)          # (1, d, g, g)
-    grid = F.interpolate(grid, size=(new_grid, new_grid), mode="bicubic", align_corners=False)
-    grid = grid.permute(0, 2, 3, 1).reshape(1, new_grid * new_grid, d)
+    grid = F.interpolate(grid, size=(rows, cols), mode="bicubic", align_corners=False)
+    grid = grid.permute(0, 2, 3, 1).reshape(1, rows * cols, d)
     return torch.cat([cls, grid], dim=1)
 
 

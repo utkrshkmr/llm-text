@@ -23,14 +23,19 @@ SOURCES = ["cpu/silu_mul.cpp", "cuda/silu_mul.cu"]
 
 
 # ----------------------------------------------------------------------------- reference
+def _work(t: torch.Tensor) -> torch.Tensor:
+    """Working precision of the kernels: fp64 stays fp64, everything else computes in fp32."""
+    return t if t.dtype == torch.float64 else t.float()
+
+
 def silu_mul_ref(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
-    """fp32 maths, result in the input dtype: what the kernels compute."""
-    return (F.silu(gate.float()) * up.float()).to(gate.dtype)
+    """The formula the kernels compute, at their working precision; result in the input dtype."""
+    return (F.silu(_work(gate)) * _work(up)).to(gate.dtype)
 
 
 def silu_mul_backward_ref(grad: torch.Tensor, gate: torch.Tensor,
                           up: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    g, u, d = gate.float(), up.float(), grad.float()
+    g, u, d = _work(gate), _work(up), _work(grad)
     s = torch.sigmoid(g)
     dg = d * u * s * (1 + g * (1 - s))
     du = d * g * s

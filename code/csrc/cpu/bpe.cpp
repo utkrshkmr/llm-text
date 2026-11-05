@@ -27,6 +27,13 @@ static void check_bytes_offsets(const at::Tensor& bytes, const at::Tensor& offse
   TORCH_CHECK(bytes.scalar_type() == at::kByte && bytes.dim() == 1, "bytes must be a 1-D uint8 tensor");
   TORCH_CHECK(offsets.scalar_type() == at::kLong && offsets.dim() == 1 && offsets.numel() >= 1,
               "offsets must be a 1-D int64 tensor of length n_chunks + 1");
+  // Checked once, before any thread touches the data: one bad offset would otherwise read out of
+  // bounds. The kernels below can then trust every (off[c], off[c + 1]) range.
+  const auto oc = offsets.contiguous();
+  const int64_t* off = oc.data_ptr<int64_t>();
+  const int64_t n_chunks = oc.numel() - 1;
+  TORCH_CHECK(off[0] == 0 && off[n_chunks] == bytes.numel(), "offsets must start at 0 and end at bytes.numel()");
+  for (int64_t c = 0; c < n_chunks; ++c) TORCH_CHECK(off[c] <= off[c + 1], "offsets must be non-decreasing");
 }
 
 at::Tensor bpe_encode_cpu(const at::Tensor& bytes, const at::Tensor& merges) {
@@ -55,7 +62,6 @@ std::tuple<at::Tensor, at::Tensor> bpe_encode_batch_cpu(const at::Tensor& bytes,
   const auto oc = offsets.contiguous();
   const int64_t n_chunks = oc.numel() - 1, n_bytes = bc.numel();
   const int64_t* off = oc.data_ptr<int64_t>();
-  TORCH_CHECK(off[0] == 0 && off[n_chunks] == n_bytes, "offsets must start at 0 and end at bytes.numel()");
   const uint8_t* src = bc.data_ptr<uint8_t>();
 
   std::vector<int32_t> scratch(static_cast<size_t>(n_bytes));
@@ -63,7 +69,6 @@ std::tuple<at::Tensor, at::Tensor> bpe_encode_batch_cpu(const at::Tensor& bytes,
   at::parallel_for(0, n_chunks, /*grain_size=*/64, [&](int64_t c0, int64_t c1) {
     thread_local bpe::Workspace ws;  // one scratch set per worker thread, reused across calls
     for (int64_t c = c0; c < c1; ++c) {
-      TORCH_CHECK(off[c] <= off[c + 1], "offsets must be non-decreasing");
       count[c] = bpe::encode_chunk(src + off[c], off[c + 1] - off[c], table, scratch.data() + off[c], ws);
     }
   });
@@ -93,6 +98,7 @@ at::Tensor bpe_train_cpu(const at::Tensor& bytes, const at::Tensor& offsets, con
   std::vector<std::vector<int32_t>> words(static_cast<size_t>(n_chunks));
   for (int64_t c = 0; c < n_chunks; ++c) words[c].assign(src + off[c], src + off[c + 1]);
   const int64_t* cp = cc.data_ptr<int64_t>();
+  for (int64_t c = 0; c < n_chunks; ++c) TORCH_CHECK(cp[c] > 0, "counts must be positive");
   const std::vector<int64_t> freq(cp, cp + n_chunks);
   const auto merges = bpe::train(words, freq, num_merges);
   auto out = at::empty({static_cast<int64_t>(merges.size()), 3}, oc.options());

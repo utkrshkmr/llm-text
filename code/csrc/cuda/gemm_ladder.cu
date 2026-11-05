@@ -532,12 +532,9 @@ static void launch_tensorcore_variant(const bf16* A, const bf16* B, bf16* C, int
     gemm_mma_kernel<<<grid, TC_THREADS, 0, stream>>>(A, B, C, M, N, K);
   } else {
     // Dynamic shared memory above 48 KB needs an explicit opt-in (up to 164 KB per block on sm_80).
-    static bool configured = false;
-    if (!configured) {
-      C10_CUDA_CHECK(cudaFuncSetAttribute(gemm_cpasync_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize,
-                                          static_cast<int>(CP_SMEM_BYTES)));
-      configured = true;
-    }
+    static const cudaError_t configured = cudaFuncSetAttribute(
+        gemm_cpasync_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, static_cast<int>(CP_SMEM_BYTES));
+    C10_CUDA_CHECK(configured);
     gemm_cpasync_kernel<<<grid, TC_THREADS, CP_SMEM_BYTES, stream>>>(A, B, C, M, N, K);
   }
 }
@@ -556,6 +553,12 @@ at::Tensor gemm_cuda(const at::Tensor& a, const at::Tensor& b, int64_t variant) 
               "gemm: variant ", variant, " (", kVariantNames[variant], ") needs bf16 inputs");
   const c10::cuda::CUDAGuard guard(a.device());
   auto ac = a.contiguous(), bc = b.contiguous();
+  // A view with a storage offset can start off a 16-byte boundary; vector loads would fault on it.
+  const auto aligned16 = [](const at::Tensor& t) {
+    return reinterpret_cast<uintptr_t>(t.data_ptr()) % 16 == 0;
+  };
+  if (variant >= 3 && !aligned16(ac)) ac = ac.clone();
+  if (variant >= 3 && !aligned16(bc)) bc = bc.clone();
   const int64_t M = ac.size(0), K = ac.size(1), N = bc.size(1);
   TORCH_CHECK(M < (1LL << 31) && N < (1LL << 31) && K < (1LL << 31), "gemm: dimension too large");
   auto c = at::empty({M, N}, ac.options());

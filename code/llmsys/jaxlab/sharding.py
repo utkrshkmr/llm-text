@@ -126,9 +126,9 @@ def case1_local(mesh: Mesh) -> Callable:
 def case2_gather(mesh: Mesh) -> Callable:
     """A (dp, tp) @ B (replicated) -> C (dp, -): all-gather A's K blocks, then a local matmul.
 
-    ``check_vma=False``: JAX's type checker treats ``all_gather``'s output as varying over
-    ``tp`` even though every device holds the same rows, and would reject the replicated
-    out_spec. We know the devices agree, so we switch the check off for this function.
+    ``check_vma=False``: shard_map's static check cannot infer that ``all_gather`` makes the
+    product identical on every ``tp`` device, and would reject the replicated out_spec with a
+    ValueError. We know the devices agree, so we switch the check off for this function.
     """
     def f(a, b):
         a_full = jax.lax.all_gather(a, "tp", axis=1, tiled=True)
@@ -268,9 +268,77 @@ def ring_collective_bytes(kind: str, total_bytes: int, n: int) -> int:
             "all-reduce": 2 * per_direction, "ppermute": total_bytes}[kind]
 
 
-def collective_time_s(kind: str, total_bytes: int, n: int, alpha_s: float = 10e-6,
+def collective_time_s(kind: str, total_bytes: int, n: int, alpha_s: float = 25e-6,
                       beta_Bps: float = 22e9) -> float:
-    """alpha-beta time of a ring collective; defaults are PCIe Gen4 x16 between two A100s."""
+    """alpha-beta time of a ring collective; defaults are Chapter 19's PCIe link (two A100s)."""
     steps = {"all-gather": n - 1, "reduce-scatter": n - 1, "all-reduce": 2 * (n - 1),
              "ppermute": 1}[kind]
     return steps * alpha_s + ring_collective_bytes(kind, total_bytes, n) / beta_Bps
+
+
+def ring_overlap_time_s(compute_s: float, total_bytes: int, n: int, alpha_s: float = 25e-6,
+                        beta_Bps: float = 22e9) -> tuple[float, float]:
+    """(sequential, overlapped) time of an all-gather followed by a matmul over ``n`` devices.
+
+    ``compute_s`` is one device's time for its whole matmul after the gather. The ring runs n
+    partial matmuls of compute_s/n; n-1 of them overlap one hop of total_bytes/n, the last one
+    has nothing left to send. The gain tends to 2x when compute and communication balance at
+    large n; at n=2 only one partial matmul overlaps, so the best case is 4/3.
+    """
+    hop = alpha_s + total_bytes / n / beta_Bps
+    sequential = (n - 1) * hop + compute_s
+    overlapped = (n - 1) * max(compute_s / n, hop) + compute_s / n
+    return sequential, overlapped
+
+
+# --------------------------------------------------------------------------- checks used by the lab
+def replicated_like(mesh: Mesh, tree):
+    """Place every leaf of a pytree on all devices (how we keep parameters under DDP-style dp)."""
+    return jax.device_put(tree, named(mesh))
+
+
+def gpt_data_parallel_step(n_heads: int) -> Callable:
+    """``jit(value_and_grad(loss))`` for ``basics.loss_fn``, with no sharding annotation at all.
+
+    Commit replicated parameters and a batch sharded on its first dimension: the shardings flow
+    in with the arguments, the partitioner reduces every gradient, and the all-reduce combiner
+    merges those into one tuple all-reduce, a DDP step derived by the compiler.
+    """
+    from . import basics
+
+    return jax.jit(lambda params, idx, targets:
+                   jax.value_and_grad(basics.loss_fn)(params, idx, targets, n_heads))
+
+
+def matmul_grad(fn: Callable) -> Callable:
+    """Jitted gradient of ``0.5 * ||fn(a, b)||^2`` with respect to both operands.
+
+    The cotangents flow backwards through the collectives: JAX transposes all_gather to a
+    reduce-scatter and ppermute to the reverse ring, without a line of ours.
+    """
+    return jax.jit(jax.grad(lambda a, b: 0.5 * jnp.sum(fn(a, b) ** 2), argnums=(0, 1)))
+
+
+def calculus_vs_compiler(mesh: Mesh, a_spec: Spec, b_spec: Spec, shape_a: Sequence[int],
+                         shape_b: Sequence[int]) -> dict:
+    """Compare the plan of Chapter 19's ``matmul_plan`` with what XLA actually compiled.
+
+    Returns the case, the calculus's collectives and output spec, and the collectives and output
+    spec of the compiled ``jit(a @ b)`` with a free output sharding.
+    """
+    from llmsys.dist.sharding import Mesh as CalcMesh, ShardSpec, matmul_plan
+
+    from . import hlo
+
+    calc_mesh = CalcMesh(tuple(mesh.axis_names), tuple(mesh.shape[a] for a in mesh.axis_names))
+    pad = lambda spec: tuple(spec) + (None,) * (2 - len(spec))
+    plan = matmul_plan(ShardSpec(pad(a_spec)), ShardSpec(pad(b_spec)), calc_mesh, shape_a,
+                       shape_b, dtype_bytes=4)
+    a = shard(jnp.ones(shape_a, jnp.float32), mesh, *a_spec)
+    b = shard(jnp.ones(shape_b, jnp.float32), mesh, *b_spec)
+    fn = sharded_matmul_auto(mesh, a_spec, b_spec)
+    counts = hlo.count_collectives(hlo.compiled_text(fn, a, b))
+    return {"case": plan.case, "calculus": [k.replace("_", "-") for k in plan.kinds()],
+            "calculus_out": tuple(plan.out.dims),
+            "compiler": sorted(k for k, v in counts.items() for _ in range(v)),
+            "compiler_out": spec_of(fn(a, b))}

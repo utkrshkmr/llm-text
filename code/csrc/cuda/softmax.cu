@@ -58,7 +58,7 @@ __device__ __forceinline__ MaxSum block_maxsum(MaxSum v, MaxSum* shared) {
 }
 
 template <int BLOCK>
-__device__ __forceinline__ float block_sum(float v, float* shared) {
+__device__ __forceinline__ float row_sum(float v, float* shared) {
   for (int o = 16; o > 0; o >>= 1) v += __shfl_xor_sync(0xffffffffu, v, o);
   const int warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
   if (lane == 0) shared[warp] = v;
@@ -143,7 +143,7 @@ __global__ void softmax_bwd_kernel(const scalar_t* __restrict__ y, const scalar_
   float dot = 0.f;
   for (int i = threadIdx.x; i < d; i += BLOCK)
     dot += static_cast<float>(g[row + i]) * static_cast<float>(y[row + i]);
-  dot = block_sum<BLOCK>(dot, shared);
+  dot = row_sum<BLOCK>(dot, shared);
   for (int i = threadIdx.x; i < d; i += BLOCK) {
     const float yi = static_cast<float>(y[row + i]);
     dx[row + i] = static_cast<scalar_t>(yi * (static_cast<float>(g[row + i]) - dot));

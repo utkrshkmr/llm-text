@@ -171,7 +171,8 @@ class CrossAttention(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
         self.layer_idx = None
 
-    def forward(self, x, memory=None, memory_pad_mask=None, cross_cache: CrossKVCache | None = None):
+    def forward(self, x, memory=None, memory_pad_mask=None,
+                cross_cache: Optional[CrossKVCache] = None):
         """Queries from x (B, T, d); K, V from memory (B, S, d). If the cache already holds this
         layer's K, V, use them and do not touch memory; otherwise project and (if a cache is
         given) store them. Mask padded source keys. No causal mask."""
@@ -288,9 +289,13 @@ def encoder_flops_per_sequence(n_params_nonembed: float, T: int, n_layers: int, 
 
 
 def batch_for_compute_bound(weight_bytes: float, flops_per_seq: float, peak_flops: float,
-                            hbm_bw: float) -> int:
-    """ceil( (weight_bytes / hbm_bw) / (flops_per_seq / peak_flops) ), at least 1."""
-    return max(1, math.ceil((weight_bytes / hbm_bw) / (flops_per_seq / peak_flops)))
+                            hbm_bw: float, activation_bytes_per_seq: float = 0.0) -> int:
+    """Smallest integer b >= 1 with b*F/peak >= (W + b*A)/bw, i.e. b >= W / (F*bw/peak - A).
+    Raise ValueError when F*bw/peak <= A: then no batch size reaches the compute roof."""
+    slack = flops_per_seq * hbm_bw / peak_flops - activation_bytes_per_seq
+    if slack <= 0:
+        raise ValueError("activation traffic alone keeps this model memory bound")
+    return max(1, math.ceil(weight_bytes / slack))
 
 
 def encdec_step_bytes(n_dec_params: float, n_dec_layers: int, n_heads: int, head_dim: int,

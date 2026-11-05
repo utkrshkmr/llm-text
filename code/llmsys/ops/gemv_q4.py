@@ -23,7 +23,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from llmsys.quant import pack_int4, quantize_groupwise, unpack_int4
+from llmsys.quant import pack_int4, unpack_int4
 
 from . import dispatch, ensure, has_op, register, register_fake
 
@@ -73,10 +73,20 @@ def quantize_q8_0(w: torch.Tensor, group: int = BLOCK) -> Tuple[torch.Tensor, to
 
 def quantize_q4_g(w: torch.Tensor, group: int = 128
                   ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Asymmetric group-wise int4 (Chapter 28's format): (packed, scales fp16, zeros uint8)."""
+    """Asymmetric group-wise int4 (Chapter 28's format): (packed, scales fp16, zeros uint8).
+
+    Same codes as ``llmsys.quant.quantize_groupwise`` whenever a group's range straddles zero. The
+    range is widened to include zero so that an all-positive or all-negative group stays
+    representable; with the zero point clamped to [0, 15] such a group would otherwise saturate.
+    """
     w = pad_to_group(w.float(), group)
-    q, s, z = quantize_groupwise(w, 4, group)
-    return pack_int4(q), s.to(torch.float16), z.to(torch.uint8)
+    n, k = w.shape
+    g = w.reshape(n, k // group, group)
+    wmin, wmax = g.amin(dim=-1).clamp(max=0.0), g.amax(dim=-1).clamp(min=0.0)
+    s = ((wmax - wmin) / 15.0).clamp(min=1e-12)
+    z = torch.round(-wmin / s).clamp(0, 15)
+    q = torch.clamp(torch.round(g / s[..., None]) + z[..., None], 0, 15).to(torch.uint8)
+    return pack_int4(q.reshape(n, k)), s.to(torch.float16), z.to(torch.uint8)
 
 
 # ----------------------------------------------------------------------------- python references
@@ -213,6 +223,11 @@ def simd_name() -> str:
 def set_simd(level: int) -> int:
     """Force a lower SIMD path (0 scalar, 1 AVX2, ...) or -1 for automatic; returns the active one."""
     return int(torch.ops.llmsys.gemv_set_simd(level))
+
+
+def read_xor(t: torch.Tensor) -> int:
+    """Read every byte of ``t`` with wide loads (the DRAM roofline probe of ``bench.py``)."""
+    return int(torch.ops.llmsys.mem_read_xor(t))
 
 
 def build(verbose: bool = False) -> bool:

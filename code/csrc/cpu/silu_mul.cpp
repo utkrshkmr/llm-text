@@ -9,17 +9,45 @@
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <torch/autograd.h>
 
+#include <algorithm>
+#include <bit>
+#include <type_traits>
+
 #include "../common.h"
 
 namespace llmsys {
 
+// exp(x) as straight-line float arithmetic (the Cephes expf polynomial): x = k ln2 + r, then a
+// polynomial in r, then 2^k written into the exponent bits. libm's exp is an opaque call that stops
+// the loop from vectorising; this version has no branches, so `omp simd` runs 8 or 16 lanes at once.
+inline float exp_simd(float x) {
+  x = std::min(88.3f, std::max(-87.3f, x));  // inside the normal range of fp32, so 2^k is exact
+  const int32_t k = static_cast<int32_t>(x * 1.44269504f + (x >= 0.f ? 0.5f : -0.5f));
+  const float kf = static_cast<float>(k);
+  const float r = x - kf * 0.693359375f + kf * 2.12194440e-4f;  // ln2 in two parts, for accuracy
+  float p = 1.9875691500e-4f;
+  p = p * r + 1.3981999507e-3f;
+  p = p * r + 8.3334519073e-3f;
+  p = p * r + 4.1665795894e-2f;
+  p = p * r + 1.6666665459e-1f;
+  p = p * r + 5.0000001201e-1f;
+  p = p * r * r + r + 1.f;
+  return p * std::bit_cast<float>((k + 127) << 23);
+}
+inline double exp_simd(double x) { return std::exp(x); }  // fp64 is for gradcheck, not for speed
+
+// fp32 maths for fp32/bf16/fp16 (a half-precision intermediate would lose accuracy), fp64 for fp64.
+template <typename scalar_t>
+using work_t = std::conditional_t<std::is_same_v<scalar_t, double>, double, float>;
+
 template <typename scalar_t>
 static void silu_mul_rows(const scalar_t* g, const scalar_t* u, scalar_t* y, int64_t n) {
+  using W = work_t<scalar_t>;
   at::parallel_for(0, n, /*grain_size=*/8192, [&](int64_t i0, int64_t i1) {
+#pragma omp simd
     for (int64_t i = i0; i < i1; ++i) {
-      const float gf = static_cast<float>(g[i]);
-      const float s = 1.0f / (1.0f + std::exp(-gf));
-      y[i] = static_cast<scalar_t>(gf * s * static_cast<float>(u[i]));
+      const W gw = static_cast<W>(g[i]);
+      y[i] = static_cast<scalar_t>(gw * static_cast<W>(u[i]) / (W(1) + exp_simd(-gw)));
     }
   });
 }
@@ -27,13 +55,14 @@ static void silu_mul_rows(const scalar_t* g, const scalar_t* u, scalar_t* y, int
 template <typename scalar_t>
 static void silu_mul_bwd_rows(const scalar_t* dy, const scalar_t* g, const scalar_t* u, scalar_t* dg,
                               scalar_t* du, int64_t n) {
+  using W = work_t<scalar_t>;
   at::parallel_for(0, n, /*grain_size=*/8192, [&](int64_t i0, int64_t i1) {
+#pragma omp simd
     for (int64_t i = i0; i < i1; ++i) {
-      const float gf = static_cast<float>(g[i]), uf = static_cast<float>(u[i]);
-      const float d = static_cast<float>(dy[i]);
-      const float s = 1.0f / (1.0f + std::exp(-gf));
-      du[i] = static_cast<scalar_t>(d * gf * s);                       // d/du  (silu(g) * u)
-      dg[i] = static_cast<scalar_t>(d * uf * s * (1.0f + gf * (1.0f - s)));  // silu'(g) = s(1 + g(1-s))
+      const W gw = static_cast<W>(g[i]), uw = static_cast<W>(u[i]), d = static_cast<W>(dy[i]);
+      const W s = W(1) / (W(1) + exp_simd(-gw));
+      du[i] = static_cast<scalar_t>(d * gw * s);                         // d/du (silu(g) * u)
+      dg[i] = static_cast<scalar_t>(d * uw * s * (W(1) + gw * (W(1) - s)));  // silu'(g) = s(1 + g(1-s))
     }
   });
 }

@@ -5,8 +5,10 @@
     y = rmsnorm.rmsnorm(x, weight, eps, backend="cpp")
 
 The compiled kernels (``torch.ops.llmsys.rmsnorm``, from ``csrc/cpu/rmsnorm.cpp`` and
-``csrc/cuda/rmsnorm.cu``) implement the forward pass; autograd is added here with the same formula
-as the reference. The fake kernel makes the op traceable under ``torch.compile`` and lets
+``csrc/cuda/rmsnorm.cu``) implement the forward pass. The backward goes through the compiled
+``torch.ops.llmsys.rmsnorm_backward`` (Chapter 21, ``csrc/cpu/rmsnorm_bwd.cpp`` and
+``csrc/cuda/rmsnorm_bwd.cu``) when that kernel exists for the tensor's device, and through the same
+formula in Python otherwise. The fake kernels make the ops traceable under ``torch.compile`` and let
 ``torch.library.opcheck`` pass.
 """
 from __future__ import annotations
@@ -15,9 +17,10 @@ from typing import Optional
 
 import torch
 
-from . import HAS_TRITON, dispatch, ensure, register, register_fake
+from . import HAS_TRITON, dispatch, ensure, has_op, register, register_fake
 
 SOURCES = ["cpu/rmsnorm.cpp", "cuda/rmsnorm.cu"]     # what `ensure("rmsnorm", SOURCES)` would JIT-build
+BACKWARD_SOURCES = ["cpu/rmsnorm_bwd.cpp", "cuda/rmsnorm_bwd.cu"]
 
 
 # ----------------------------------------------------------------------------- reference
@@ -38,17 +41,29 @@ def rmsnorm_backward_ref(x, weight, grad_out, eps: float = 1e-6):
     return gx.to(x.dtype), gw.to(weight.dtype)
 
 
+def _compiled_backward_usable(x: torch.Tensor) -> bool:
+    """The compiled backward has a kernel for x's device, and nobody needs to differentiate it."""
+    if torch.is_grad_enabled() or not has_op("rmsnorm_backward"):   # create_graph=True: use Python
+        return False
+    key = "CUDA" if x.is_cuda else "CPU"
+    return torch._C._dispatch_has_kernel_for_dispatch_key("llmsys::rmsnorm_backward", key)
+
+
 class _RMSNormFn(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, eps, fwd):
         ctx.save_for_backward(x, weight)
         ctx.eps = eps
+        ctx.compiled_backward = fwd is _compiled
         return fwd(x, weight, eps)
 
     @staticmethod
     def backward(ctx, grad_out):
         x, weight = ctx.saved_tensors
-        gx, gw = rmsnorm_backward_ref(x, weight, grad_out, ctx.eps)
+        if ctx.compiled_backward and _compiled_backward_usable(x):
+            gx, gw = torch.ops.llmsys.rmsnorm_backward(grad_out, x, weight, ctx.eps)
+        else:
+            gx, gw = rmsnorm_backward_ref(x, weight, grad_out, ctx.eps)
         return gx, gw, None, None
 
 
@@ -77,6 +92,11 @@ def _rmsnorm_fake(x, weight, eps):
     return torch.empty_like(x)
 
 
+@register_fake("rmsnorm_backward")
+def _rmsnorm_backward_fake(grad_out, x, weight, eps):
+    return torch.empty_like(x), torch.empty_like(weight)
+
+
 # ----------------------------------------------------------------------------- triton
 if HAS_TRITON:
     try:
@@ -97,4 +117,6 @@ def rmsnorm(x: torch.Tensor, weight: torch.Tensor, eps: float = 1e-6,
 
 def build(verbose: bool = False) -> bool:
     """Make the compiled kernels available (installed extension, or a JIT build with LLMSYS_JIT=1)."""
-    return ensure("rmsnorm", SOURCES, verbose=verbose)
+    ok = ensure("rmsnorm", SOURCES, verbose=verbose)
+    ensure("rmsnorm_backward", BACKWARD_SOURCES, verbose=verbose)   # the Python formula is the fallback
+    return ok

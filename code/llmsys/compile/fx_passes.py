@@ -26,6 +26,8 @@ import torch.nn.functional as F
 from torch.fx.node import Node
 
 from llmsys.ops import rmsnorm as _rmsnorm_op
+from llmsys.ops import silu_mul as _silu_mul_op
+
 
 # ----------------------------------------------------------------------------- fusion targets
 def fused_rmsnorm(x: torch.Tensor, weight: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
@@ -34,8 +36,8 @@ def fused_rmsnorm(x: torch.Tensor, weight: torch.Tensor, eps: float = 1e-6) -> t
 
 
 def fused_silu_mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """silu(a) * b as one node: the SwiGLU gate that Inductor (or a hand kernel) fuses into one pass."""
-    return F.silu(a) * b
+    """silu(a) * b as one node: one ``llmsys.ops`` call instead of two kernels and a temporary."""
+    return _silu_mul_op.silu_mul(a, b)
 
 
 # ----------------------------------------------------------------------------- canonical op names
@@ -54,7 +56,7 @@ _METHOD_NAMES = {"mul": "mul", "add": "add", "pow": "pow", "rsqrt": "rsqrt", "me
                  "to": "cast", "float": "cast", "half": "cast", "bfloat16": "cast", "type": "cast",
                  "matmul": "matmul", "softmax": "softmax"}
 _ATEN_NAMES = {"mul": "mul", "add": "add", "pow": "pow", "rsqrt": "rsqrt", "mean": "mean",
-               "silu": "silu", "_to_copy": "cast", "convert_element_type": "cast",
+               "silu": "silu", "_to_copy": "cast", "to": "cast", "convert_element_type": "cast",
                "linear": "linear", "mm": "matmul", "bmm": "matmul", "matmul": "matmul",
                "_softmax": "softmax", "softmax": "softmax"}
 
@@ -89,10 +91,11 @@ def _strip_casts(node: Node) -> Node:
 
 
 def _dtype_of(node: Node):
-    """Best-effort dtype of a node's value (Dynamo's example_value, ShapeProp's tensor_meta)."""
-    ev = node.meta.get("example_value")
-    if isinstance(ev, torch.Tensor):
-        return ev.dtype
+    """Best-effort dtype of a node's value (Dynamo's example_value, export's val, ShapeProp)."""
+    for key in ("example_value", "val"):
+        ev = node.meta.get(key)
+        if isinstance(ev, torch.Tensor):
+            return ev.dtype
     tm = node.meta.get("tensor_meta")
     return getattr(tm, "dtype", None)
 
@@ -124,19 +127,15 @@ def _is_square(node: Node, of: Node) -> bool:
 
 
 # ----------------------------------------------------------------------------- RMSNorm
-def match_rmsnorm(node: Node) -> Optional[Tuple[Node, Node, float, bool]]:
-    """Recognise ``(xc * rsqrt(mean(xc^2, -1, keepdim) + eps)) * w`` ending at ``node``.
+def match_rmsnorm(node: Node) -> Optional[Tuple[Node, Node, float]]:
+    """Recognise ``(xc * rsqrt(mean(xc^2, -1, keepdim) + eps)) * w`` with ``node`` the final multiply.
 
-    ``node`` may be the final multiply or a cast of it (RMSNorm casts back to the input dtype).
-    Returns ``(x, w, eps, absorbed_cast)`` with ``x`` and ``w`` *before* any up-casts, or None.
+    Returns ``(xc, w, eps)``, or None. Only an fp32 (or unknown-dtype) ``xc`` matches, because the
+    fused operator computes in fp32: rewriting an fp64 expression would silently change its numerics.
     """
-    absorbed = False
-    final = node
-    if canonical(final) == "cast" and isinstance(final.args[0], Node):
-        final, absorbed = final.args[0], True
-    if canonical(final) != "mul" or len(final.args) != 2:
+    if canonical(node) != "mul" or len(node.args) != 2:
         return None
-    for inner, w in ((final.args[0], final.args[1]), (final.args[1], final.args[0])):
+    for inner, w in ((node.args[0], node.args[1]), (node.args[1], node.args[0])):
         if not (isinstance(inner, Node) and isinstance(w, Node)) or canonical(inner) != "mul":
             continue
         xc, r = inner.args
@@ -155,29 +154,37 @@ def match_rmsnorm(node: Node) -> Optional[Tuple[Node, Node, float, bool]]:
         sq = mean.args[0]
         if not isinstance(sq, Node) or not _is_square(sq, xc):
             continue
-        x = _strip_casts(xc)
-        if absorbed:                                       # only absorb a cast back to x's dtype
-            want, have = _cast_target_dtype(node), _dtype_of(x)
-            if want is not None and have is not None and want != have:
-                return None
-        return x, _strip_casts(w), float(eps), absorbed
+        if _dtype_of(xc) not in (None, torch.float32):
+            return None
+        return xc, w, float(eps)
     return None
 
 
 def fuse_rmsnorm(gm: fx.GraphModule) -> int:
-    """Rewrite every RMSNorm subgraph into one ``fused_rmsnorm`` node; return the number fused."""
+    """Rewrite every RMSNorm subgraph into one ``fused_rmsnorm`` node; return the number fused.
+
+    The model's norm casts up to fp32 on entry and back to the input dtype on exit. When the only
+    user of the final multiply is a cast back to the dtype before the up-cast, both casts vanish
+    into the operator, which already does exactly that. Otherwise the up-cast stays and the operator
+    runs on (and returns) fp32, so the node's dtype is preserved either way.
+    """
     n = 0
     for node in list(gm.graph.nodes):
         m = match_rmsnorm(node)
         if m is None:
             continue
-        x, w, eps, absorbed = m
-        if not absorbed and canonical(node) == "cast":
-            continue                                       # the mul itself will be visited too
-        with gm.graph.inserting_before(node):
-            fused = gm.graph.call_function(fused_rmsnorm, (x, w, eps))
-        fused.meta = dict(node.meta)
-        node.replace_all_uses_with(fused)
+        xc, w, eps = m
+        x, target = xc, node
+        users = list(node.users)
+        if len(users) == 1 and canonical(users[0]) == "cast":
+            before = _strip_casts(xc)
+            want, have = _cast_target_dtype(users[0]), _dtype_of(before)
+            if want is not None and want == have:
+                x, target = before, users[0]
+        with gm.graph.inserting_before(target):
+            fused = gm.graph.call_function(fused_rmsnorm, (x, _strip_casts(w), eps))
+        fused.meta = dict(target.meta)
+        target.replace_all_uses_with(fused)
         n += 1
     if n:
         gm.graph.lint()

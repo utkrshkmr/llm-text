@@ -11,6 +11,8 @@ over them. This module is the version a systems implementation needs:
 * ``MoELayer`` combines a ``Router`` (``llmsys.moe_routing``), the experts, optional
   shared experts that every token uses, and the balancing losses. Token dropping
   (``capacity_factor``) and dropless mode (``None``) share one code path;
+* ``expert_choice_forward`` runs the same experts under expert-choice routing, where every
+  segment has the same length and no capacity logic is needed;
 * ``upcycle_dense`` turns a trained dense SwiGLU FFN into an MoE layer (Komatsuzaki et
   al., 2023), either by copying it into every expert or by splitting its hidden units
   into fine-grained experts;
@@ -31,7 +33,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .layers import SwiGLUFeedForward
-from .moe_routing import Router, Routing, load_balancing_loss, load_stats, router_z_loss
+from .moe_routing import (Router, Routing, expert_choice_router, load_balancing_loss, load_stats,
+                          router_z_loss)
 
 GemmFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
 
@@ -55,9 +58,10 @@ class Experts(nn.Module):
         super().__init__()
         self.n_experts, self.d_model, self.d_expert = n_experts, d_model, d_expert
         bound_in, bound_h = 1.0 / math.sqrt(d_model), 1.0 / math.sqrt(d_expert)
-        self.w_gate = nn.Parameter(torch.empty(n_experts, d_model, d_expert, dtype=dtype).uniform_(-bound_in, bound_in))
-        self.w_up = nn.Parameter(torch.empty(n_experts, d_model, d_expert, dtype=dtype).uniform_(-bound_in, bound_in))
-        self.w_down = nn.Parameter(torch.empty(n_experts, d_expert, d_model, dtype=dtype).uniform_(-bound_h, bound_h))
+        shape_in, shape_out = (n_experts, d_model, d_expert), (n_experts, d_expert, d_model)
+        self.w_gate = nn.Parameter(torch.empty(shape_in, dtype=dtype).uniform_(-bound_in, bound_in))
+        self.w_up = nn.Parameter(torch.empty(shape_in, dtype=dtype).uniform_(-bound_in, bound_in))
+        self.w_down = nn.Parameter(torch.empty(shape_out, dtype=dtype).uniform_(-bound_h, bound_h))
 
     def forward_segments(self, xs: torch.Tensor, counts: torch.Tensor,
                          gemm: GemmFn = segment_gemm) -> torch.Tensor:
@@ -99,7 +103,7 @@ def permute_tokens(x2d: torch.Tensor, topk_idx: torch.Tensor, topk_weight: torch
     """Sort the (token, slot) assignments by expert so each expert's rows are contiguous."""
     N, k = topk_idx.shape
     flat_expert = topk_idx.reshape(-1)
-    order = torch.argsort(flat_expert, stable=True)          # stable: token order kept inside an expert
+    order = torch.argsort(flat_expert, stable=True)     # stable: token order kept per expert
     expert_idx = flat_expert[order]
     token_idx = torch.arange(N, device=x2d.device).repeat_interleave(k)[order]
     weight = topk_weight.reshape(-1)[order]
@@ -136,7 +140,7 @@ def unpermute_tokens(ys: torch.Tensor, p: Permuted, n_tokens: int) -> torch.Tens
 
 # --------------------------------------------------------------------------- the layer
 class MoELayer(nn.Module):
-    """Token-choice MoE FFN: router -> permute -> (capacity) -> grouped GEMMs -> unpermute (+ shared).
+    """Token-choice MoE FFN: route, permute, (capacity), grouped GEMMs, unpermute, (+ shared).
 
     capacity_factor=None is dropless (every routed token is processed). ``n_shared``
     shared experts of width ``d_shared`` are one dense SwiGLU of width n_shared*d_shared
@@ -150,11 +154,13 @@ class MoELayer(nn.Module):
                  z_loss_coef: float = 1e-3, aux_free_gamma: float = 0.0,
                  gemm: GemmFn = segment_gemm, dtype=None):
         super().__init__()
-        self.d_model, self.d_expert, self.n_experts, self.top_k = d_model, d_expert, n_experts, top_k
+        self.d_model, self.d_expert = d_model, d_expert
+        self.n_experts, self.top_k = n_experts, top_k
         self.capacity_factor, self.gemm = capacity_factor, gemm
         self.aux_loss_coef, self.z_loss_coef = aux_loss_coef, z_loss_coef
         self.router = Router(d_model, n_experts, top_k, gate=gate, normalize=normalize,
-                             n_groups=n_groups, topk_groups=topk_groups, aux_free_gamma=aux_free_gamma)
+                             n_groups=n_groups, topk_groups=topk_groups,
+                             aux_free_gamma=aux_free_gamma)
         self.experts = Experts(n_experts, d_model, d_expert, dtype=dtype)
         self.shared = (SwiGLUFeedForward(d_model, n_shared * (d_shared or d_expert), dtype=dtype)
                        if n_shared > 0 else None)
@@ -181,7 +187,8 @@ class MoELayer(nn.Module):
         N = x2d.shape[0]
         p = permute_tokens(x2d, r.topk_idx, r.topk_weight, self.n_experts)
         if self.capacity_factor is not None:
-            p = apply_capacity(p, expert_capacity(N, self.top_k, self.n_experts, self.capacity_factor))
+            cap = expert_capacity(N, self.top_k, self.n_experts, self.capacity_factor)
+            p = apply_capacity(p, cap)
         self.last_dropped = p.n_dropped
         ys = self.experts.forward_segments(p.xs, p.counts, self.gemm)
         return unpermute_tokens(ys, p, N)
@@ -204,10 +211,25 @@ class MoELayer(nn.Module):
             for slot in range(self.top_k):
                 sel = r.topk_idx[:, slot] == e
                 if sel.any():
-                    out[sel] += r.topk_weight[sel, slot, None].to(out.dtype) * self.experts.forward_one(e, x2d[sel])
+                    w = r.topk_weight[sel, slot, None].to(out.dtype)
+                    out[sel] += w * self.experts.forward_one(e, x2d[sel])
         if self.shared is not None:
             out = out + self.shared(x2d)
         return out.reshape(shape)
+
+
+def expert_choice_forward(experts: Experts, x2d: torch.Tensor, logits: torch.Tensor,
+                          capacity: int, gemm: GemmFn = segment_gemm) -> torch.Tensor:
+    """Expert-choice MoE: every expert runs exactly ``capacity`` tokens; the batch is rectangular.
+
+    Tokens no expert chose receive zero here and pass through the residual connection.
+    """
+    r = expert_choice_router(logits, capacity)
+    E, C = r.token_idx.shape
+    token_idx = r.token_idx.reshape(-1)
+    ys = experts.forward_segments(x2d[token_idx], torch.full((E,), C, device=x2d.device), gemm)
+    out = ys.new_zeros(x2d.shape[0], ys.shape[1])
+    return out.index_add_(0, token_idx, r.weight.reshape(-1, 1).to(ys.dtype) * ys)
 
 
 # --------------------------------------------------------------------------- upcycling
@@ -219,9 +241,9 @@ def upcycle_dense(ffn: SwiGLUFeedForward, n_experts: int, top_k: int, mode: str 
                   normalised gate weights the layer computes exactly ffn(x) at init, for
                   any router: training can only improve on the dense model's loss.
     mode="split": the dense hidden width h is cut into E slices of h/E (fine-grained
-                  upcycling). The sum of all E expert outputs equals ffn(x); with top-k < E
-                  the layer starts as an approximation of the dense function that the
-                  router learns to make good.
+                  upcycling). The *unweighted* sum of all E expert outputs equals ffn(x); the
+                  layer with weighted top-k routing starts as an approximation of the dense
+                  function, not as the function itself, so training has ground to recover.
     """
     d, h = ffn.fc1.weight.shape[1], ffn.fc1.weight.shape[0]
     if mode == "copy":
@@ -232,7 +254,8 @@ def upcycle_dense(ffn: SwiGLUFeedForward, n_experts: int, top_k: int, mode: str 
     else:
         raise ValueError(mode)
     layer = MoELayer(d, d_expert, n_experts, top_k, dtype=ffn.fc1.weight.dtype, **moe_kwargs)
-    gate_t, up_t, down_t = ffn.fc1.weight.t(), ffn.fc2.weight.t(), ffn.fc3.weight.t()  # (d,h),(d,h),(h,d)
+    gate_t, up_t, down_t = (ffn.fc1.weight.t(), ffn.fc2.weight.t(),   # (d, h), (d, h)
+                            ffn.fc3.weight.t())                       # (h, d)
     with torch.no_grad():
         for e in range(n_experts):
             sl = slice(0, h) if mode == "copy" else slice(e * d_expert, (e + 1) * d_expert)
@@ -283,15 +306,17 @@ def granularity(s: MoEShape, dense_hidden: int) -> float:
 
 
 def fine_grained_variant(s: MoEShape, g: int) -> MoEShape:
-    """Cut every expert into g pieces: same total and active parameters, g times more experts."""
+    """Cut every expert into g pieces: same expert parameters, total and active; g times as
+    many experts and slots (only the router grows, by a factor g)."""
     assert s.d_expert % g == 0
     return replace(s, d_expert=s.d_expert // g, n_experts=s.n_experts * g, top_k=s.top_k * g)
 
 
 def expert_combinations_log10(s: MoEShape) -> float:
     """log10 of the number of distinct expert subsets a token can activate, C(E, k)."""
-    return math.lgamma(s.n_experts + 1) / math.log(10) - math.lgamma(s.top_k + 1) / math.log(10) \
-        - math.lgamma(s.n_experts - s.top_k + 1) / math.log(10)
+    log_c = (math.lgamma(s.n_experts + 1) - math.lgamma(s.top_k + 1)
+             - math.lgamma(s.n_experts - s.top_k + 1))
+    return log_c / math.log(10)
 
 
 def moe_model_summary(s: MoEShape, n_layers: int, attn_params_per_layer: float,

@@ -30,7 +30,11 @@ __device__ __forceinline__ float ln_block_sum(float v, float* shared) {
     if (lane == 0) shared[0] = v;
   }
   __syncthreads();
-  return shared[0];
+  const float total = shared[0];
+  // These kernels reduce twice: without this barrier a fast warp could reach the next reduction and
+  // overwrite shared[0] before a slow warp has read this result.
+  __syncthreads();
+  return total;
 }
 
 // ----------------------------------------------------------------------------- forward
