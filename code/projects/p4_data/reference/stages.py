@@ -1,4 +1,4 @@
-"""The pipeline stages of Project 4 as resumable, deterministic shard jobs (Chapter 52).
+"""The pipeline stages of Project 4 as resumable, deterministic shard jobs (Chapter 28).
 
 Every stage is a function ``fn(in_path, out_path) -> counters`` run through ``shard_runner.run``:
 one input shard, one same-named output shard written atomically, counters summed over shards into

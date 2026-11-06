@@ -1,4 +1,4 @@
-// nanobind binding of the BPE core (Chapter 21): the same surface as bpe_pybind.cpp.
+// nanobind binding of the BPE core (Chapter 29): the same surface as bpe_pybind.cpp.
 //
 // The source is nearly line-for-line pybind11 with `py::` replaced by `nb::`. The differences
 // are underneath: nanobind type-casters are leaner, calls into C++ cost roughly a third of a
@@ -72,7 +72,7 @@ static std::vector<Row> train(const std::vector<nb::bytes>& words, const std::ve
 }
 
 NB_MODULE(bpe_nanobind, m) {
-  m.doc() = "Byte-level BPE encoder and trainer (nanobind example of Chapter 21)";
+  m.doc() = "Byte-level BPE encoder and trainer (nanobind example of Chapter 29)";
   nb::class_<Encoder>(m, "Encoder")
       .def(nb::init<const std::vector<Row>&>(), nb::arg("merges"))
       .def("encode", &Encoder::encode, nb::arg("chunk"))

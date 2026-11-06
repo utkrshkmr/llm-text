@@ -1,4 +1,4 @@
-"""Project 3 (reference solution): IsoFLOP and parametric fits with bootstrap CIs (Chapter 51).
+"""Project 3 (reference solution): IsoFLOP and parametric fits with bootstrap CIs (Chapter 27).
 
 Thin, tested wrappers around ``llmsys.scaling`` that work directly on the sweep's
 ``runs.jsonl`` and return everything the write-up tables and the pre-registration need:

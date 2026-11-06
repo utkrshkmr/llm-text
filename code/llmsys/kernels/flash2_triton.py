@@ -1,4 +1,4 @@
-"""FlashAttention-2 forward *and* backward in Triton (Chapter 17).
+"""FlashAttention-2 forward *and* backward in Triton (Chapter 21).
 
 Builds on the forward-only teaching kernel of Appendix A and adds what a training kernel needs:
 
@@ -268,7 +268,7 @@ def flash_attention2(q, k, v, causal: bool = False, block_m: int = 64, block_n: 
 
 
 def autotune_configs():
-    """A starting search space for ``triton.autotune`` (GPU only; see Chapter 17)."""
+    """A starting search space for ``triton.autotune`` (GPU only; see Chapter 21)."""
     return [triton.Config({"BLOCK_M": bm, "BLOCK_N": bn}, num_warps=w, num_stages=s)
             for bm in (64, 128) for bn in (32, 64, 128) for w in (4, 8) for s in (2, 3)
             if not (bm == 128 and bn == 128 and w == 4)]

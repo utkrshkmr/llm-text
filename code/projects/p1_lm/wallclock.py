@@ -1,4 +1,4 @@
-"""A wall-clock budget for time-capped training runs (e.g. the speed-run challenge in Chapter 49).
+"""A wall-clock budget for time-capped training runs (e.g. the speed-run challenge in Chapter 25).
 
     budget = WallClockBudget(total_s=45 * 60, reserve_s=120)   # keep 2 min for final eval
     for step in range(max_steps):

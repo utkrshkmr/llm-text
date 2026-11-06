@@ -1,99 +1,115 @@
-## Chapter 46: RL Training Systems {#chapter-46-rl-training-systems .unnumbered}
+## Chapter 33: Making Inference Cheaper and Deploying It {#chapter-33-making-inference-cheaper-and-deploying-it .unnumbered}
 
-#### Exercise 46.1 (Optimal split).
+#### Exercise 33.1.
 
-Let $x=G_{\text{gen}}$. $T(x)=W_g/x+W_t/(G-x)+T_{\text{sync}}$; setting $T'(x)=0$ gives
-$W_g/x^2=W_t/(G-x)^2$, so $x^\star/G=\sqrt{W_g}/(\sqrt{W_g}+\sqrt{W_t})$ and
-$T^\star=(\sqrt{W_g}+\sqrt{W_t})^2/G+T_{\text{sync}}=(W_g+W_t+2\sqrt{W_gW_t})/G+T_{\text{sync}}$.
-Since $2\sqrt{W_gW_t}\ge0$, $T^\star\ge (W_g+W_t)/G=T_{\text{coloc}}-T_{\text{switch}}$ (ignoring
-$T_{\text{sync}}$), with equality iff $W_gW_t=0$. The synchronous split wins iff
-$T_{\text{switch}}>2\sqrt{W_gW_t}/G+T_{\text{sync}}$, i.e. only when switching is very expensive.
+Qwen3-0.6B stores $2\cdot28\cdot8\cdot128\cdot2=114{,}688$ bytes of KV per token, i.e. 235 MB per
+2048-token sequence. Its weights take 1.19 GB, so the two are equal at
+$B\approx1.19\cdot10^9/2.35\cdot10^8\approx5$. Beyond a handful of concurrent sequences the KV cache
+dominates the bytes per step. Weight-only quantization of a small model therefore barely helps a
+busy server; KV quantization, paging and prefix sharing matter far more.
 
-#### Exercise 46.2 (KV budget).
+#### Exercise 33.2.
 
-Qwen3-4B has $\approx$`<!-- -->`{=html}4.02B parameters ($\approx$`<!-- -->`{=html}8.0 GB in bf16).
-Its KV cost is the same as the 8B model's, $2\cdot36\cdot8\cdot128\cdot2=147$ KB per token, because
-layer count and KV heads match. Budget $\approx 80-8.0-8=64$ GB; at 6,000 live tokens per sequence,
-$64\text{e}9/(147\text{e}3\cdot
-6000)\approx 72$ sequences. Each decode step streams $\approx72$ GB, $\approx21.5$ ms at 3.35 TB/s,
-so the bound is $\approx 72/0.0215\approx 3{,}400$ tokens/s per GPU---long contexts make KV, not
-weights, the dominant traffic.
+With $e$ uniform on $[-s/2,s/2]$, $\mathbb{E}[e^2]=\frac1s\int_{-s/2}^{s/2}e^2\,de=s^2/12$. A
+full-range signal uniform on $[-A,A]$ has power $A^2/3$, and $b$ bits give $s=2A/2^b$, so the noise
+power is $A^2/(3\cdot4^b)$. Hence $\mathrm{SQNR}=4^b$, or $10\log_{10}4^b\approx6.02\,b$ dB.
 
-#### Exercise 46.3 (Staleness bound).
+#### Exercise 33.3.
 
-Batch $k$ starts generating at time $\ge$ the completion of training step $k-s-1$, so at least $k-s$
-updates have been applied; its version $v\ge k-s$. It is consumed by training step $k$, after which
-the policy has version $k+1$; the update to $\theta_{k+1}$ uses data from $\theta_v$, staleness
-$k-v\le s$. With $s=0$, batch $k$ cannot start until step $k-1$ finishes, which is the synchronous
-split schedule ([@fig:rlsys:timelines]a with separate pools).
+Per row: $s=40/7\approx5.71$, and a value rounds to zero when $|x|<s/2\approx2.86$, which holds for
+$\approx99.6\%$ of standard normal draws. The row is destroyed. With $g=32$, only the outlier's
+group (31 normal values) suffers this. In the other groups the scale is set by the group's own
+maximum ($\approx2.3$), so only $|x|\lesssim0.17$ rounds to zero. A simulation gives $\approx34\%$
+zeros overall, almost all of them in the outlier's group.
 
-#### Exercise 46.4 (Loss normalisation).
+#### Exercise 33.4.
 
-\(a\) $(\ell_1+\ell_2)/2$, each micro-batch weighted equally regardless of size. (b)
-$(100\ell_1+1000\ell_2)/1100$. Fix: before the accumulation loop all-reduce the total number of loss
-tokens $N_{\text{glob}}$ over micro-batches and ranks, compute each micro-batch loss as
-`(tok_loss * mask).sum() / N_glob`, and do not divide by the number of micro-batches or ranks again
-(set the DDP gradient averaging accordingly, or multiply by the world size).
+\(a\) $4+(16+16)/64=4.5$ bits. (b) $4+8/32=4.25$ bits. (c) $4+8/16=4.5$ bits, plus a negligible
+per-tensor fp32 scale.
 
-#### Exercise 46.5 (TIS bias).
+#### Exercise 33.5.
 
-With $\log\rho\sim\mathcal{N}(-s^2/2,s^2)$ (so $\mathbb{E}[\rho]=1$),
-$\mathbb{E}[\min(\rho,C)]=\Phi\!\big(\tfrac{\ln C-s^2/2}{s}\big)+C\big(1-\Phi\big(\tfrac{\ln C+s^2/2}{s}\big)\big)$.
-For $C=2$ the bias $\mathbb{E}[\min(\rho,C)]-1$ is $\approx0$ at $s=0.1$, $-0.0015$ at $s=0.3$,
-$-0.026$ at $s=0.5$ and $-0.19$ at $s=1$. Mismatch is usually small ($s\ll1$), so the bias is
-negligible while the variance reduction from removing the heavy right tail is large; when $s$ is
-large the bias is a warning that the engine and trainer disagree too much.
+For one row, the loss is
+$\ell(\boldsymbol{w}')=(\boldsymbol{w}'-\boldsymbol{w})^\top H(\boldsymbol{w}'-\boldsymbol{w})$.
+Minimise $\ell$ subject to $\boldsymbol{e}_i^\top(\boldsymbol{w}'-\boldsymbol{w})=q_i-w_i$. The
+Lagrangian gives $2H\boldsymbol\delta=\lambda\boldsymbol{e}_i$, so
+$\boldsymbol\delta=\frac{\lambda}{2}H^{-1}\boldsymbol{e}_i$, and the constraint fixes
+$\lambda/2=(q_i-w_i)/[H^{-1}]_{ii}$. Therefore
+$\boldsymbol\delta=-\frac{w_i-q_i}{[H^{-1}]_{ii}}H^{-1}_{:,i}$, whose $i$-th entry is exactly
+$q_i-w_i$ and whose other entries are the stated update. Substituting back,
+$\ell=\boldsymbol\delta^\top H\boldsymbol\delta=(w_i-q_i)^2/[H^{-1}]_{ii}$. GPTQ then removes row
+and column $i$ from $H^{-1}$ (a Schur-complement update), which is what the Cholesky formulation
+does implicitly.
 
-#### Exercise 46.6 (Packing efficiency).
+#### Exercise 33.6.
 
-At most one bin in a first-fit packing is at most half full: if bins $i<j$ were both at most half
-full, the items of $j$ would have fit into $i$ when they were placed. Hence with $k$ bins the total
-size exceeds $(k-1)\cdot\text{cap}/2$, and $\mathrm{OPT}\ge$ total/cap gives $k<2\,\mathrm{OPT}+1$.
-Empirically, padded efficiency falls quickly with $\sigma$ (e.g. $\approx$`<!-- -->`{=html}0.4 at
-$\sigma=0.8$ for batches of 8), sorting recovers a large part, and FFD packing stays above 0.9.
+$(X\,\mathrm{diag}(\boldsymbol{s})^{-1})(W\,\mathrm{diag}(\boldsymbol{s}))^\top
+=X\,\mathrm{diag}(\boldsymbol{s})^{-1}\mathrm{diag}(\boldsymbol{s})W^\top=XW^\top$. With
+$\alpha=\tfrac12$, $s_j=\sqrt{a_j/w_j}$ where $a_j=\max|X_{:,j}|$ and $w_j=\max|W_{:,j}|$. Then
+$\max|X'_{:,j}|=a_j/s_j=\sqrt{a_jw_j}=w_js_j=\max|W'_{:,j}|$. To fold the division, note that $X$ is
+the output of RMSNorm with per-channel gain $\gamma_j$; replace $\gamma_j$ by $\gamma_j/s_j$
+offline. (When several linears consume the same normalised input, e.g. Q, K and V, they must share
+$\boldsymbol{s}$.)
 
-#### Exercise 46.7 (Partial-rollout bias).
+#### Exercise 33.7.
 
-Record `[r.length for r in fin]` per step. In the first steps the consumed mean length is well below
-the generated mean (short responses finish first); as carried-over long responses complete, later
-batches contain them and the consumed distribution approaches the generated one after a few steps.
-Larger `oversample` increases the bias in each step (more short responses compete for the $B$ slots)
-but also increases throughput; the steady-state mixed-policy fraction grows with it.
+Let $x_1$ be emitted at position 1 with probability $p(x_1)$, by the proposition. Conditioned on the
+first draft having been accepted with value $x_1$, the second draft is sampled from
+$q(\cdot\mid x_1)$ and verified against $p(\cdot\mid x_1)$, because the target's second output row
+is computed with $x_1$ in its context. Applying the proposition to this conditional pair gives
+$\Pr[x_2\mid x_1]=p(x_2\mid x_1)$. If the first draft is rejected, the round ends and position 2 is
+produced in the next round, again conditioned on the emitted $x_1$. Either way the joint law is
+$p(x_1)p(x_2\mid x_1)$. Induction extends this to whole sequences.
 
-#### Exercise 46.8 (Weight sync across sites).
+#### Exercise 33.8.
 
-Qwen3-32B has $\approx32.8$B parameters: bf16 $\approx65.5$ GB, i.e. $\approx5.2$ s at 12.5 GB/s;
-fp8 $\approx2.6$ s. LoRA rank 64 on all seven projections of 64 layers is
-$64\cdot64\cdot\sum(d_{\text{in}}+d_{\text{out}})\approx 537$M parameters, $\approx1.07$ GB in bf16,
-$\approx0.09$ s. With full weights, use bounded-staleness asynchronous RL so the 5 s transfer
-overlaps generation; with LoRA, even a synchronous schedule pays little.
+Maximising $S(\gamma)=(1-\alpha^{\gamma+1})/((1-\alpha)(0.05\gamma+1))$ over integers gives
+$\gamma^{*}=4$ ($S\approx1.92$) for $\alpha=0.6$, $\gamma^{*}=8$ ($S\approx3.09$) for $\alpha=0.8$,
+and $\gamma^{*}=13$ ($S\approx4.67$) for $\alpha=0.9$. Going from $\gamma$ to $\gamma+1$ helps iff
+$S(\gamma+1)>S(\gamma)$, i.e. $\alpha^{\gamma+1}(1-\alpha)(c\gamma+1)>c\,(1-\alpha^{\gamma+1})$: the
+expected marginal token $\alpha^{\gamma+1}$ must outweigh the marginal drafting cost relative to the
+current expected yield.
 
-#### Exercise 46.9 (Attacking the grader).
+#### Exercise 33.9.
 
-\(1\) `os._exit(0)` or `sys.exit(0)` before the tests run---run tests in a separate process that
-imports the candidate, and require a sentinel printed after all tests; (2) returning an object whose
-`__eq__` always returns `True`---compare with type checks or serialise results; (3) monkeypatching
-`assert`-like helpers, `unittest` or builtins---execute tests in a fresh namespace after the
-candidate code and verify the runner's integrity; (4) reading expected outputs from disk or
-environment---keep tests outside the sandbox, mount nothing, empty environment; (5) exhausting
-memory/CPU so the grader crashes into a default---treat every abnormal exit as failure and count
-resources. Writing (1) and (2) as tests against [@lst:rlsys:sandbox] shows that the
-teaching sandbox is vulnerable to both.
+The step reads $16.4$ GB of weights plus $128\cdot2048\cdot147.5$ KB$\approx38.7$ GB of KV:
+$t_{\text{mem}}\approx16.4$ ms. With $\gamma+1=5$, the step processes 640 tokens:
+$\approx2\cdot8.19\cdot10^9\cdot640\approx
+1.05\cdot10^{13}$ matmul FLOPs, plus $\approx0.8\cdot10^{12}$ for attention, so
+$t_{\text{comp}}\approx11.4$ ms at peak. That is still memory-bound on paper, but at a realistic
+50--60% of peak the compute time reaches $\approx20$ ms, which exceeds the memory time. Every
+rejected draft then costs real time. Choose $\gamma\le2$ (or adapt $\gamma$ to load), and turn
+speculation off entirely at higher batch sizes.
 
-#### Exercise 46.10 (Measurement).
+#### Exercise 33.10.
 
-An `async+partial` policy runs the partial-rollout generator in its own pool while the previous
-batch trains. Expect throughput above both `async` and `partial` for heavy tails, with mean
-staleness between 1 and 2 and a mixed-policy fraction similar to `partial`; throughput rises and
-saturates with `oversample` while staleness and length bias grow.
+The message size is $m=5120\cdot2=10$ KB per sequence, which is negligible on NVLink
+($m/\beta\approx0.02\,\mu$s). If the per-collective latency is constant ($a=8\,\mu$s, one-shot
+all-reduce), $t(P)=19.6/P+2\cdot64\cdot0.008$ ms$=19.6/P+1.02$ ms. This decreases monotonically:
+10.8 ms at $P=2$, 5.9 ms at $P=4$, 3.5 ms at $P=8$. So use the whole NVLink domain. If the latency
+instead grows like a ring all-reduce, $a(P)=2(P-1)\alpha$ with $\alpha=2\,\mu$s, then $t=10.3$,
+$6.4$ and $6.0$ ms for $P=2,4,8$: diminishing returns, and a two-node $P=16$ would be slower.
+Collective latency, not bandwidth, sets the limit on TP for decode.
 
-#### Exercise 46.11 (Design).
+#### Exercise 33.11.
 
-One reasonable answer: 14B bf16 weights are $\approx29$ GB, KV $\approx 2\cdot40\cdot8\cdot128\cdot2
-\approx164$ KB/token. Responses average 6k tokens and are capped at 32k, so the tail is severe: use
-split pools with bounded-staleness async plus partial rollouts. Generation: 12 GPUs as TP$=2$
-engines (6 replicas, $\sim$`<!-- -->`{=html}100 GB KV each for $\sim$`<!-- -->`{=html}100--150
-concurrent long sequences per replica); training: 20 GPUs with FSDP (16 B/param $\Rightarrow$ 224 GB
-of state, $\approx11$ GB per GPU) plus activation checkpointing and token-budget packing. Balance
-the pools by measuring $W_g$ and $W_t$ in the first steps, drop the reference model (KL$=0$) to save
-memory, enable TIS and log mismatch, and stream rewards to a CPU verifier pool.
+In a closed loop a new request is issued only when an old one completes, so the number in the system
+is capped at 64 and the offered load automatically drops when the server slows down. No queue can
+build up, and latency stays bounded by construction. Real traffic is open-loop: Poisson bursts
+arrive regardless of server state. During a burst the queue and the KV cache fill up, and preemption
+and queueing delay grow superlinearly near capacity (Little's law plus queueing theory). Closed-loop
+tools also suffer from "coordinated omission": the slow periods generate fewer samples, so they are
+under-represented in the percentiles.
+
+#### Exercise 33.12.
+
+Assume every message is 150 tokens. The prompt at turn $k$ is about $300(k-1)+150$ tokens, so
+without reuse the total prefill is $\sum_{k=1}^{20}(300k-150)=60{,}000$ tokens. With perfect reuse
+each turn prefills only the new user message plus a few template tokens (and the one generated token
+that was never fed back): about $20\cdot150=3{,}000$ tokens, a $20\times$ reduction. With the
+official Qwen3 template, pitfall (1) strikes first: the earlier assistant turns' `<think>` blocks
+are stripped when the history is re-serialised, so the common prefix ends at the start of the most
+recent assistant reply. Fixes: store in the history exactly what the template will emit (the reply
+without its think block) and accept re-prefilling that shorter reply once, or keep a cache keyed on
+the template's output. Engine-level prefix caching (radix trees) handles this automatically, at
+block granularity.

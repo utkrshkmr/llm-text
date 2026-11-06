@@ -1,4 +1,4 @@
-"""Fused LayerNorm, forward and backward (Chapter 23).
+"""Fused LayerNorm, forward and backward (Chapter 31).
 
     from llmsys.ops import layernorm
     y = layernorm.layernorm(x, weight, bias, eps)     # CUDA kernels on a GPU when built

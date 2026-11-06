@@ -1,101 +1,102 @@
-## Chapter 17: Performance Engineering on One GPU {#chapter-17-performance-engineering-on-one-gpu .unnumbered}
+## Chapter 13: Optimizers and the Training Loop from First Principles {#chapter-13-optimizers-and-the-training-loop-from-first-principles .unnumbered}
 
-#### Exercise 17.1
+#### Exercise 13.1.
 
-One-time costs: CUDA context creation and kernel-module loading; cuBLAS handle creation and
-heuristic or autotuning selection per new GEMM shape; Triton JIT compilation and `triton.autotune`
-sweeps; `torch.compile` tracing (Dynamo), joint-graph partitioning (AOTAutograd) and code generation
-(Inductor); caching-allocator growth (one `cudaMalloc` per new segment); CUDA-graph capture if
-enabled; GPU clock ramp-up. Experiment: wrap "import + model construction", "first forward", "first
-backward", "first optimizer step", "second step" and "steps 3--20" in separate NVTX ranges and
-profile without a capture range. Compile and autotune appear as long host-side ranges with no
-kernels; allocator growth appears as `cudaMalloc` calls in the CUDA API row; clock ramp-up shows as
-identical kernels getting faster over the first iterations (also visible with `nvidia-smi dmon`).
+Without correction, $m_1=(1-\beta_1)g$ and $v_1=(1-\beta_2)g^2$, so the step is
+$\eta\,(1-\beta_1)|g|/\sqrt{1-\beta_2}\,|g| = \eta\cdot0.1/0.0316\approx3.16\,\eta$ per coordinate.
+With $\beta_2=0.95$ it is $0.1/\sqrt{0.05}\approx0.45\,\eta$. The second-moment correction matters
+more because $\sqrt{1-\beta_2^t}$ stays far below $1-\beta_1^t$ for many steps when $\beta_2$ is
+close to 1. The uncorrected ratio $(1-\beta_1^t)/\sqrt{1-\beta_2^t}$ peaks at about $6.6$ around
+$t=12$ for $(0.9, 0.999)$, so an uncorrected Adam takes steps several times larger than $\eta$
+throughout the first hundreds of steps.
 
-#### Exercise 17.2
+#### Exercise 13.2.
 
-Any launch-bound workload: for example, 1000 small elementwise kernels on $10^4$-element tensors.
-Each kernel runs for about $2\,\mu$s on the device, but the host needs about $5$--$10\,\mu$s per
-launch, so CUDA events (device time, roughly the sum of kernel durations when the queue never
-empties) report much less than wall-clock time, which includes the launch bottleneck. Report device
-time (events or `do_bench`) for a kernel paper, because the claim is about the kernel; report
-synchronised wall-clock time for training throughput, because host overhead is part of the real
-cost.
+Adam + L2: the gradient is $\lambda\theta$, so $\hat m\approx\lambda\theta$ and
+$\sqrt{\hat v}\approx\lambda|\theta|$ once the moments have adapted, giving a step of
+$\eta\,\mathrm{sign}(\theta)$: a *linear* shrink of $\eta$ per step regardless of $\lambda$, until
+$\theta$ reaches $\approx0$ and oscillates at amplitude $\sim\eta$. AdamW: the adaptive term is zero
+($g=0$, so $m=0$) and $\theta_t=(1-\eta\lambda)^t\theta_0$ decays geometrically with rate set by
+$\lambda$. The coupled version's decay strength therefore depends on the gradient statistics, which
+is the problem decoupling fixes.
 
-#### Exercise 17.3
+#### Exercise 13.3.
 
-For `fc3(silu(fc1(x)) * fc2(x))` in eager mode: `fc1` and `fc2` save $x$ (the same storage, counted
-once): $BTd\cdot4$ bytes. `silu` saves its input $g=\texttt{fc1}(x)$: $BTh\cdot4$. The product saves
-both operands, `silu`$(g)$ and $u=\texttt{fc2}(x)$: $2BTh\cdot4$. `fc3` saves its input (the
-product): $BTh\cdot4$. Total $4BT(d+4h)$ bytes, i.e. $1+4h/d$ units of the residual stream (about 13
-for $h=3d$). Under `torch.compile` the partitioner typically keeps $x$, $g$ and $u$ and recomputes
-`silu`$(g)$ and the product in the backward kernel, dropping two $h$-wide tensors (about $1+2h/d$
-units). Verify by printing `tr.table()` in both modes.
+\(a\) SGD with momentum in fp32: read $p,g,b$ (12 B), write $p,b$ (8 B), 20 B/param, 5.97 ms per
+billion parameters. (b) Lion with fp32 master weights: read bf16 $g$ (2), master (4), $m$ (4); write
+master (4), $m$ (4), bf16 copy (2): 20 B/param, 5.97 ms/B. (c) AdamW with bf16 $m,v$ and fp32
+master: read $g$ (2), master (4), $m$ (2), $v$ (2); write master (4), $m$ (2), $v$ (2), bf16 copy
+(2): 20 B/param, 5.97 ms/B. For comparison, fp32 or standard mixed-precision AdamW is 28 B/param,
+8.36 ms/B.
 
-#### Exercise 17.4
+#### Exercise 13.4.
 
-With outer groups of $k_1$ blocks, each recomputed with inner checkpoints every $k_2$ blocks, the
-peak (in units of $a$, with $A=30a$) is $M=\tfrac{L}{k_1}+\tfrac{k_1}{k_2}+30k_2$: outer
-checkpoints, the inner checkpoints of the outer group being recomputed, and one live inner group.
-Each block runs forward three times (original, outer recomputation, inner recomputation) versus
-twice for one level. Because $A\gg a$, $k_2=1$ is optimal, giving $M=64/k_1+k_1+30$, minimised at
-$k_1=8$: $M=46a$. The best one-level schedule ($k=1$ or $2$) gives $94a$ or $92a$. One extra forward
-per block roughly halves peak activation memory here.
+$310\times10\times5\,\mu$s $=15.5$ ms of launch overhead per step, against a memory-bound time of
+$28\times0.596\times10^9/3.35\times10^{12}\approx5.0$ ms. The loop implementation is launch-bound,
+three times slower than the bandwidth limit, before counting the kernels' own runtime. The `foreach`
+path issues about ten launches per parameter group ($\sim$`<!-- -->`{=html}50 $\mu$s); a fused
+kernel approaches the 5 ms bound.
 
-#### Exercise 17.5
+#### Exercise 13.5.
 
-Per parameter, AdamW does about 12--15 FLOPs (two moment updates, bias corrections, a square root, a
-division, weight decay, the update) and moves about 28 bytes ([@sec:perf:anatomy]): roughly
-0.5 FLOP/byte, far below any GPU's ridge point. Qwen3-1.7B has $1.72\times10^9$ parameters, so
-48.2 GB of traffic, or 14.4 ms at 3.35 TB/s. The model has about 310 parameter tensors (11 per layer
-over 28 layers, plus the embedding and final norm); at about ten kernels per tensor and $5\,\mu$s
-per launch, launching alone takes 15.5 ms of host time, and kernels on small tensors (norm weights)
-are too short to reach bandwidth. Expect 25--40 ms unfused. A fused (or multi-tensor) implementation
-launches a handful of kernels and approaches $14.4/0.8\approx18$ ms at 80% of peak bandwidth.
+Qwen3-0.6B: $N\approx0.596\times10^9$, so model state is $16N\approx9.5$ GB. At $T=4096$ in bf16 the
+saved tensors of [@sec:optim:account] give (per sequence): (i) naive attention,
+$\approx1.26$ GB per layer, dominated by the $2HT^2$ score and probability tensors (1.07 GB), so
+$28\times1.26\approx35.2$ GB, plus about 5 GB for fp32 logits and softmax ($T\cdot V\cdot4\cdot2$
+bytes with $V=151{,}936$). That is $\approx40$ GB per sequence: $\text{mem}(B)\approx40.2B+9.5$ GB,
+which does not fit even $B=1$ on a 24 GB GPU. (ii) With FlashAttention, $\approx0.185$ GB per layer,
+so $\approx5.2+5.0=10.2$ GB per sequence: $\text{mem}(B)\approx10.2B+9.5$ GB, and $B=1$ fits. The
+logits are now half the activation memory: computing the loss in chunks ([@ch:distill]) would
+allow $B=2$, and activation checkpointing ([@sec:pretrain:efficiency]) more.
 
-#### Exercise 17.6
+#### Exercise 13.6.
 
-$16\times4096=65{,}536$ tokens. Logits in bf16: $65{,}536\times151{,}936\times2$ B $=19.9$ GB; the
-fp32 upcast doubles that to 39.8 GB; the gradient of the logits is another 19.9--39.8 GB. That is
-80--100 GB at the peak, more than an 80 GB GPU. To keep the fp32 slab under 1 GB: chunk
-$\le 10^9/(151{,}936\times4)\approx1645$ tokens, so use 1024 (0.62 GB fp32 plus 0.31 GB bf16).
-Recomputation repeats the LM-head forward ($2d_{\text{model}}V=622$ MFLOP per token),
-i.e. $4.1\times10^{13}$ extra FLOPs per step (about 41 ms at the H100's bf16 peak): one third more
-than the LM head's normal training cost.
+Their schedule restarts at step 0: if it has warmup, the learning rate ramps up again from near zero
+to the peak, then follows a complete cosine compressed into the remaining steps. The original run
+was somewhere down its cosine (say at $0.4\,\eta_{\max}$), so the resumed run jumps back to
+$\eta_{\max}$. The loss curve shows a bump or spike shortly after resumption (a "warm restart"),
+then decays again. The final loss is usually worse than the uninterrupted run's, and the run is not
+reproducible. The fix is to construct the schedule with the original `total` and call it with the
+restored global step.
 
-#### Exercise 17.7
+#### Exercise 13.7.
 
-With tile size $b$ and $n=T/b$ tiles per side, a causal forward visits $n(n+1)/2$ tiles and does two
-GEMMs of $2b^2d_{h}$ FLOPs on each, giving $2\,BHd_{h}\,T(T+b)$ FLOPs ($\approx2BHd_{h}T^2$, half of
-non-causal). The two-kernel backward does seven GEMMs per visited tile: $7\,BHd_{h}\,T(T+b)$,
-$3.5\times$ the forward. A backward reading a stored $\mathbf{P}$ does four GEMMs
-($\mathbf{dV},\mathbf{dP},\mathbf{dQ},\mathbf{dK}$), $2\times$ the forward, but must store and read
-$BHT^2$ elements. The diagonal tiles are computed in full and masked, so their wasted FLOPs are the
-$T\cdot b$ term.
+The global norm is $\sqrt{3^2+4^2}=5$, so both ranks must scale by $1/5$; the result has norm 1 and
+the original direction. Independent clipping scales rank 0 by $1/3$ and rank 1 by $1/4$: each shard
+has norm 1, the combined norm is $\sqrt2$, and the direction changes (the components' ratio goes
+from $3:4$ to $1:1$). The fix is one scalar collective: each rank computes $s_r=\|g_r\|^2$, then
+`all_reduce(SUM)` over the tensor-parallel group, and every rank uses $\sqrt{\sum_r s_r}$.
+Replicated parameters, such as norm gains that every rank holds, must be counted once, not once per
+rank.
 
-#### Exercise 17.8
+#### Exercise 13.8.
 
-Visited tiles $n(n+1)/2$, masked tiles $n$: a fraction of $2/(n+1)$, e.g. about 3% for $n=64$. With
-`BLOCK_M`$=2\,$`BLOCK_N` and $n_q=T/\texttt{BLOCK\_M}$ query tiles, query tile $i$ visits $2i+2$ key
-tiles, the last two of which straddle the diagonal and need masks. Visited $=n_q(n_q+1)$, masked
-$=2n_q$, so again $2/(n_q+1)$, now in terms of the (fewer) query tiles.
+With $X=U\Sigma V^\top$, $XX^\top=U\Sigma^2U^\top$, hence $(XX^\top)X=U\Sigma^3V^\top$ and
+$(XX^\top)^2X=U\Sigma^5V^\top$. So $p(X)=U(a\Sigma+b\Sigma^3+c\Sigma^5)V^\top=U\,p(\Sigma)\,V^\top$,
+and singular vectors are preserved. The scalar map only pushes values in $(0,1]$ into the band
+near 1. For $\sigma$ much above 1 the $c\sigma^5$ term dominates and iterating diverges, so the
+input is divided by its Frobenius norm, which upper-bounds $\sigma_{\max}$. Muon is restricted to
+2-D hidden matrices because 1-D gains and biases have no singular structure, and because embedding
+and unembedding matrices are lookups or classifiers over tokens: each row belongs to one token and
+receives gradient only when that token appears, and orthogonalising would redistribute update
+magnitude across rare and frequent tokens. The original Muon recipe keeps them on AdamW.
 
-#### Exercise 17.9
+#### Exercise 13.9.
 
-Tiles $=16\lceil M/128\rceil$ and waves $=\lceil\text{tiles}/132\rceil$; achieved fraction
-$=\text{tiles}/(132\cdot\text{waves})$. At $M=4096$: 512 tiles, 4 waves, 97%. Throughput drops just
-above $M=4224$ (528 tiles fill exactly 4 waves; 544 need 5, falling to 82%), $M=5248$ (656 to 672
-tiles: 99% to 85%), $M=6272$ (784 to 800 tiles) and $M=7296$ (912 to 928 tiles), with smaller steps
-at every multiple of 128 from tile quantisation. A sweep of measured throughput shows the same
-sawtooth.
+Number the $n$ valid windows (e.g. disjoint windows $i\cdot T$). Each epoch draws $a$ with
+$\gcd(a,n)=1$ and an offset $c$; the $k$-th sample is window $(a k + c)\bmod n$, a bijection on
+$\{0,\dots,n-1\}$ computed in $O(1)$ without storing a permutation. The state is (epoch, $k$, $a$,
+$c$), or the seed from which $a$ and $c$ are derived. Affine permutations mix poorly (consecutive
+samples are an arithmetic progression of windows), so production samplers use a small keyed Feistel
+network or a block-shuffled order instead; the state has the same shape.
 
-#### Exercise 17.10
+#### Exercise 13.10.
 
-With `fullgraph=True`, Dynamo raises at `loss.item()` ("data-dependent" or "Tensor.item" graph
-break) because converting a tensor to a Python number needs a device synchronisation and leaves the
-graph. `TORCH_LOGS=graph_breaks` on the original code lists remaining breaks, typically from
-NVTX/profiler calls inside the compiled region, `print`s, Python-side conditionals on tensor values
-and calls into unsupported libraries. The remedies: move logging outside the compiled function
-(return the loss tensor and call `.item()` every $k$ steps), replace data-dependent branches with
-`torch.where`, mark helper functions with `torch.compiler.disable` if they must stay in Python, and
-compile per block so that remaining breaks fall between compiled regions.
+Expect the following pattern; exact values depend on your hardware and seeds. With clipping, the
+largest learning rates spike but recover; our run at $\eta=1$ spiked from 5.8 to 7.3 and then
+trained. With clipping disabled, the loss at the highest learning rates becomes non-finite within
+tens of steps, which defines the divergence point $\eta_{\text{div}}$. The best learning rate
+typically sits 3--30$\times$ below $\eta_{\text{div}}$ on a broad plateau. Removing QK-norm lets
+attention logits grow with the weights, which lowers $\eta_{\text{div}}$, often by several times,
+and usually moves the optimum down with it: QK-norm buys stability headroom
+([@sec:archdesign:stability]).

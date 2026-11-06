@@ -1,4 +1,4 @@
-// Entry point of the llmsys._C extension (Chapter 21).
+// Entry point of the llmsys._C extension (Chapter 29).
 //
 // Declares the ``llmsys`` operator namespace; each operator's translation unit adds its schema with
 // TORCH_LIBRARY_FRAGMENT and its kernels with TORCH_LIBRARY_IMPL. The pybind module itself only

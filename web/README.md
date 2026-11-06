@@ -26,7 +26,7 @@ Markdown file:
 $$\mathrm{RMSNorm}(\boldsymbol{x}) = \boldsymbol{\gamma}\odot\frac{\boldsymbol{x}}{\mathrm{RMS}(\boldsymbol{x})}
 \label{eq:modern:rms}$$
 
-![Caption text.](figures/ch07_modern_arch-2.svg){#fig:modern:rmsvsln}
+![Caption text.](figures/ch09_modern_arch-2.svg){#fig:modern:rmsvsln}
 
 ``` {#lst:modern:rms .python caption="RMSNorm with an fp32 accumulation."}
 ...

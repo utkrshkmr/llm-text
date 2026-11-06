@@ -1,97 +1,86 @@
-## Chapter 8: The Architecture Design Space {#chapter-8-the-architecture-design-space .unnumbered}
+## Chapter 6: Implementing a GPT Model {#chapter-6-implementing-a-gpt-model .unnumbered}
 
-#### Exercise 8.1
+#### Exercise 6.1.
 
-\(a\) `"bgrqd,bgkd->bgrqk"`: the KV group axis $g$ is shared and kept, $r$ and $q$ come only from
-the queries, and $d$ is contracted. (b) `"bi,bj->bij"`. (c) `"bii->b"` (a repeated index on one
-operand selects the diagonal, and dropping it from the output sums it). (d) `"bhtd,hdD->btD"`: both
-$h$ and $d$ are contracted, which is the per-head output projection followed by the sum over heads,
-i.e. exactly $\mathrm{concat}_h(\mathbf{O}_h)\mathbf{W}_O$.
+With [@eq:gpt:params] (untied head, no QKV bias, $V=50257$, $T_\text{max}=1024$): GPT-2
+medium has 406212608 parameters (attention 100.7 , FFN 201.4 ); large has 838220800 (attention
+236.0 , FFN 472.1 ); XL has 1637792000 (attention 491.6 , FFN 983.4 ). For $L=12$ the FFN holds
+$12(8d^2+5d)$ parameters and the embeddings plus head hold $(2V+T_\text{max})d$. Equality gives
+$96d+60=2\cdot50257+1024$, i.e. $d\approx1057$; any width above that (in practice the next multiple
+of 64, $d=1088$) puts more parameters in the FFNs than in the vocabulary-sized matrices.
 
-#### Exercise 8.2
+#### Exercise 6.2.
 
-$(\mathbf{A}\mathbf{B})\mathbf{C}$: forming the $n\times n$ product costs $2n^2d$ FLOPs and
-multiplying it by $\mathbf{C}$ another $2n^2d$, so $4n^2d$ in total.
-$\mathbf{A}(\mathbf{B}\mathbf{C})$: the $d\times d$ product costs $2nd^2$ and the final product
-another $2nd^2$, so $4nd^2$. The second order is cheaper when $n>d$, i.e. beyond $n=128$; at
-$n=32{,}768$ it is $n/d=256$ times cheaper. In attention the row-wise softmax applied to
-$\mathbf{Q}\mathbf{K}^\top$ prevents re-association.
+Add three keys, e.g. `drop_emb`, `drop_attn` and `drop_resid`, pass `drop_attn` to
+`MultiHeadAttention` and `drop_resid` to `drop_shortcut`, and use `drop_emb` in `GPTModel`. Removing
+the *attention-weight* dropout saves the most: it acts on the largest activation ($BHT^2$ elements
+per layer), its mask must otherwise be stored or regenerated, and many fused attention kernels have
+a faster code path when dropout is zero.
 
-#### Exercise 8.3
+#### Exercise 6.3.
 
-With fan-average initialisation $\sigma_1^2=\sigma_2^2=2/(d+4d)=2/(5d)$. Then
-$\operatorname{Var}(h_j)=d\sigma_1^2=2/5$, and since $h_j$ is a centred Gaussian,
-$\mathbb{E}[\mathrm{ReLU}(h_j)^2]=\operatorname{Var}(h_j)/2=1/5$. Hence
-$\operatorname{Var}(y_o)=4d\,\sigma_2^2\cdot\frac15
-=4d\cdot\frac{2}{5d}\cdot\frac15=\frac{8}{25}=0.32$: the block shrinks the signal. Keeping unit
-variance requires $\sigma_2^2=\frac{1}{4d\cdot(1/5)}=\frac{5}{4d}$, i.e. He-style scaling for the
-layer after a ReLU.
+The next multiple of 128 above 50257 is 50304: 47 extra rows, $47\times768=36096$ parameters per
+vocabulary matrix (72192 if the head is untied). Two fp32 Adam moments add 8 bytes per parameter:
+289  (tied) or 578  (untied)---negligible. During generation either slice the logits to the true
+vocabulary (`logits[..., :50257]`) or set the padded entries to $-\infty$ before argmax/sampling, so
+a padded ID can never be emitted.
 
-#### Exercise 8.4
+#### Exercise 6.4.
 
-\(a\) $\sigma_z\approx0.02\sqrt{1024}=0.64$, so the loss is about
-$\ln151{,}936+0.64^2/2\approx11.93+0.20=12.13$. (b) With $s=1$, $\sigma_z\approx32$: the logits are
-essentially random with a huge spread, so $\log Z$ is dominated by the maximum of $V$ Gaussians,
-$\approx\sigma_z\sqrt{2\ln V}\approx32\times4.9\approx156$, while the target logit has mean 0. The
-initial loss is on the order of 150 nats, a clear sign of a broken init. (Qwen3-0.6B ties its head
-to the embedding table, so in the real model this exercise is about the embedding's init scale.)
+From $8Nd^2=r\,(10Nd+8d^2)$ with ridge point $r$ we get $N^\star=8rd/(8d-10r)$. For the A100,
+$r=312/2.039\approx153$ FLOP/byte, giving $N^\star\approx204$ tokens for $d=768$ and $\approx160$
+for $d=4096$. The second FFN GEMM, $(N\times4d)\cdot(4d\times d)$, also performs $8Nd^2$ FLOPs and
+moves $2(4Nd)+2(4d^2)+2(Nd)=10Nd+8d^2$ bytes: its intensity is identical, so (ignoring tiling
+effects) both GEMMs reach the ridge at the same $N^\star$.
 
-#### Exercise 8.5
+#### Exercise 6.5.
 
-Parameters: $3\cdot d\cdot\frac83d=8d^2=2\cdot d\cdot4d$; matmul FLOPs per token are $2\times$
-parameters in both cases. Saved activations per token, counting GEMM inputs and activation inputs:
-plain MLP stores $x$ ($d$), the pre-activation ($4d$) and the activation output, which is the input
-to $\mathbf{W}_2$ ($4d$), for $9d$ values. The GLU stores $x$ ($d$), the gate pre-activation, the up
-projection and their product ($3\times\frac83d=8d$), also $9d$. In bf16 both are $18d$ bytes per
-token. Unfused GLU code also materialises $\mathrm{SiLU}(\text{gate})$, adding $\frac83d$ values
-unless the elementwise ops are fused or recomputed.
+Without scaling, each of the $2L$ sublayers adds an update of roughly constant variance $\sigma_u^2$
+to the stream, so after $\ell$ sublayers the variance is $\sigma_0^2+\ell\sigma_u^2$ and the RMS
+grows like $\sqrt{\ell}$: a concave, square-root-shaped curve. Scaling the output projections by
+$1/\sqrt{2L}$ shrinks each update's variance by $2L$, so the total added variance after all $2L$
+sublayers is about $\sigma_u^2$ and the curve becomes nearly flat.
 
-#### Exercise 8.6
+#### Exercise 6.6.
 
-With uniform weights the output at position $i$ is $\frac{1}{i+1}\sum_{j\le i}\boldsymbol{v}_j$. If
-the first token is a distinguishable BOS token whose value vector is $\boldsymbol{e}_1$, and all
-other tokens have value vectors with zero first coordinate, the first output coordinate is
-$1/(i+1)$, strictly decreasing in $i$. The causal mask's varying denominator alone encodes position;
-later layers can read it off and build sharper positional features.
+Post-LN computes `x = norm(x + f(x))`. Without warmup, the post-LN model typically diverges (loss
+spikes to NaN or plateaus at the unigram entropy) at a learning rate several times lower than the
+pre-LN model tolerates, because the gradients of the last layers are large at initialization (Xiong
+et al., 2020); adding a linear warmup closes much of the gap.
 
-#### Exercise 8.7
+#### Exercise 6.7.
 
-$\partial(\log Z)^2/\partial z_j=2\log Z\,p_j$ with
-$\boldsymbol{p}=\operatorname{softmax}(\boldsymbol{z})$. Its projection on the all-ones direction is
-$\frac{2\log Z}{V}\boldsymbol{1}$ (since $\sum_jp_j=1$), and the orthogonal part is
-$2\log Z\,(\boldsymbol{p}-\frac1V\boldsymbol{1})$. The cross-entropy gradient
-$\boldsymbol{p}-\boldsymbol{y}$ sums to zero, so it has no all-ones component: CE never moves
-$\log Z$ as such. The z-loss provides the only force along $\boldsymbol{1}$, pulling $\log Z$ toward
-0. Its orthogonal part does perturb the distribution, but it is scaled by $\alpha\approx10^{-4}$ and
-vanishes as $\log Z\to0$, so predictions are essentially unaffected.
+\(a\) The explicit tanh-GELU saves, per element of the $4d$-wide hidden tensor, the input (for `pow`
+and the outer multiply), the `tanh` output, the half-scaled input and the $(1+\tanh)$ factor: about
+four $4d$-wide tensors. (b) `nn.GELU` saves only its input, removing roughly three of them
+(1387 $\to$`<!-- -->`{=html}994  on the tiny configuration). (c) The explicit LayerNorm saves
+$x-\mu$, the denominator and the normalized tensor; `nn.LayerNorm` saves the input plus one mean and
+one reciprocal standard deviation per row, so roughly one to two $d$-wide tensors disappear per
+norm.
 
-#### Exercise 8.8
+#### Exercise 6.8.
 
-Qwen3-8B, 8192 tokens: each RMSNorm reads and writes $8192\times4096\times2$ B, i.e. 134 MB, or
-about 40 $\mu$s; two per block give 80 $\mu$s (the QK-norms act on smaller tensors and add little).
-The block has about $1.93\times10^8$ weight parameters
-($2\cdot4096^2+2\cdot4096\cdot1024+3\cdot4096\cdot12288$), so its matmuls take
-$2\times1.93\times10^8\times8192\approx3.2\times10^{12}$ FLOPs, plus about $2.8\times10^{11}$ for
-causal attention scores and outputs: about 3.5 ms at peak, or 6--7 ms at a realistic 50% MFU.
-Unfused norms add 1--2%. A fused version needs one extra read to compute the RMS (or folds the
-scaling into the GEMM epilogue), about 20 $\mu$s per norm, roughly halving the overhead. The general
-lesson: norm cost is small relative to a full block but not negligible, and it grows in relative
-terms for smaller $d$.
+Causal attention computes, per head and sequence, $\sum_{i=1}^{T} i\,d_{h}\cdot2 = T(T+1)d_{h}$
+FLOPs for $QK^\top$ and the same for $AV$, i.e. $2T(T+1)d$ per layer instead of $4T^2d$---a factor
+$(T+1)/2T\approx\tfrac12$. For GPT-2 small the total forward FLOPs per token drop from 284.8M to
+265.9M at $T=1024$ (6.6% less) and from 549.1M to 398.1M at $T=8192$ (27.5% less). If one paper
+counts full attention and another counts only the causal half, their MFU numbers differ by this
+amount for the same hardware efficiency, increasingly so at long context.
 
-#### Exercise 8.9
+#### Exercise 6.9.
 
-With $N\approx12Ld^2=1.3\times10^9$: for $d/L=32$, $d^3=1.3\times10^9\cdot32/12$ gives
-$d\approx1514$ and $L\approx47$; for $d/L=128$, $d\approx2402$ and $L\approx19$. Decode reads the
-same 2.6 GB of bf16 weights (about 0.78 ms at 3.35 TB/s) in both cases, plus per-layer overhead of
-$47\times15\,\mu$s$=0.71$ ms versus $0.28$ ms. The wide model decodes faster (about 1.06 ms versus
-1.49 ms per token). It also suits tensor parallelism better: each layer's GEMMs are larger, which
-gives better per-GPU efficiency after splitting, and there are fewer layers and so fewer all-reduces
-per token.
+Neglecting attention terms, a forward pass over $t$ tokens costs $\approx2Pt$. Without a cache,
+generating $n$ tokens costs $\sum_{t=p}^{p+n-1}2Pt\approx2P(pn+n^2/2)$; with a cache, $2P(p+n)$
+(prefill plus one token per step). The ratio is $(pn+n^2/2)/(p+n)$, which for $p=100$ reaches 100 at
+$n^2/2=10^4$, i.e. $n\approx141$. Including attention makes the uncached version slightly worse
+still.
 
-#### Exercise 8.10
+#### Exercise 6.10.
 
-There is no single answer. A good report states the hypothesis before running anything, shows that
-the difference exceeds the seed-to-seed spread of the baseline, includes the LR sweep for both
-variants, and offers a mechanism. For example: "QK-norm without z-loss: max attention logit stays
-bounded and the run tolerates $3\times$ higher LR; final loss unchanged within noise at the tuned
-LR."
+Loop over sequence chunks of 128 positions: compute the chunk's logits, its cross-entropy summed
+over tokens, and accumulate; wrap each chunk in `torch.utils.checkpoint` so the chunk logits are
+recomputed in backward rather than stored. Peak logits memory falls from
+$8\cdot1024\cdot50257\cdot4\,\text{B}=1.65\,\mathrm{\giga\byte}$ to
+$8\cdot128\cdot50257\cdot4\,\text{B}=206\,\mathrm{\mega\byte}$ (and the same for the softmax
+gradient). The price is recomputing the head GEMM in the backward pass, about $2NVd$ extra FLOPs,
+i.e. one third more work for the output layer.

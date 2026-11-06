@@ -1,4 +1,4 @@
-"""Project 3 (reference solution): token data for the sweep (Chapter 51).
+"""Project 3 (reference solution): token data for the sweep (Chapter 27).
 
 Two sources behind one interface (a ``uint16`` token array plus a held-out tail):
 

@@ -1,0 +1,86 @@
+## Chapter 18: Distributed Training Systems {#chapter-18-distributed-training-systems .unnumbered}
+
+#### Exercise 18.1 (Ring all-reduce cost).
+
+Each of the $p-1$ reduce-scatter steps and $p-1$ all-gather steps sends one chunk of $n/p$ bytes per
+rank, all links busy in parallel: $2(p-1)(\alpha+\frac np\beta)$, which is [@eq:dist:ring].
+Recursive halving: in round $j=1..\log_2p$ each rank exchanges half of its current working set with
+a partner at distance $p/2^j$, i.e. $n/2,n/4,\dots,n/p$ bytes, summing to $n(p-1)/p$ in $\log_2p$
+messages; recursive doubling for the all-gather mirrors it. Total
+$2\log_2p\,\alpha+2\frac{p-1}{p}n\beta$.
+
+#### Exercise 18.2 (Two-level all-reduce).
+
+Reduce-scatter inside the node: $\frac78\,n/B_1$; all-reduce of the $n/8$ shards across $N$ nodes
+(each GPU uses its own NIC): $2\frac{N-1}{N}\frac n8/B_2$; all-gather inside the node:
+$\frac78\,n/B_1$. For large $N$: $\approx1.75\,n/B_1+0.25\,n/B_2$. A flat ring over $8N$ GPUs is
+limited by its inter-node hops: $\approx2n/B_2$. With $B_1=450$, $B_2=50$ GB/s: $0.0089\,n$ vs
+$0.040\,n$ seconds per GB, about $4.5\times$ faster hierarchically (latency terms aside).
+
+#### Exercise 18.3 (Bucket size).
+
+Require $\alpha\le0.05\,n\beta$,
+i.e. $n\ge20\alpha/\beta=20\cdot20\,\mathrm{\micro s}\cdot50\,\mathrm{GB/s}
+=20\,\mathrm{MB}$. Very large buckets fill late: the first all-reduce starts only after a large
+fraction of the backward pass, and the final (exposed) bucket is large, so less communication is
+hidden.
+
+#### Exercise 18.4 (No-sync accumulation).
+
+Add a flag `self.sync=True` and a context manager that sets it to `False`; in `_on_grad_ready`
+return immediately when `not self.sync` (gradients simply keep accumulating in `.grad`); on the last
+micro-batch the flag is `True` and buckets launch as usual, carrying the accumulated sums. Without
+it, $k$-step accumulation performs $k$ all-reduces; with it, one---so communication time drops by
+$\approx k\times$.
+
+#### Exercise 18.5 (ZeRO arithmetic).
+
+[@tab:dist:zero] follows from $\Psi=7.5$B, $N_d=64$, $K=12$. For 13B on 16 GPUs: DP 208 GB
+(no); ZeRO-1 $(4+12/16)\cdot13=61.8$ GB (18 GB left, no); ZeRO-2 $(2+14/16)\cdot13=37.4$ GB (42.6 GB
+left, yes). ZeRO-2 is the lowest stage that works.
+
+#### Exercise 18.6 (TP backward).
+
+$\mathbf{Y}_r=\mathbf{X}\mathbf{W}_r^\top$ for every $r$, so $\mathcal L$ depends on $\mathbf{X}$
+through all $\mathbf{Y}_r$ and
+$\partial\mathcal L/\partial\mathbf{X}=\sum_r(\partial\mathcal L/\partial\mathbf{Y}_r)\mathbf{W}_r$.
+Rank $r$ only knows its own term, hence the all-reduce in the backward of $f$. For the row-parallel
+layer $\mathbf{Y}=\sum_r\mathbf{X}_r\mathbf{W}_r^\top$, so $\partial\mathcal L/\partial\mathbf{X}_r=
+(\partial\mathcal L/\partial\mathbf{Y})\mathbf{W}_r$: the output gradient is replicated after $g$'s
+(identity) backward, and each rank needs only its own $\mathbf{W}_r$---no communication.
+
+#### Exercise 18.7 (Attention under TP).
+
+Give each rank $H/t$ query heads with their Q/K/V columns (column-parallel) and the matching
+$H/t\cdot d_{h}$ input columns of the output projection (row-parallel); softmax and the causal mask
+act per head, so they stay local. Constraint: $t$ divides $H$. With GQA, each rank also needs the KV
+heads its query heads use; if $t$ exceeds the number of KV groups $G$, KV heads must be replicated
+on $t/G$ ranks (and their gradients all-reduced among those replicas), which wastes memory and
+compute and caps useful TP at $G$ for KV projections.
+
+#### Exercise 18.8 (Bubbles).
+
+For $p=8$ both schedules give $7/(m+7)$: $46.7\%$, $30.4\%$, $17.9\%$, $9.9\%$ for $m=8,16,32,64$.
+Peak in-flight micro-batches: GPipe $m$ on every stage; 1F1B $\min(8-s,m)$, i.e. at most 8. With
+$v=2$ interleaving the bubble becomes $3.5/(m+3.5)$ (e.g. $9.9\%$ at $m=32$).
+
+#### Exercise 18.9 (Causal load balance).
+
+With contiguous chunks, device $i$'s queries attend to key blocks $0..i$: $i+1$ block pairs (the
+diagonal one half-masked), so device $c-1$ does $c$ times the work of device 0. Split the sequence
+into $2c$ chunks and give device $i$ chunks $i$ and $2c-1-i$: it computes $(i+1)+(2c-i)=2c+1$ block
+pairs, the same for every device.
+
+#### Exercise 18.10 (Plan a 405B run).
+
+One defensible plan (close to the layout Meta reported for Llama 3 405B at 8k context): TP $=8$ (one
+node), PP $=16$ ($\approx8$ layers per stage, first/last stage lighter), CP $=1$, DP $=128$ with
+ZeRO-1. Parameters per GPU $405\text{B}/128=3.2$B; ZeRO-1 states $(4+12/128)\cdot3.2\approx13$ GB.
+Global batch 16M tokens $=2{,}048$ sequences, i.e. 16 micro-batches per pipeline. Plain 1F1B would
+idle $15/31\approx48\%$, so use interleaving with $v=4$ virtual stages: $3.75/(16+3.75)\approx19\%$.
+Activations with FlashAttention and TP+SP: $8192\cdot16{,}384\cdot34/8\approx0.57$ GB per layer per
+micro-batch; stage 0 can hold up to 16 micro-batches $\times$ 8 layers, so selective or full
+recomputation is needed (full recompute: $\approx4$ GB). DP traffic: each rank reduces a 6.4 GB bf16
+gradient shard over 128 replicas, $\approx0.26$ s at 50 GB/s, well hidden behind $\approx6$ s of
+compute per step at 40% MFU. The remaining inefficiency is the pipeline bubble, which is why larger
+batches or zero-bubble schedules are attractive at this scale.

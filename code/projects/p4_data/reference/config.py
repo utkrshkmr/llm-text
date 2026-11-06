@@ -2,7 +2,7 @@
 
 Every threshold, model path and seed lives in one dictionary. A stage's output directory is named
 after a hash of (stage name, the configuration it depends on, the input list), so two pipelines can
-never overwrite each other and a rerun with the same configuration is a no-op (Chapter 52).
+never overwrite each other and a rerun with the same configuration is a no-op (Chapter 28).
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ DEFAULTS: Dict[str, Any] = {
     "filters": {
         "language": "en",
         "lang_threshold": 0.65,
-        "lang_model": None,          # path to fastText lid.176.bin; None = Chapter 15 Naive Bayes
+        "lang_model": None,          # path to fastText lid.176.bin; None = Chapter 19 Naive Bayes
         "pii": True,
         "rules": True,
         "min_words": 50,

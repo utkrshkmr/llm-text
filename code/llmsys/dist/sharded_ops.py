@@ -1,4 +1,4 @@
-"""The four sharded matmul cases, written with explicit collectives (Chapter 20).
+"""The four sharded matmul cases, written with explicit collectives (Chapter 24).
 
 Every function here takes the *local* blocks that one device holds and returns the local block of
 the result that the chapter's plan (``llmsys.dist.sharding.matmul_plan``) predicts, so that the

@@ -1,4 +1,4 @@
-// Byte-level BPE as dispatcher operators (Chapter 21): the running example of leaving Python.
+// Byte-level BPE as dispatcher operators (Chapter 29): the running example of leaving Python.
 //
 //   llmsys::bpe_encode(bytes, merges)                    one pre-tokenised chunk -> ids
 //   llmsys::bpe_encode_batch(bytes, offsets, merges)     many chunks (flat bytes + offsets) -> ids, offsets

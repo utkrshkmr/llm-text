@@ -1,52 +1,44 @@
-# Brief: additions to Chapter 18 "Distributed Training" + Lab 18 extension (C++ ring all-reduce, PCIe measurements)
+# Brief: additions to Chapter 18 "Pretraining" + Lab 18 extension (fused chunked cross-entropy in CUDA)
 
-Read first: BRIEF_conventions.md (one level up, incl. §6), docs/PLAN.md §1.2 row "18" and docs/TEST_PLAN.md §1,
-the existing chapter book/chapters/ch18_distributed.md (keep ALL content), book/solutions/ch18_solutions.md,
-code/labs/lab18_distributed/*, code/llmsys/dist/*, and from the first wave book/chapters/ch20_shardcalc.md +
-code/llmsys/dist/{sharding.py,sharded_ops.py} (cross-reference; don't duplicate the calculus), code/csrc/README.md
-and code/llmsys/ops/__init__.py (§6 JIT workflow). GPUs: both (CUDA_VISIBLE_DEVICES=0,1) for the PCIe
-measurements; keep each run under a minute.
+Read first: BRIEF_conventions.md (one level up, incl. §6), docs/PLAN.md §1.2 row "14", the existing chapter
+book/chapters/ch18_pretraining.md (keep ALL content), book/solutions/ch18_solutions.md, code/labs/lab18_pretrain/*,
+code/llmsys/train.py, and from the first wave: book/chapters/ch31_cuda_kernels.md (fused softmax kernel and
+reduction patterns), code/csrc/cuda/softmax.cu, code/llmsys/ops/{__init__.py,rmsnorm.py,softmax.py},
+code/csrc/README.md. GPU: CUDA_VISIBLE_DEVICES=1.
 
-Files you own: book/chapters/ch18_distributed.md (add), book/solutions/ch18_solutions.md (add),
-code/labs/lab18_distributed/* (add tasks/tests/bench; keep existing passing + starter_csrc/), new
-code/csrc/cuda/p2p_ring.cu (a ring all-reduce for 2+ GPUs in ONE process written in C++/CUDA with
-cudaMemcpyPeerAsync / direct peer access and a reduce kernel, exposed as `llmsys::ring_allreduce_p2p(Tensor[]
-chunks_per_device)` — the "NCCL ring from C++" lab: the algorithm NCCL runs, implemented by hand; also a
-`p2p_bandwidth(int src, int dst, int bytes)` op that measures copy bandwidth), code/llmsys/ops/p2p_ring.py,
-new code/tools/p2p_bandwidth.py and code/tools/allreduce_bench.py (the environment-check scripts named in
-docs/TEST_PLAN.md §1: PCIe bandwidth per direction, NCCL all-reduce bus bandwidth curve with torchrun, JSON
-output), new module code/llmsys/dist/cluster.py (topology descriptions and per-strategy roofline models),
-docs/edition3_briefs/refs/add_ch18.md.
+Files you own: book/chapters/ch18_pretraining.md (add), book/solutions/ch18_solutions.md (add),
+code/labs/lab18_pretrain/* (add tasks/tests + starter_csrc/), new code/csrc/cuda/xent.cu and
+code/csrc/cpu/xent.cpp (fused chunked cross-entropy forward+backward: computes the loss and dlogits without
+materialising the full fp32 logits/softmax by processing vocabulary chunks; also the variant that fuses the LM
+head matmul chunk-wise — "chunked linear + cross-entropy" — in Python with torch.autograd.Function over
+chunks, and the CUDA kernel for the softmax/CE part), code/llmsys/ops/xent.py, new code/llmsys/objectives.py
+(label smoothing, scheduled sampling schedules, exposure-bias measurement utilities), docs/edition3_briefs/refs/add_ch18.md.
 
-Additions (sections + exercises + lab tasks):
-1. GPU cluster networking: NVLink/NVSwitch domains (bandwidths per generation), PCIe topologies (switch
-   trees, PIX/PXB/PHB/SYS as `nvidia-smi topo -m` reports them), InfiniBand fat-trees (rail-optimised
-   designs), in-network reduction (SHARP), GPUDirect RDMA; figures of a DGX-style node and a PCIe box like
-   this one; this box's topology and measured P2P bandwidth (label measured on 2x A100-40GB PCIe).
-2. Per-strategy GPU rooflines: for DDP, ZeRO-1/2/3, FSDP, TP, PP, EP derive bytes communicated per step per
-   GPU and the compute per step, giving the interconnect bandwidth needed to stay compute-bound as a
-   function of model size and batch; plot (pgfplots, analytic) for A100 PCIe vs A100 NVLink vs H100 NVLink.
-3. Real framework configurations: how the same strategies are expressed in DeepSpeed (ZeRO stages, offload
-   JSON), FSDP2 (fully_shard, mixed precision policy, reshard_after_forward), Megatron-LM (TP/PP/DP flags,
-   sequence parallel), torchtitan (toml configs) — short annotated config listings and a mapping table to the
-   chapter's concepts.
-4. PCIe-specific measurements (new subsection): all-reduce bus bandwidth vs message size on this box (NCCL,
-   2 GPUs), P2P copy bandwidth, overlap fraction achievable in DDP; what changes without NVLink (TP is
-   usually a loss, DDP/ZeRO-1 fine; EP all-to-all cost) — results tables labelled measured.
-5. Lab 18 extension "C++": the hand-written ring all-reduce over peer copies (tests: equals torch sum
-   across devices for 2 GPUs, marked gpu; CPU test of the schedule logic in Python), bandwidth tool runs
-   and writes JSON (test: parses its own output on a fake run), roofline model functions (CPU tests with
-   known numbers), config translation helpers (CPU tests).
+Additions:
+1. Label smoothing: the smoothed target, gradient, effect on calibration and on the logit scale; when LMs use
+   it (rarely) and why; code.
+2. Exposure bias and scheduled sampling: teacher forcing vs free-running, the mismatch, scheduled
+   sampling schedules (linear/exponential/inverse sigmoid), why it is rarely used for LLM pretraining and
+   where the idea returns (RL fine-tuning, [@ch:pg]); a small experiment on the tiny model (illustrative).
+3. The LM head and the loss as a memory problem: logits (B·T·V fp32) dominate activation memory for large
+   vocabularies (napkin math: Qwen3's 151936 vocabulary at B·T = 16k tokens -> 9.7 GB fp32 logits + softmax);
+   chunked cross-entropy (vocabulary chunks or token chunks), fusing the head matmul with the loss, the
+   online logsumexp across chunks, backward without storing probabilities; measured memory/time on the A100
+   (label measured). Systems Lens: why every serious trainer fuses this.
+4. Lab 18 extension "CUDA": fused chunked CE kernel (tests: loss and gradients equal F.cross_entropy on fp32
+   and bf16 logits incl. ignore_index and label smoothing; opcheck; GPU tests marked gpu; CPU path via
+   xent.cpp also tested), chunked head+loss autograd.Function (CPU test: equals unfused; peak memory lower
+   via llmsys.perf.saved_bytes or torch.cuda.max_memory_allocated on GPU), label smoothing and scheduled
+   sampling tasks (CPU tests). Tests skip compiled parts when not built (`llmsys.ops.xent.build()`).
 
 Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); run
-`LAB_IMPL=solution python -m pytest -q labs/lab18_distributed` (LLMSYS_JIT=1) and `python -m pytest -q tests`.
-Report the measured P2P and all-reduce bandwidths in your final message.
+`LAB_IMPL=solution python -m pytest -q labs/lab18_pretrain` (with LLMSYS_JIT=1 and without) and `python -m pytest -q tests`.
 
 
-## Expanded scope (owner, 2026-11; staged plan). Same depth rules: BRIEF_conventions.md §7 (Research frontier section, Reading-the-research box)
-- Pipeline schedules in full: GPipe, 1F1B, interleaved 1F1B (virtual stages), zero-bubble (ZB-H1/ZB-V) and DualPipe,
-  with bubble-fraction formulas and a schedule simulator in code; activation memory per schedule.
-- Sequence/context parallelism in full: Megatron sequence parallelism, Ring Attention (blockwise with online softmax
-  and send/recv overlap, load-balanced causal striping), Ulysses all-to-all, their communication volumes; a ring
-  attention implementation over gloo that matches full attention.
-- Collective algorithms and interconnect detail move to [@ch:memory]: keep a summary here and link.
+## Gap-check additions (owner request, 2026-11-05). Depth rules: BRIEF_conventions.md §7
+- Model merging and checkpoint averaging: linear averaging along a run (LAWA, EMA), model soups of fine-tunes, task
+  arithmetic, TIES-merging and DARE, merging as a cheap alternative to annealing; implement and evaluate on small
+  fine-tunes.
+- Long-context training: progressive sequence-length schedules, RoPE base changes between stages, document masking
+  inside packed sequences (intra-document attention), the data needed for context extension; measured cost per token
+  at each length.

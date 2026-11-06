@@ -1,4 +1,4 @@
-# The nanobind variant of pybind11_bpe (Chapter 21). nanobind's CMake package also ships in its
+# The nanobind variant of pybind11_bpe (Chapter 29). nanobind's CMake package also ships in its
 # wheel; `python -m nanobind --cmake_dir` prints it. nanobind_add_module adds size/speed
 # optimisations (-Os for the binding code, LTO, a shared libnanobind) that pybind11 leaves to you.
 cmake_minimum_required(VERSION 3.18)

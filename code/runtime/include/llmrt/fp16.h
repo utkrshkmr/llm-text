@@ -1,4 +1,4 @@
-// IEEE half-precision conversions (Chapter 55). Block scales are stored as fp16; the conversion
+// IEEE half-precision conversions (Chapter 51). Block scales are stored as fp16; the conversion
 // rounds to nearest-even so that the C++ converter and the numpy converter write identical bytes.
 #pragma once
 #include <cstdint>

@@ -1,4 +1,4 @@
-"""Hybrid attention / state-space decoder (Chapter 12), Jamba-like.
+"""Hybrid attention / state-space decoder (Chapter 14), Jamba-like.
 
 ``pattern`` names the sequence mixer of every layer: ``A`` grouped-query softmax attention (full
 or windowed) from ``common.Attention``, ``M`` a Mamba block from ``llmsys.ssm``, ``L`` gated

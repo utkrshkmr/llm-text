@@ -24,36 +24,40 @@ say so in your final report (exact text to add) instead of editing.
     code/csrc/                       C++ and CUDA sources for the llmsys._C extension (see section 6)
     code/projects/pK_name/           capstone project kits
 
-Chapter numbers (expanded layout, 57 chapters). Lab NN always belongs to chapter NN. Numbers are assigned by the
-site build from book.yml order; files carry them only for sorting.
- I Foundations: 1 Landscape (ch:landscape) · 2 PyTorch and the machine (ch:pytorch) · 3 NEW Numbers on the machine (ch:numerics)
- II Building an LLM: 4 Text/tokenisation (ch:text) · 5 Attention (ch:attention) · 6 GPT-2 (ch:gpt) · 7 Qwen3/MoE intro (ch:modern)
-   · 8 Design space (ch:archdesign) · 9 Beyond softmax attention (ch:attnalt) · 10 Encoders (ch:encoders) · 11 MoE end to end (ch:moe)
-   · 12 Anatomy of open models (ch:anatomy)
- III Pretraining at scale: 13 Optimizers (ch:optim) · 14 Pretraining (ch:pretrain) · 15 Data (ch:data) · 16 Scaling laws (ch:scalinglaws)
-   · 17 Single-GPU perf (ch:perf) · 18 Distributed (ch:distributed) · 19 FSDP (ch:sharding) · 20 Sharded computation (ch:shardcalc)
- IV From Python to the metal: 21 C++ for PyTorch (ch:cpp) · 22 NEW GPU and accelerator architecture (ch:gpuarch)
-   · 23 CUDA kernels (ch:cuda) · 24 Attention/MoE kernels (ch:cudakernels) · 25 NEW Profiling toolchain (ch:profiling)
-   · 26 Compilers, theory to practice (ch:compilers) · 27 NEW Memory, data movement and interconnects (ch:memory)
- V Fine-tuning: 28 Classification (ch:classify) · 29 Instruction tuning and LoRA (ch:instruct)
- VI Inference and serving: 30 Inference (ch:inference) · 31 Serving engines (ch:serving) · 32 NEW KV-cache management (ch:kvcache)
-   · 33 Cheaper inference (ch:efficient) · 34 On-device inference (ch:ondevice) · 35 Retrieval/compound systems (ch:retrieval)
-   · 36 NEW Long-haul data movement and profiling study (ch:movestudy)
- VII Reasoning and post-training: 37 Evaluation (ch:eval) · 38 Inference-time scaling (ch:scaling) · 39 Self-refinement (ch:refine)
-   · 40 NEW The RL setup for LLMs (ch:rlsetup) · 41 Policy gradients (ch:pg) · 42 RLHF/PPO (ch:rlhf) · 43 DPO (ch:dpo)
-   · 44 GRPO (ch:grpo) · 45 Improving GRPO (ch:grpo2) · 46 RL systems (ch:rlsys) · 47 Distillation (ch:distill)
-   · 48 Alignment/multimodal (ch:alignment)
- VIII Capstones: 49 P1 LM from scratch (ch:proj1) · 50 P2 training systems (ch:proj2) · 51 P3 scaling study (ch:proj3)
-   · 52 P4 web data (ch:proj4) · 53 P5 post-training (ch:proj5) · 54 P6 serving engine (ch:proj6) · 55 P7 CPU runtime (ch:proj7)
-   · 56 P8 MoE systems (ch:proj8) · 57 P9 profiler (ch:proj9)
+Chapter numbers (68 chapters; every part ends with its capstone projects). Lab NN always belongs to chapter NN.
+Numbers are assigned by the site build from book.yml order; files carry them only for sorting.
+ I Foundations: 1 Landscape (ch:landscape) · 2 PyTorch and the machine (ch:pytorch) · 3 Numbers on the machine (ch:numerics)
+   · capstones 4 P10 Know your machine (ch:proj10) · 5 P11 Low-precision training study (ch:proj11)
+ II Building an LLM: 6 Text/tokenisation (ch:text) · 7 Attention (ch:attention) · 8 GPT-2 (ch:gpt) · 9 Qwen3/MoE intro (ch:modern)
+   · 10 Design space (ch:archdesign) · 11 Beyond softmax attention (ch:attnalt) · 12 Encoders (ch:encoders) · 13 MoE end to end (ch:moe)
+   · 14 Anatomy of open models (ch:anatomy) · capstones 15 P12 Bring up a new open model (ch:proj12)
+   · 16 P13 Sequence mixers at long context (ch:proj13)
+ III Pretraining at scale: 17 Optimizers (ch:optim) · 18 Pretraining (ch:pretrain) · 19 Data (ch:data) · 20 Scaling laws (ch:scalinglaws)
+   · 21 Single-GPU perf (ch:perf) · 22 Distributed (ch:distributed) · 23 FSDP (ch:sharding) · 24 Sharded computation (ch:shardcalc)
+   · capstones 25 P1 LM from scratch (ch:proj1) · 26 P2 training systems (ch:proj2) · 27 P3 scaling study (ch:proj3) · 28 P4 web data (ch:proj4)
+ IV From Python to the metal: 29 C++ for PyTorch (ch:cpp) · 30 GPU and accelerator architecture (ch:gpuarch) · 31 CUDA kernels (ch:cuda)
+   · 32 Attention/MoE kernels (ch:cudakernels) · 33 Profiling toolchain (ch:profiling) · 34 Compilers (ch:compilers)
+   · 35 Memory, data movement and interconnects (ch:memory) · capstones 36 P8 MoE systems (ch:proj8)
+   · 37 P14 A tiny tensor compiler (ch:proj14) · 38 P15 A kernel library vs vendor libraries (ch:proj15)
+ V Fine-tuning: 39 Classification (ch:classify) · 40 Instruction tuning and LoRA (ch:instruct)
+   · capstones 41 P16 Parameter-efficient fine-tuning study (ch:proj16) · 42 P17 A domain specialist end to end (ch:proj17)
+ VI Inference and serving: 43 Inference (ch:inference) · 44 Serving engines (ch:serving) · 45 KV-cache management (ch:kvcache)
+   · 46 Cheaper inference (ch:efficient) · 47 On-device inference (ch:ondevice) · 48 Retrieval/compound systems (ch:retrieval)
+   · 49 Long-haul data movement study (ch:movestudy) · capstones 50 P6 serving engine (ch:proj6) · 51 P7 CPU runtime (ch:proj7)
+   · 52 P9 profiler (ch:proj9) · 53 P18 Long-context multi-agent serving (ch:proj18)
+ VII Reasoning and post-training: 54 Evaluation (ch:eval) · 55 Inference-time scaling (ch:scaling) · 56 Self-refinement (ch:refine)
+   · 57 The RL setup for LLMs (ch:rlsetup) · 58 Policy gradients (ch:pg) · 59 RLHF/PPO (ch:rlhf) · 60 DPO (ch:dpo) · 61 GRPO (ch:grpo)
+   · 62 Improving GRPO (ch:grpo2) · 63 RL systems (ch:rlsys) · 64 Distillation (ch:distill) · 65 Alignment/multimodal (ch:alignment)
+   · capstones 66 P5 post-training (ch:proj5) · 67 P19 Agentic RL with tools (ch:proj19) · 68 P20 Reasoning distillation under a budget (ch:proj20)
  Appendices: A Triton (app:triton) · B accelerators (app:accel) · C JAX/XLA (app:jax) · D setup (app:setup)
-   · E NEW containerising ML projects (app:containers) · F references (app:refs) · G NEW doing LLM systems research (app:research)
+   · E containerising ML projects (app:containers) · F references (app:refs) · G doing LLM systems research (app:research)
    · H solutions (app:solutions)
+A capstone uses only material from its own part and earlier parts; anything later is an optional extension, marked as such.
 Refer to chapters ONLY with [@ch:label] and to labs ONLY with [@lab:label] (renders "Lab N" and links to the
 chapter's `{#sec:<label>:lab}` section). Never write a chapter or lab number literally, including in captions; inside
 code blocks, where references do not resolve, name the chapter in words ("the serving-engine chapter").
 
-## 2. Markdown house style (study book/chapters/ch07_modern_arch.md and ch17_perf_engineering.md first)
+## 2. Markdown house style (study book/chapters/ch09_modern_arch.md and ch21_perf_engineering.md first)
 
 The book is Markdown only (pandoc dialect) and is published only as a website; there is no LaTeX, PDF or
 ebook. web/README.md is the reference for the conventions below; read it.
@@ -63,7 +67,7 @@ ebook. web/README.md is the reference for the conventions below; read it.
   chapters, sections, figures, tables, listings, equations, exercises and propositions is automatic.
 - Cross-references are citations: `[@ch:modern]`, `[@fig:<ch>:<name>]`, `[@sec:a; @sec:b]`; `[-@eq:x]` gives
   the bare number (write equation references as `([-@eq:x])` or `[@eq:x]` for "Equation (n)"). Never write
-  numbers like "Chapter 13" or "Lab 13" literally; labs are referred to as `[@lab:<label>]`.
+  numbers like "Chapter 17" or "Lab 17" literally; labs are referred to as `[@lab:<label>]`.
 - Boxes are fenced divs; the optional first paragraph is the title:
 
       ::: systemslens
@@ -126,18 +130,18 @@ ebook. web/README.md is the reference for the conventions below; read it.
 
 Solutions file (book/solutions/chNN_solutions.md): starts with `## Chapter NN: Title {.unnumbered}`, then one
 `#### Exercise NN.k.` heading per exercise, in order, with a real worked answer (numbers, derivations, or a
-pointer to a named function in the lab's solution.py). Study book/solutions/ch07_solutions.md.
+pointer to a named function in the lab's solution.py). Study book/solutions/ch09_solutions.md.
 
 ## 3. Code conventions (code/llmsys and labs)
 
 - Pure PyTorch (>= 2.6), Python 3.11, type hints, `from __future__ import annotations`. Module docstring
-  first line names the chapter: """Fused normalisation kernels (Chapter 23)."""  Modules are importable on a
+  first line names the chapter: """Fused normalisation kernels (Chapter 31)."""  Modules are importable on a
   CPU-only machine: guard CUDA/Triton/extension imports in try/except and expose HAS_* flags.
 - Tests run on CPU, offline, deterministic (torch.manual_seed), each lab's test file in well under 60 s.
   No downloads. Tiny model sizes. GPU-only tests: `gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA GPU")`
   and ALSO mark them `@pytest.mark.gpu`. Triton on CPU: set os.environ.setdefault("TRITON_INTERPRET", "1")
   before importing triton when no CUDA (see labs/labA_triton/test_labA.py). Multi-process tests: gloo via
-  llmsys.dist.launch.run_distributed (see labs/lab18_distributed/test_lab18.py).
+  llmsys.dist.launch.run_distributed (see labs/lab22_distributed/test_lab22.py).
 - Lab directory labNN_name/:
   - README.md: "# Lab NN — Title", which chapter, the task list with function names, the test and run commands.
   - starter.py: full skeleton with docstrings; each task body is `raise NotImplementedError("TODO Task k: name")`.

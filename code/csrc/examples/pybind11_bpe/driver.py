@@ -1,4 +1,4 @@
-"""Drive the pybind11 BPE module and check it against llmsys.tokenizer (Chapter 21).
+"""Drive the pybind11 BPE module and check it against llmsys.tokenizer (Chapter 29).
 
     cmake -S . -B build -G Ninja -DPython_EXECUTABLE=$(which python) && cmake --build build
     PYTHONPATH=build python driver.py

@@ -1,4 +1,4 @@
-"""Vision transformers as encoders: patchify, patch embedding, a ViT encoder (Chapter 10).
+"""Vision transformers as encoders: patchify, patch embedding, a ViT encoder (Chapter 12).
 
 An image is turned into a sequence of (H/P)(W/P) patch tokens and then processed by exactly the
 bidirectional ``EncoderBlock`` of ``llmsys.encoder``. Nothing in the transformer knows it is

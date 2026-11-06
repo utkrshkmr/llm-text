@@ -1,6 +1,6 @@
 # Brief: Project 4, a web-scale data pipeline (chapter 45, kit p4_data)
 Read projects_common.md first, then docs/PLAN.md §4 "P4" and §2 (csrc/cpu/minhash.cpp is yours), the existing chapter
-and kit (keep shard_runner, train_on_bin, inspect_samples and their tests), Chapter 15 (book + code,
+and kit (keep shard_runner, train_on_bin, inspect_samples and their tests), Chapter 19 (book + code,
 llmsys.datapipe.*), BRIEF_conventions.md §6 for the C++ op. No GPU needed except a short train_on_bin check
 (CUDA_VISIBLE_DEVICES=1).
 Scope: Common Crawl text -> filtered corpus: WET/WARC reading (fastwarc optional; a pure-Python fallback), language

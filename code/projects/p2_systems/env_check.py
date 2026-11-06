@@ -1,4 +1,4 @@
-"""Print everything you should record before benchmarking (Chapter 50, "Setup").
+"""Print everything you should record before benchmarking (Chapter 26, "Setup").
 
     python projects/p2_systems/env_check.py            # human-readable report
     python projects/p2_systems/env_check.py --json     # machine-readable, attach to every results file

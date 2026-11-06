@@ -1,4 +1,4 @@
-"""RLHF with PPO (Chapter 42): reward models, value models, GAE, the PPO-RLHF trainer.
+"""RLHF with PPO (Chapter 59): reward models, value models, GAE, the PPO-RLHF trainer.
 
     task    -- a synthetic preference world with hidden "human" judgements
     models  -- RewardModel (sequence scalar), ValueModel (per-token scalar)

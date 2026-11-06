@@ -110,7 +110,7 @@ def generate_batch(model, prompts: List[List[int]], max_new_tokens: int, pad_id:
     next-token logits for all rows are read from position -1. Padded keys are masked.
     With RoPE (Qwen3) the constant per-row offset is harmless because attention scores
     depend only on relative positions; with GPT-2's absolute position embeddings the
-    shift slightly changes the outputs (see Chapter 31).
+    shift slightly changes the outputs (see Chapter 44).
     """
     device = next(model.parameters()).device
     B = len(prompts)

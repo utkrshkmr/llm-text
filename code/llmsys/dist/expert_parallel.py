@@ -1,4 +1,4 @@
-"""Expert parallelism: all-to-all dispatch and combine, and the MoE cost models (Chapter 11).
+"""Expert parallelism: all-to-all dispatch and combine, and the MoE cost models (Chapter 13).
 
 With expert parallelism (EP) every rank keeps a disjoint slice of the experts and the
 *router is replicated*. The single-device pipeline permute -> grouped GEMM -> unpermute
@@ -165,7 +165,7 @@ def ep_bytes_per_token(d_model: int, top_k: int, world: int, bytes_per_el: int =
 
 
 def tp_bytes_per_token(d_model: int, world: int, bytes_per_el: int = 2) -> dict:
-    """Megatron-style TP of the MoE FFN (Chapter 18): one all-reduce of the (tokens, d) output in
+    """Megatron-style TP of the MoE FFN (Chapter 22): one all-reduce of the (tokens, d) output in
     the forward pass, one of the input gradient in the backward pass. A ring all-reduce moves
     2(W-1)/W * d * b bytes per rank. Inference pays ``forward``, training ``train``."""
     per_allreduce = 2 * (world - 1) / world * d_model * bytes_per_el

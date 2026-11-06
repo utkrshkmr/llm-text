@@ -2,7 +2,7 @@
 
 Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.1 "Appendix C", book/appendices/appA_triton.md
 and appB_accelerators.md (style of an appendix with a lab: `::: labbox`, the `**Code:**` line),
-book/chapters/ch19_sharding.md and the brief of Chapter 20 (briefs/ch20_shardcalc.md: the sharded-matmul
+book/chapters/ch23_sharding.md and the brief of Chapter 24 (briefs/ch24_shardcalc.md: the sharded-matmul
 calculus whose JAX version you provide; cross-reference [@ch:shardcalc]), code/labs/labA_triton/,
 code/labs/labB_accel/. jax 0.10 (CPU) is installed in the env; use simulated devices:
 `XLA_FLAGS=--xla_force_host_platform_device_count=8` set in os.environ BEFORE importing jax (do it at the top of

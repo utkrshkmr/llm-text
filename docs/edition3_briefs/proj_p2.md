@@ -1,6 +1,6 @@
 # Brief: Project 2, training-systems performance on PCIe GPUs (chapter 43, kit p2_systems)
 Read projects_common.md first, then docs/PLAN.md §4 "P2", the existing chapter and kit (keep acceptance_p2.py working),
-Chapters 17, 18, 19, 20, 24 (book + code), code/llmsys/ops/flash_attn.py and llmsys/ckpt_planner.py if present (else
+Chapters 21, 22, 23, 24, 32 (book + code), code/llmsys/ops/flash_attn.py and llmsys/ckpt_planner.py if present (else
 use the Triton FA2 of llmsys.kernels.flash2_triton and llmsys.perf, and note it), code/llmsys/dist/*. GPUs: both,
 short runs only.
 Scope: maximise MFU for a 350M-1B model on 2 PCIe A100s: FA2 CUDA custom op, fused kernels + torch.compile, DDP with

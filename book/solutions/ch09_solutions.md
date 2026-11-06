@@ -1,103 +1,97 @@
-## Chapter 9: Beyond Softmax Attention {#chapter-9-beyond-softmax-attention .unnumbered}
+## Chapter 7: Modern Architectures: Qwen3 from Scratch {#chapter-7-modern-architectures-qwen3-from-scratch .unnumbered}
 
-#### Exercise 9.1
+#### Exercise 7.1.
 
-With $\boldsymbol{v}$ augmented by a 1, every form accumulates
-$\sum_{j\le i}(\text{decay})\,\phi(\boldsymbol{k}_j)\cdot1=\boldsymbol{z}_i$ in the last column of
-the state, and the last output column is $\phi(\boldsymbol{q}_i)^\top\boldsymbol{z}_i$: exactly the
-denominator of [@eq:attnalt:linear]. With an arbitrary feature map the features can have
-mixed signs and the denominator can cross zero; $\mathrm{elu}+1>0$ keeps it positive, but it can
-still be tiny when $\phi(\boldsymbol{q}_i)$ is small, which amplifies noise. This is why
-implementations add an $\varepsilon$ or replace the division by an output normalisation.
+If $\mu=0$ then
+$\sigma^2=\tfrac1d\sum_i(x_i-\mu)^2=\tfrac1d\sum_i x_i^2=\operatorname{RMS}(\boldsymbol{x})^2$, so
+$(\boldsymbol{x}-\mu)/\sqrt{\sigma^2+\epsilon}=\boldsymbol{x}/\sqrt{\operatorname{RMS}^2+\epsilon}$
+and the outputs coincide. In the explicit implementations the LayerNorm saves $x-\mu$, the
+denominator and the normalized tensor (plus the input), while RMSNorm saves the fp32 input, the
+reciprocal RMS (one value per row) and the normalized tensor; for a $(4,256,1024)$ fp32 input expect
+RMSNorm to save roughly one full $4\cdot256\cdot1024\cdot4$ B $=4.2\,\mathrm{\mega\byte}$ tensor
+less.
 
-#### Exercise 9.2
+#### Exercise 7.2.
 
-For chunk $c$ starting at $s$ with incoming state $\mathbf{S}$ (the state after token $s-1$),
-unrolling [@eq:attnalt:gated] gives, for $i\ge s$,
-$$\mathbf{S}_i=\Big(\prod_{l=s}^{i}\gamma_l\Big)\mathbf{S}+\sum_{j=s}^{i}\Big(\prod_{l=j+1}^{i}\gamma_l\Big)\boldsymbol{k}_j\boldsymbol{v}_j^\top ,$$
-so
-$\boldsymbol{y}_i^\top=\big(\prod_{l=s}^{i}\gamma_l\big)\boldsymbol{q}_i^\top\mathbf{S}+\sum_{j=s}^{i}D_{ij}(\boldsymbol{q}_i^\top\boldsymbol{k}_j)\boldsymbol{v}_j^\top$
-with $D_{ij}=\prod_{l=j+1}^i\gamma_l$. The new state is the same expression at the chunk end $e$. In
-logs, with $c_i=\sum_{l=s}^{i}\log\gamma_l$: the inter-chunk factor is $\exp(c_i)$ (`cum.exp()`),
-the intra-chunk mask is $\exp(c_i-c_j)$ (`decay_mask`), the state's carried factor is $\exp(c_e)$
-(`total.exp()`), and the per-token write weight is $\exp(c_e-c_j)$ (`w`), matching the listing.
+$8d^2=3dh$ gives $h=\tfrac83d$. For $d=4096$ parity is $h\approx10923$; Llama 2-7B's $h=11008$ is
+0.8% larger. $11008=43\times256$: rounding to a multiple of 256 makes every GEMM tile full and lets
+$h$ be split evenly across 2, 4 or 8 tensor-parallel ranks while keeping each shard a multiple of 32
+or 64.
 
-#### Exercise 9.3
+#### Exercise 7.3.
 
-Per token and layer, causal softmax attention does about $2Td$ multiply-adds (scores and outputs,
-averaged over the causal triangle); chunked linear attention does $Cd+2dd_{h}$. At $T=32{,}768$,
-$d=4096$: softmax needs $2.7\times10^8$ multiply-adds and linear attention
-$64\cdot4096+2\cdot4096\cdot128\approx1.3\times10^6$, about $205\times$ fewer. The curves cross near
-$T\approx160$.
+Reorder the coordinates so that dimension $i$ and $i+d_{h}/2$ are adjacent; in that basis RoPE at
+position $m$ is the block-diagonal matrix
+$R_m=\mathrm{diag}(R(m\theta_0),\ldots,R(m\theta_{d_{h}/2-1}))$. Then
+$\langle R_mq,R_nk\rangle=q^\top R_m^\top R_nk=q^\top R_{n-m}k$ block by block, as in the 2-D case;
+permuting both vectors identically does not change a dot product. Shifting $m$ and $n$ by the same
+$c$ leaves $n-m$ unchanged. Left padding by $c$ tokens shifts every real token's position by $c$
+within that row, so all scores between real tokens are unchanged (pad keys are masked out).
 
-#### Exercise 9.4
+#### Exercise 7.4.
 
-Retrieval returns
-$\mathbf{S}^\top\boldsymbol{k}_j=\boldsymbol{v}_j+\sum_{i\neq j}(\boldsymbol{k}_i^\top\boldsymbol{k}_j)\boldsymbol{v}_i$.
-For random unit keys $\boldsymbol{k}_i^\top\boldsymbol{k}_j$ has variance about $1/d$, so with
-unit-variance values the interference has variance $(n-1)/d$ per coordinate and the
-signal-to-interference ratio is about $d/(n-1)$: retrieval degrades once $n$ approaches $d$. With
-the delta rule and sequential writes, each write first removes what the memory currently returns for
-its key, so the most recent writes are retrieved almost exactly, while older entries are perturbed
-by later writes along non-orthogonal directions. The memory behaves like a recency-weighted store
-with "overwrite" semantics instead of an ever-blurrier sum. For orthonormal keys ($n\le d$) it is
-exact.
+With `p = halves_to_interleaved_perm(D)`, the interleaved model's $q$ satisfies
+$q_\text{inter}=q_\text{halves}[p]$ per head. Hence, for each head $h$, the rows `W[h*D:(h+1)*D]` of
+the rotate-half checkpoint equal the interleaved rows reindexed by the inverse permutation:
+`W_halves[h*D + j] = W_inter[h*D + inv(p)[j]]`; apply this to $\mathbf{W}_Q$ and $\mathbf{W}_K$ (and
+to the QK-norm gains if present). $\mathbf{W}_V$ is untouched: RoPE is not applied to values, and
+the attention scores---the only place the permutation acts---are invariant.
 
-#### Exercise 9.5
+#### Exercise 7.5.
 
-For $T=2^{16}$: Hillis--Steele uses 16 rounds and
-$\sum_{r=0}^{15}(T-2^r)=16T-(T-1)\approx9.8\times10^5$ combines; Blelloch uses 32 rounds (up-sweep
-and down-sweep) and $2(T-1)\approx1.3\times10^5$ combines. Even for a single sequence, every round
-of either algorithm exposes thousands of independent operations per channel, which is enough to fill
-132 SMs once the many channels of a real layer are counted, so the work-efficient Blelloch scan (or
-a blocked scan: sequential within a block, scan across blocks) wins. With 256 sequences the
-parallelism across sequences and channels is ample, and simple chunked sequential scans are best.
+Qwen3-8B stores 144  per token in bf16, so 131072 tokens need 18 
+($\approx19.3\,\mathrm{\giga\byte}$); in fp8, 9.7 . Next to 16.4  of bf16 weights a single context
+needs 35.7 : it fits on an 80 GB GPU, and with a 10% reserve two such contexts fit
+($\lfloor(72-16.4)/19.3\rfloor=2$). With 8-bit weights (8.2 ) three fit with a bf16 cache and six
+with an fp8 cache.
 
-#### Exercise 9.6
+#### Exercise 7.6.
 
-Implementations that form $P_i=\prod_{l\le i}\gamma_l$ explicitly and then compute $D_{ij}=P_i/P_j$,
-or that rescale the state by $1/P$, fail: $P$ underflows to 0 and the ratio becomes $0/0$. The
-reference code only ever computes $\exp$ of a difference of cumulative log-gates that is $\le0$
-(`decay_mask` for $j\le i$, `cum.exp()`, `(total - cum).exp()`), so every factor lies in $(0,1]$ and
-underflow merely produces a correct 0.
+Per decode token and layer, attention costs $4THd_{h}$ FLOPs and reads $2TGd_{h}b$ bytes of cache
+($b$ bytes per element), so $I=2H/(Gb)$. In bf16 ($b=2$): $I=H/G=2,4,8$ for 0.6B, 8B, 32B; in fp8
+($b=1$): $4,8,16$. Materializing `repeat_interleave` writes and then reads an $H$-head copy, so the
+bytes per FLOP grow by at least $H/G$ and the effective intensity falls back to about 1 (or below,
+counting the extra write).
 
-#### Exercise 9.7
+#### Exercise 7.7.
 
-Per full-attention layer the cache costs $2\cdot8\cdot128\cdot2=4096$ B per token, or 537 MB for
-131,072 tokens; a window-4096 layer costs 16.8 MB. The budget is $40/32=1.25$ GB per sequence. With
-2 full layers: $1.074+34\times0.0168=1.65$ GB, which is too much. With 1:
-$0.537+35\times0.0168=1.12$ GB, which fits. So at this batch size and length only one of the 36
-layers can be full attention; a recurrent alternative for the other layers instead of windows frees
-about 0.55 GB more per sequence.
+If the cos/sin tables are computed in fp32 and only then cast to bf16, each entry has a relative
+error of about $2^{-9}$, so the angle error stays near $0.004$ radians at every position. If,
+however, the angles $m\theta_i$ themselves are formed in bf16 (e.g. because the model, including its
+buffers, was cast before the tables were built), the fastest frequency has $\theta_0=1$ and the
+angle equals $m$; bf16's spacing at magnitude $m\in[2^e,2^{e+1})$ is $2^{e-7}$, so the rounding
+error ($\le2^{e-8}$) exceeds $0.1$ rad once $e\ge5$, i.e. already at positions of a few dozen
+tokens.
 
-#### Exercise 9.8
+#### Exercise 7.8.
 
-$\boldsymbol{q}^\top(\mathbf{W}^{UK}\boldsymbol{c})=(\mathbf{W}^{UK\top}\boldsymbol{q})^\top\boldsymbol{c}$
-by associativity. During decode with $T$ cached tokens: reconstructing keys costs
-$T\cdot H\cdot128\cdot512$ multiply-adds plus $T\cdot H\cdot128$ for the dots; absorption costs
-$H\cdot512\cdot128$ once plus $T\cdot H\cdot512$ for the dots, about $128\times$ fewer for large
-$T$. In training every token is both a query and a key: keys are materialised once per token
-($T\cdot H\cdot128\cdot512$), the same cost as absorbing queries, and attention over 128-dimensional
-keys is cheaper than over 512-dimensional latents, so training uses the non-absorbed form.
+$\beta'=10^6\cdot4^{128/126}\approx4.09e6$. The frequency ratio for pair $i$ is
+$\theta_i'/\theta_i=s^{-2i/(d_{h}-2)}$, so the wavelength is multiplied by $s^{2i/(d_{h}-2)}$:
+unchanged for $i=0$ (smallest change) and multiplied by exactly $s=4$ for $i=d_{h}/2-1=63$
+(largest).
 
-#### Exercise 9.9
+#### Exercise 7.9.
 
-Two experts, top-1, capacity factor 1.0, two tokens per batch: capacity is one token per expert.
-Alone, token A routes to expert 1 and is processed. Add token B that also prefers expert 1 and comes
-first in the dispatch order (or has a higher router score, if priority routing is used): B takes the
-slot and A is dropped, so its MoE output becomes zero and its final output changes. Testing must
-therefore either use a dropless implementation, fix the batch composition, or compare outputs per
-request only under batch-invariant settings. Bitwise "same input, same output" tests across
-different batches will fail by design.
+Capacity $=\lceil c\,Nk/E\rceil=1.25\cdot4096\cdot2/64=160$ slots per expert. Under uniform random
+routing an expert's load is approximately $\mathcal N(128,\,11.2^2)$. The expected overflow
+$\mathbb{E}[(X-160)^+]=\sigma[\varphi(z)-z(1-\Phi(z))]$ with $z=2.85$ is $\approx0.007$ slots per
+expert, i.e. $\approx0.006\%$ dropped. With $c=1.0$ ($z=0$) it is $\sigma\varphi(0)\approx4.5$ slots
+per expert, about 3.5% dropped; with $c=2.0$ ($z\approx11$) essentially none. Trained routers are
+far from uniform, so real drop rates at $c=1$ are much higher, which is why dropless kernels became
+popular.
 
-#### Exercise 9.10
+#### Exercise 7.10.
 
-Per sequence keep (i) a block table into the paged KV pool for each attention layer and (ii) an
-index into a pool of fixed-size state slots for the recurrent layers. (a) Prefix caching: when a
-prompt prefix is first computed, snapshot the recurrent states exactly at the prefix boundary into a
-prefix cache keyed by the prefix hash, alongside the refcounted KV blocks; a hit copies the state
-snapshot into a fresh slot. (b) Parallel sampling: share KV blocks with copy-on-write and copy the
-state slot 8 times. The copy is cheap and fixed-size, but it is a real copy, because recurrent
-states cannot be shared once the continuations diverge. (c) Preemption: swap both the KV blocks and
-the state slot to host memory. With recompute-based preemption, the recurrent layers must re-run the
-whole prefix, since there are no per-token states to keep.
+Assume the 16384 tokens are spread evenly, 2048 per GPU. Each token sends $k=8$ copies of a $d=2048$
+bf16 vector, 7/8 of which leave the GPU: dispatch is $2048\cdot8\cdot2048\cdot2\cdot\tfrac78
+\approx58.7\,\mathrm{\mega\byte}$ per GPU, and the combine step returns the same, 117  per layer, or
+about 0.26  at 450 . Each GPU's experts process about 16384 token-slots at $6dh=9.4\,\mathrm{M}$
+FLOPs each, 155 , i.e. $\approx0.16\,\mathrm{\milli\second}$ at peak on an H100. Communication is
+comparable to (or larger than) compute, so production systems overlap the all-to-all of one
+micro-batch with the expert GEMMs of another.
+
+#### Exercise 7.11.
+
+Naive loading of the 1.7B model in default fp32 holds the randomly initialized fp32 model (6.9 )
+plus the bf16 state dict (3.4 ); even in bf16 it holds two copies (6.9 ). The meta-device path peaks
+at one copy plus the largest single tensor, the $151936\times2048$ embedding (0.62 ): about 4.1 .

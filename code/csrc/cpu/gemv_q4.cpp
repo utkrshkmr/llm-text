@@ -1,4 +1,4 @@
-// Quantised GEMV on the CPU (Chapter 34): y = x W^T with W stored in 4-bit or 8-bit blocks.
+// Quantised GEMV on the CPU (Chapter 47): y = x W^T with W stored in 4-bit or 8-bit blocks.
 //
 // Three storage formats share one kernel skeleton:
 //   q4_0  blocks of 32 weights, one fp16 scale, codes 0..15 with the fixed offset 8 (w = (q-8)*s);

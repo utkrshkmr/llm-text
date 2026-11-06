@@ -1,86 +1,106 @@
-## Chapter 18: Distributed Training Systems {#chapter-18-distributed-training-systems .unnumbered}
+## Chapter 14: Pretraining on Unlabeled Data {#chapter-14-pretraining-on-unlabeled-data .unnumbered}
 
-#### Exercise 18.1 (Ring all-reduce cost).
+#### Exercise 14.1 (Initial loss).
 
-Each of the $p-1$ reduce-scatter steps and $p-1$ all-gather steps sends one chunk of $n/p$ bytes per
-rank, all links busy in parallel: $2(p-1)(\alpha+\frac np\beta)$, which is [@eq:dist:ring].
-Recursive halving: in round $j=1..\log_2p$ each rank exchanges half of its current working set with
-a partner at distance $p/2^j$, i.e. $n/2,n/4,\dots,n/p$ bytes, summing to $n(p-1)/p$ in $\log_2p$
-messages; recursive doubling for the all-gather mirrors it. Total
-$2\log_2p\,\alpha+2\frac{p-1}{p}n\beta$.
+The loss at one position is $-z_y+\log\sum_u e^{z_u}$. Since $z_y$ has mean zero,
+$\mathbb{E}[\mathcal L]=\mathbb{E}[\log\sum_u e^{z_u}]$. For large $V$ the sum concentrates around
+its mean, $V\,\mathbb{E}[e^{z}]=V e^{\sigma^2/2}$ (log-normal mean), so
+$\mathbb{E}[\mathcal L]\approx\ln V+\sigma^2/2$. For GPT-2 small, the final LayerNorm makes each
+hidden coordinate roughly unit variance and the head weights have standard deviation $0.02$, so each
+logit has variance $\approx768\cdot0.02^2=0.31$. Prediction: $\ln 50{,}257+0.15\approx10.98$ nats.
 
-#### Exercise 18.2 (Two-level all-reduce).
+#### Exercise 14.2 (Perplexity across tokenizers).
 
-Reduce-scatter inside the node: $\frac78\,n/B_1$; all-reduce of the $n/8$ shards across $N$ nodes
-(each GPU uses its own NIC): $2\frac{N-1}{N}\frac n8/B_2$; all-gather inside the node:
-$\frac78\,n/B_1$. For large $N$: $\approx1.75\,n/B_1+0.25\,n/B_2$. A flat ring over $8N$ GPUs is
-limited by its inter-node hops: $\approx2n/B_2$. With $B_1=450$, $B_2=50$ GB/s: $0.0089\,n$ vs
-$0.040\,n$ seconds per GB, about $4.5\times$ faster hierarchically (latency terms aside).
+Model A: total NLL $=3.10\times10^6$ nats over $4.3\times10^6$ bytes $=0.721$ nats/byte $=1.04$
+bits/byte. Model B is byte-level, so tokens $=$ bytes and $0.95$ nats/byte $=1.37$ bits/byte. Model
+A is better, even though its per-token loss is three times larger.
 
-#### Exercise 18.3 (Bucket size).
+#### Exercise 14.3 (Training vs. validation).
 
-Require $\alpha\le0.05\,n\beta$,
-i.e. $n\ge20\alpha/\beta=20\cdot20\,\mathrm{\micro s}\cdot50\,\mathrm{GB/s}
-=20\,\mathrm{MB}$. Very large buckets fill late: the first all-reduce starts only after a large
-fraction of the backward pass, and the final (exposed) bucket is large, so less communication is
-hidden.
+Expect the validation minimum within the first few epochs; dropout delays it slightly and keeps the
+validation loss lower afterwards, because it limits how precisely the model can store the training
+windows. Samples near the validation minimum are novel but story-like; late samples reproduce
+training passages verbatim, especially with greedy decoding.
 
-#### Exercise 18.4 (No-sync accumulation).
+#### Exercise 14.4 (Temperature limits).
 
-Add a flag `self.sync=True` and a context manager that sets it to `False`; in `_on_grad_ready`
-return immediately when `not self.sync` (gradients simply keep accumulating in `.grad`); on the last
-micro-batch the flag is `True` and buckets launch as usual, carrying the accumulated sums. Without
-it, $k$-step accumulation performs $k$ all-reduces; with it, one---so communication time drops by
-$\approx k\times$.
+Let $z_1>z_j$ for $j\neq1$. Then $p_\tau(j)/p_\tau(1)=e^{(z_j-z_1)/\tau}\to0$ as $\tau\to0^+$, so
+$p_\tau\to e_1$. As $\tau\to\infty$, $z_j/\tau\to0$ for all $j$ and $p_\tau(j)\to1/V$. With $k$ tied
+maxima the limit is uniform over the tied set (the ratios between tied tokens are always 1), which
+differs from `argmax`, which deterministically returns the first index.
 
-#### Exercise 18.5 (ZeRO arithmetic).
+#### Exercise 14.5 (Do top-$k$ and temperature commute?).
 
-[@tab:dist:zero] follows from $\Psi=7.5$B, $N_d=64$, $K=12$. For 13B on 16 GPUs: DP 208 GB
-(no); ZeRO-1 $(4+12/16)\cdot13=61.8$ GB (18 GB left, no); ZeRO-2 $(2+14/16)\cdot13=37.4$ GB (42.6 GB
-left, yes). ZeRO-2 is the lowest stage that works.
+Yes for top-$k$: dividing by $\tau>0$ preserves the order of the logits, so the same $k$ tokens
+survive, and the softmax over the survivors is the same either way. No for top-$p$: the kept set
+depends on the cumulative probabilities, which temperature changes. A high temperature flattens the
+distribution, so more tokens are needed to reach mass $p$. Applying temperature first (the common
+convention) lets temperature widen the nucleus.
 
-#### Exercise 18.6 (TP backward).
+#### Exercise 14.6 (Resume correctness).
 
-$\mathbf{Y}_r=\mathbf{X}\mathbf{W}_r^\top$ for every $r$, so $\mathcal L$ depends on $\mathbf{X}$
-through all $\mathbf{Y}_r$ and
-$\partial\mathcal L/\partial\mathbf{X}=\sum_r(\partial\mathcal L/\partial\mathbf{Y}_r)\mathbf{W}_r$.
-Rank $r$ only knows its own term, hence the all-reduce in the backward of $f$. For the row-parallel
-layer $\mathbf{Y}=\sum_r\mathbf{X}_r\mathbf{W}_r^\top$, so $\partial\mathcal L/\partial\mathbf{X}_r=
-(\partial\mathcal L/\partial\mathbf{Y})\mathbf{W}_r$: the output gradient is replicated after $g$'s
-(identity) backward, and each rank needs only its own $\mathbf{W}_r$---no communication.
+Required: model weights; optimizer state (moments, step counts); scheduler/step counter; CPU and
+CUDA RNG states (dropout); Python `random` and NumPy RNGs if used anywhere; the sampler's generator
+state and the position within the epoch (how many batches have been consumed); worker seeding
+(`worker_init_fn`/base seed) so augmentation inside workers replays; and the `GradScaler` state
+(current scale and growth tracker). Listing 13.5 omits the data-loader position and sampler RNG, the
+Python/NumPy RNGs and the `GradScaler`; autocast itself holds no state.
 
-#### Exercise 18.7 (Attention under TP).
+#### Exercise 14.7 (Checkpoint interval).
 
-Give each rank $H/t$ query heads with their Q/K/V columns (column-parallel) and the matching
-$H/t\cdot d_{h}$ input columns of the output projection (row-parallel); softmax and the causal mask
-act per head, so they stay local. Constraint: $t$ divides $H$. With GQA, each rank also needs the KV
-heads its query heads use; if $t$ exceeds the number of KV groups $G$, KV heads must be replicated
-on $t/G$ ranks (and their gradients all-reduced among those replicas), which wastes memory and
-compute and caps useful TP at $G$ for KV projections.
+Job MTBF $M=50{,}000\,\text{h}/2048=24.4\,\text{h}\approx87{,}900\,\text{s}$. Synchronous
+($\delta=90$ s): $T=\sqrt{2\cdot90\cdot87{,}900}\approx3{,}980$ s ($\approx66$ min). Expected
+overhead $\approx\delta/T+T/(2M)\approx2.3\%+2.3\%=4.5\%$. Asynchronous ($\delta=6$ s):
+$T\approx1{,}030$ s ($\approx17$ min), overhead $\approx0.6\%+0.6\%=1.2\%$ (restart time excluded in
+both).
 
-#### Exercise 18.8 (Bubbles).
+#### Exercise 14.8 (Accumulation is not always exact).
 
-For $p=8$ both schedules give $7/(m+7)$: $46.7\%$, $30.4\%$, $17.9\%$, $9.9\%$ for $m=8,16,32,64$.
-Peak in-flight micro-batches: GPipe $m$ on every stage; 1F1B $\min(8-s,m)$, i.e. at most 8. With
-$v=2$ interleaving the bubble becomes $3.5/(m+3.5)$ (e.g. $9.9\%$ at $m=32$).
+\(1\) Padding: if each micro-batch's loss is the mean over its *non-padding* tokens and the
+micro-batches contain different numbers of real tokens, averaging the $k$ means weights tokens
+unequally; the exact large-batch loss divides the summed NLL by the total token count. Fix: sum
+token losses and divide by the global token count. (2) Layers with batch statistics (BatchNorm) see
+smaller batches. Also: the last, partial micro-batch of an epoch, and dropout masks that differ
+because the RNG is consumed in a different pattern.
 
-#### Exercise 18.9 (Causal load balance).
+#### Exercise 14.9 (Activation memory, GPT-2 xl).
 
-With contiguous chunks, device $i$'s queries attend to key blocks $0..i$: $i+1$ block pairs (the
-diagonal one half-masked), so device $c-1$ does $c$ times the work of device 0. Split the sequence
-into $2c$ chunks and give device $i$ chunks $i$ and $2c-1-i$: it computes $(i+1)+(2c-i)=2c+1$ block
-pairs, the same for every device.
+Model states: $16\times1.558\text{B}=24.9$ GB; budget $0.9\cdot80-24.9=47.1$ GB. (a) No
+FlashAttention: per sample $48\cdot1024\cdot1600\cdot(34+5\cdot25\cdot1024/1600)=8.97$ GB
+$\Rightarrow b=5$. (b) FlashAttention: $48\cdot1024\cdot1600\cdot34=2.67$ GB $\Rightarrow b=17$. (c)
+Full checkpointing: block inputs $2\cdot1024\cdot1600\cdot48=0.157$ GB plus one layer's full
+activations during recomputation ($0.187$ GB) $\approx0.344$ GB per sample $\Rightarrow b\approx136$
+(in practice temporary buffers and the logits tensor limit this much earlier).
 
-#### Exercise 18.10 (Plan a 405B run).
+#### Exercise 14.10 (Measure MFU).
 
-One defensible plan (close to the layout Meta reported for Llama 3 405B at 8k context): TP $=8$ (one
-node), PP $=16$ ($\approx8$ layers per stage, first/last stage lighter), CP $=1$, DP $=128$ with
-ZeRO-1. Parameters per GPU $405\text{B}/128=3.2$B; ZeRO-1 states $(4+12/128)\cdot3.2\approx13$ GB.
-Global batch 16M tokens $=2{,}048$ sequences, i.e. 16 micro-batches per pipeline. Plain 1F1B would
-idle $15/31\approx48\%$, so use interleaving with $v=4$ virtual stages: $3.75/(16+3.75)\approx19\%$.
-Activations with FlashAttention and TP+SP: $8192\cdot16{,}384\cdot34/8\approx0.57$ GB per layer per
-micro-batch; stage 0 can hold up to 16 micro-batches $\times$ 8 layers, so selective or full
-recomputation is needed (full recompute: $\approx4$ GB). DP traffic: each rank reduces a 6.4 GB bf16
-gradient shard over 128 replicas, $\approx0.26$ s at 50 GB/s, well hidden behind $\approx6$ s of
-compute per step at 40% MFU. The remaining inefficiency is the pipeline bubble, which is why larger
-batches or zero-bubble schedules are attractive at this scale.
+Typical ordering: fp32 lowest (no tensor cores; TF32 if enabled helps); bf16 autocast a large jump;
+SDPA a further gain (no $T\times T$ materialization, fewer memory-bound kernels); compile another
+10--30% from fusing LayerNorm/GELU/residual chains and reducing launches; activation checkpointing
+reduces MFU by roughly a quarter (recompute is not counted in MFU) but allows larger micro-batches,
+which can partly win it back.
+
+#### Exercise 14.11 (Chinchilla planning).
+
+$C=1000\cdot86{,}400\cdot0.4\cdot989\times10^{12}=3.4\times10^{22}$ FLOPs, so
+$N_{\text{opt}}=\sqrt{C/120}\approx16.9$B and $D_{\text{opt}}\approx338$B tokens. Inference over a
+year: $1.2\times10^{13}$ tokens $\times2N$. Option A ($N=16.9$B): $4.1\times10^{23}$ inference
+FLOPs, total $\approx4.4\times10^{23}$. Option B ($N=8.4$B, $D=1.35$T): training
+$6\cdot8.4\text{B}\cdot1.35\text{T}=6.8\times10^{22}$ (2$\times$ the budget), inference
+$2.0\times10^{23}$, total $\approx2.7\times10^{23}$. Option B is about 40% cheaper in total; with
+the Chinchilla loss fit its loss is only slightly higher than option A's, which is the argument for
+over-training models that will be served heavily.
+
+#### Exercise 14.12 (Chunked loss).
+
+Implement an `autograd.Function` whose forward takes the final hidden states $\mathbf{H}$ `(N, d)`,
+the head weight $\mathbf{W}$ `(V, d)` and targets. Loop over chunks of rows: compute
+$\mathbf{Z}_c=\mathbf{H}_c\mathbf{W}^\top$ in fp32, its log-sum-exp, the chunk loss, and immediately
+the gradient
+$\partial\mathcal L/\partial\mathbf{Z}_c=(\operatorname{softmax}(\mathbf{Z}_c)-\text{onehot})/N$;
+accumulate
+$\partial\mathcal L/\partial\mathbf{H}_c=\partial\mathcal L/\partial\mathbf{Z}_c\,\mathbf{W}$ and
+$\partial\mathcal L/\partial\mathbf{W}\mathrel{+}=(\partial\mathcal L/\partial\mathbf{Z}_c)^\top\mathbf{H}_c$.
+Save only these gradients for backward (which just scales them by the incoming gradient). Peak
+memory drops from $N\cdot V$ to $\text{chunk}\cdot V$ floats; verify with `torch.autograd.gradcheck`
+on small sizes in float64.

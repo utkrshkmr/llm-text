@@ -1,4 +1,4 @@
-"""Encoder-decoder transformers and cross-attention (Chapter 10).
+"""Encoder-decoder transformers and cross-attention (Chapter 12).
 
 A decoder block in an encoder-decoder model has two attentions. Self-attention over the target
 uses the growing ``llmsys.kvcache.KVCache`` of the decoder-only models. Cross-attention projects

@@ -1,4 +1,4 @@
-// RMSNorm backward on the CPU (Chapter 23): the operator that makes the compiled RMSNorm trainable.
+// RMSNorm backward on the CPU (Chapter 31): the operator that makes the compiled RMSNorm trainable.
 //
 //   rmsnorm_backward(Tensor grad_out, Tensor x, Tensor weight, float eps) -> (Tensor dx, Tensor dweight)
 //

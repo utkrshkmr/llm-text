@@ -1,4 +1,4 @@
-"""``HNSWIndex``: the serving-side wrapper over the compiled HNSW (Chapter 35).
+"""``HNSWIndex``: the serving-side wrapper over the compiled HNSW (Chapter 48).
 
 The compiled class is ``torch.classes.llmsys.HNSW`` from ``csrc/cpu/hnsw.cpp``. A custom class is not
 an operator, so the ``ensure`` helper of ``llmsys.ops`` (which looks in ``torch.ops``) cannot see it;

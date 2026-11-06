@@ -1,4 +1,4 @@
-// A fixed pool of std::threads with a fork-join `parallel_for` (Chapter 55).
+// A fixed pool of std::threads with a fork-join `parallel_for` (Chapter 51).
 //
 // Decode issues a few hundred tiny parallel regions per token (every projection, the attention
 // heads, the feed-forward), so the cost that matters is the fork/join latency, not throughput.

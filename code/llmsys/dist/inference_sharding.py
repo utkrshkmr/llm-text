@@ -1,4 +1,4 @@
-"""Sharding for inference: cost models and a sharded decode step (Chapter 20).
+"""Sharding for inference: cost models and a sharded decode step (Chapter 24).
 
 Training shards to fit and to use more FLOP/s; inference shards for two different reasons that
 pull in different directions. *Prefill* is a compute-bound pass over thousands of tokens, and

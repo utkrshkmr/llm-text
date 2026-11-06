@@ -3,80 +3,91 @@ subtitle: A Systems-First Textbook
 front:
   - frontmatter/preface.md
   - frontmatter/roadmap.md
+# Every part ends with its capstone projects (proj_*): research-grade work that uses only material from that
+# part and the parts before it.
 parts:
   - title: Foundations
     chapters:
       - chapters/ch01_landscape.md
       - chapters/ch02_pytorch_hardware.md
       - chapters/ch03_numerics.md
+      - chapters/ch04_proj_machine.md
+      - chapters/ch05_proj_lowprec.md
   - title: Building a Large Language Model
     chapters:
-      - chapters/ch04_text_data.md
-      - chapters/ch05_attention.md
-      - chapters/ch06_gpt.md
-      - chapters/ch07_modern_arch.md
-      - chapters/ch08_arch_design.md
-      - chapters/ch09_attention_alternatives.md
-      - chapters/ch10_encoders.md
-      - chapters/ch11_moe.md
-      - chapters/ch12_anatomy.md
+      - chapters/ch06_text_data.md
+      - chapters/ch07_attention.md
+      - chapters/ch08_gpt.md
+      - chapters/ch09_modern_arch.md
+      - chapters/ch10_arch_design.md
+      - chapters/ch11_attention_alternatives.md
+      - chapters/ch12_encoders.md
+      - chapters/ch13_moe.md
+      - chapters/ch14_anatomy.md
+      - chapters/ch15_proj_bringup.md
+      - chapters/ch16_proj_mixers.md
   - title: Pretraining at Scale
     chapters:
-      - chapters/ch13_optimizers.md
-      - chapters/ch14_pretraining.md
-      - chapters/ch15_pretraining_data.md
-      - chapters/ch16_scaling_laws.md
-      - chapters/ch17_perf_engineering.md
-      - chapters/ch18_distributed.md
-      - chapters/ch19_sharding.md
-      - chapters/ch20_shardcalc.md
+      - chapters/ch17_optimizers.md
+      - chapters/ch18_pretraining.md
+      - chapters/ch19_pretraining_data.md
+      - chapters/ch20_scaling_laws.md
+      - chapters/ch21_perf_engineering.md
+      - chapters/ch22_distributed.md
+      - chapters/ch23_sharding.md
+      - chapters/ch24_shardcalc.md
+      - chapters/ch25_proj_basics.md
+      - chapters/ch26_proj_systems.md
+      - chapters/ch27_proj_scaling.md
+      - chapters/ch28_proj_data.md
   - title: From Python to the Metal
     chapters:
-      - chapters/ch21_cpp_pytorch.md
-      - chapters/ch22_gpu_architecture.md
-      - chapters/ch23_cuda_kernels.md
-      - chapters/ch24_attn_moe_kernels.md
-      - chapters/ch25_profiling.md
-      - chapters/ch26_compilers.md
-      - chapters/ch27_memory_interconnects.md
+      - chapters/ch29_cpp_pytorch.md
+      - chapters/ch30_gpu_architecture.md
+      - chapters/ch31_cuda_kernels.md
+      - chapters/ch32_attn_moe_kernels.md
+      - chapters/ch33_profiling.md
+      - chapters/ch34_compilers.md
+      - chapters/ch35_memory_interconnects.md
+      - chapters/ch36_proj_moe.md
+      - chapters/ch37_proj_compiler.md
+      - chapters/ch38_proj_kernels.md
   - title: Fine-Tuning
     chapters:
-      - chapters/ch28_classification.md
-      - chapters/ch29_instruction_lora.md
+      - chapters/ch39_classification.md
+      - chapters/ch40_instruction_lora.md
+      - chapters/ch41_proj_peft.md
+      - chapters/ch42_proj_specialist.md
   - title: Inference and Serving
     chapters:
-      - chapters/ch30_inference.md
-      - chapters/ch31_serving_engine.md
-      - chapters/ch32_kv_cache.md
-      - chapters/ch33_efficient_inference.md
-      - chapters/ch34_ondevice.md
-      - chapters/ch35_retrieval.md
-      - chapters/ch36_data_movement_study.md
+      - chapters/ch43_inference.md
+      - chapters/ch44_serving_engine.md
+      - chapters/ch45_kv_cache.md
+      - chapters/ch46_efficient_inference.md
+      - chapters/ch47_ondevice.md
+      - chapters/ch48_retrieval.md
+      - chapters/ch49_data_movement_study.md
+      - chapters/ch50_proj_serving.md
+      - chapters/ch51_proj_cpu_runtime.md
+      - chapters/ch52_proj_profiler.md
+      - chapters/ch53_proj_longctx.md
   - title: Reasoning and Post-Training
     chapters:
-      - chapters/ch37_evaluation.md
-      - chapters/ch38_inference_scaling.md
-      - chapters/ch39_self_refinement.md
-      - chapters/ch40_rl_setup.md
-      - chapters/ch41_policy_gradients.md
-      - chapters/ch42_rlhf_ppo.md
-      - chapters/ch43_dpo.md
-      - chapters/ch44_grpo.md
-      - chapters/ch45_improving_grpo.md
-      - chapters/ch46_rl_systems.md
-      - chapters/ch47_distillation.md
-      - chapters/ch48_alignment_multimodal.md
-  - title: Capstone Projects
-    chapters:
-      - chapters/ch49_proj_basics.md
-      - chapters/ch50_proj_systems.md
-      - chapters/ch51_proj_scaling.md
-      - chapters/ch52_proj_data.md
-      - chapters/ch53_proj_alignment.md
-      - chapters/ch54_proj_serving.md
-      - chapters/ch55_proj_cpu_runtime.md
-      - chapters/ch56_proj_moe.md
-      - chapters/ch57_proj_profiler.md
+      - chapters/ch54_evaluation.md
+      - chapters/ch55_inference_scaling.md
+      - chapters/ch56_self_refinement.md
+      - chapters/ch57_rl_setup.md
+      - chapters/ch58_policy_gradients.md
+      - chapters/ch59_rlhf_ppo.md
+      - chapters/ch60_dpo.md
+      - chapters/ch61_grpo.md
+      - chapters/ch62_improving_grpo.md
+      - chapters/ch63_rl_systems.md
+      - chapters/ch64_distillation.md
+      - chapters/ch65_alignment_multimodal.md
+      - chapters/ch66_proj_alignment.md
+      - chapters/ch67_proj_agentic.md
+      - chapters/ch68_proj_distill.md
 appendices:
   - appendices/appA_triton.md
   - appendices/appB_accelerators.md

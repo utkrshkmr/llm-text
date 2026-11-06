@@ -1,4 +1,4 @@
-// The LLMQ model file and its block formats (Chapter 55).
+// The LLMQ model file and its block formats (Chapter 51).
 //
 //   q8_0  block of 32 weights = fp16 scale d, then 32 int8 codes:            w = q * d        (34 B)
 //   q4_0  block of 32 weights = fp16 scale d, then 16 bytes of nibbles:      w = (q - 8) * d  (18 B)

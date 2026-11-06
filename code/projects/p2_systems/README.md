@@ -1,6 +1,6 @@
 # Project 2 — Make it fast, make it fit, make it scale
 
-The project guide is Chapter 50 of the book. This directory holds the setup:
+The project guide is Chapter 26 of the book. This directory holds the setup:
 
 | File | Purpose |
 |---|---|

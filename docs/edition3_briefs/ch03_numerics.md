@@ -2,10 +2,10 @@
 
 Read first: BRIEF_conventions.md (all, esp. §7 depth rules), docs/COVERAGE.md rows for ch:numerics,
 book/chapters/ch02_pytorch_hardware.md (what the reader knows: tensors, dtypes, roofline basics),
-book/chapters/ch14_pretraining.md §"Mixed precision" and ch17_perf_engineering.md §"Mixed precision in practice"
+book/chapters/ch18_pretraining.md §"Mixed precision" and ch21_perf_engineering.md §"Mixed precision in practice"
 (those later chapters will be trimmed to point back here: make THIS chapter the complete treatment of formats and
-numerics; they keep the training-loop recipes), ch33_efficient_inference.md §"Quantization fundamentals" (quant
-maths lives here; ch33 keeps calibration algorithms GPTQ/AWQ/SmoothQuant and kernels), code/llmsys/quant.py.
+numerics; they keep the training-loop recipes), ch46_efficient_inference.md §"Quantization fundamentals" (quant
+maths lives here; ch46 keeps calibration algorithms GPTQ/AWQ/SmoothQuant and kernels), code/llmsys/quant.py.
 GPU for measurements: CUDA_VISIBLE_DEVICES=0.
 
 Files you own (create):

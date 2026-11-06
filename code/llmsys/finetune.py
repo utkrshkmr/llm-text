@@ -1,4 +1,4 @@
-"""Fine-tuning utilities (Chapters 28 and 29).
+"""Fine-tuning utilities (Chapters 39 and 40).
 
 Classification fine-tuning
     balance_by_undersampling, split_indices, pad_batch, ClassificationDataset,

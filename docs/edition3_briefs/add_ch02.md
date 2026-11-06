@@ -1,7 +1,7 @@
 # Brief: additions to Chapter 2 "PyTorch and the Machine Underneath" + Lab 2 extension
 
 Read first: BRIEF_conventions.md (all, esp. §7), the existing chapter book/chapters/ch02_pytorch_hardware.md (keep all
-content), code/labs/lab02_pytorch_roofline/*, the new briefs ch03_numerics.md and ch22_gpu_architecture.md (they take
+content), code/labs/lab02_pytorch_roofline/*, the new briefs ch03_numerics.md and ch30_gpu_architecture.md (they take
 the deep treatment; this chapter stays the introduction but must be exact).
 
 Additions:

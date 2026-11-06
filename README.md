@@ -46,7 +46,7 @@ Requires Python 3.9+ and pandoc >= 3. `web/README.md` describes the Markdown con
 cd code
 pip install -r requirements.txt
 python -m pytest tests                                    # core package + operator backends
-LAB_IMPL=starter  python -m pytest labs/lab05_attention   # your work (TODOs fail until done)
+LAB_IMPL=starter  python -m pytest labs/lab07_attention   # your work (TODOs fail until done)
 LAB_IMPL=solution ./run_all_tests.sh                      # every lab and project, each in its own process
 ```
 Tests run on a CPU with tiny models and need no network access. Each lab's `run.py` or `bench.py`
@@ -63,7 +63,7 @@ extension is absent.
 cd code
 export CUDA_HOME=/usr/local/cuda TORCH_CUDA_ARCH_LIST="8.0"   # toolkit major version must match torch.version.cuda
 pip install -e . --no-build-isolation -v                       # CPU and CUDA operators
-LLMSYS_JIT=1 LAB_IMPL=solution python -m pytest labs/lab23_cuda   # or: build one lab's operators just in time
+LLMSYS_JIT=1 LAB_IMPL=solution python -m pytest labs/lab31_cuda   # or: build one lab's operators just in time
 ```
 See `code/csrc/README.md` for the operator layout and Appendix D for toolchain details.
 

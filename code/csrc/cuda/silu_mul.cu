@@ -1,8 +1,8 @@
-// Fused SwiGLU activation on the GPU (Chapter 21): the CUDA kernels behind llmsys::silu_mul.
+// Fused SwiGLU activation on the GPU (Chapter 29): the CUDA kernels behind llmsys::silu_mul.
 //
 // The autograd registration in cpu/silu_mul.cpp re-dispatches to these kernels for CUDA tensors;
 // nothing autograd-related appears here. Grid-stride elementwise kernels, fp32 maths, output in
-// the input dtype (fp64 stays fp64); vectorised loads are the subject of Chapter 23.
+// the input dtype (fp64 stays fp64); vectorised loads are the subject of Chapter 31.
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAGuard.h>

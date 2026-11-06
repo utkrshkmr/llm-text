@@ -1,4 +1,4 @@
-"""llmsys.retrieval: vector search, RAG pipelines and agent loops as systems (Chapter 35).
+"""llmsys.retrieval: vector search, RAG pipelines and agent loops as systems (Chapter 48).
 
     ann      brute force, IVF, product quantisation, a Python HNSW reference, cost models
     index    ``HNSWIndex``: the compiled HNSW (``torch.classes.llmsys.HNSW``) with a Python fallback

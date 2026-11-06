@@ -3,7 +3,7 @@
 Byte counts per parameter (mixed precision, AdamW, no sharding):
     trained model : 2 (bf16 weights) + 2 (bf16 grads) + 4 (fp32 master) + 8 (Adam m, v) = 16
     frozen model  : 2 (bf16 weights)
-These are the numbers behind the placement tables in Chapter 42.
+These are the numbers behind the placement tables in Chapter 59.
 """
 from __future__ import annotations
 

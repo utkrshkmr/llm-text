@@ -1,4 +1,4 @@
-"""Tool use and agent loops as systems (Chapter 35).
+"""Tool use and agent loops as systems (Chapter 48).
 
 An agent turn is: generate -> parse a tool call out of the text -> validate it against the tool's
 JSON schema -> execute it (here: Python in the sandbox of :mod:`llmsys.rlsys.sandbox`) -> append the

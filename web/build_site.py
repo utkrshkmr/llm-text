@@ -170,7 +170,7 @@ def number_page(body: str, it: dict, labels: dict):
 
 
 def renumber_source(md: str, num) -> str:
-    """Numbers written into headings follow the book order: '## Lab 7:' takes the chapter's number."""
+    """Numbers written into headings follow the book order: '## Lab 9:' takes the chapter's number."""
     if num is None:
         return md
     return re.sub(r"^## Lab [0-9A-Z]+:", "## Lab %s:" % num, md, flags=re.M)

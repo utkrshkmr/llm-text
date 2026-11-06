@@ -1,4 +1,4 @@
-// HNSW approximate nearest-neighbour index as a TorchScript custom class (Chapter 35).
+// HNSW approximate nearest-neighbour index as a TorchScript custom class (Chapter 48).
 //
 // Hierarchical Navigable Small World graphs (Malkov & Yashunin, 2018): every vector is a node with
 // a random level drawn from a geometric distribution; a node with level l appears in layers 0..l.

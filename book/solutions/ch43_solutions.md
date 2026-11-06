@@ -1,92 +1,91 @@
-## Chapter 43: Direct Preference Optimization and Its Family {#chapter-43-direct-preference-optimization-and-its-family .unnumbered}
+## Chapter 30: Inference Fundamentals {#chapter-30-inference-fundamentals .unnumbered}
 
-#### Exercise 43.1
+#### Exercise 30.1 (Unknown words).
 
-$\pi^*\propto\pi_{\text{ref}}e^{r/\beta}$. For $\beta=0.1$:
-$\pi^*\approx(0.0000,\,0.0001,\,0.9999)$; for $\beta=1$: $(0.179,\,0.292,\,0.529)$; for $\beta=10$:
-$(0.465,\,0.308,\,0.227)$. The maximum objective equals $\beta\log Z$ (from the proof of
-[@prop:dpo:gibbs]): $1.839$, $1.027$, $0.731$ respectively. Sampling random $\pi$ from a
-Dirichlet and evaluating $\mathbb{E}_\pi[r]-\beta\operatorname{KL}(\pi\|\pi_{\text{ref}})$ never
-exceeds these values, and the gap equals $\beta\operatorname{KL}(\pi\|\pi^*)$.
+Byte-level BPE starts from the 256 single-byte tokens, so every UTF-8 string is representable;
+unseen words simply decompose into more, shorter pieces, down to single bytes in the worst case.
+Invented English-like words typically cost 2--4 tokens instead of 1; scripts that are rare in the
+training data (e.g. many Indic or African scripts) can cost close to one token per UTF-8 byte,
+i.e. 2--3 tokens per character. Since KV memory is per token, the cost per character is
+(tokens/char)$\times$`<!-- -->`{=html}112  for Qwen3-0.6B: a script tokenized at 2 tokens/character
+uses roughly $8\times$ more KV memory and decode steps per character than English at
+$\approx$`<!-- -->`{=html}0.25 tokens/character.
 
-#### Exercise 43.2
+#### Exercise 30.2 (Accelerators).
 
-BT depends on $r(x,y_w)-r(x,y_l)$, in which $f(x)$ cancels. In ([-@eq:dpo:gibbs]),
-$e^{(r+f)/\beta}=e^{f/\beta}e^{r/\beta}$ and $e^{f(x)/\beta}$ is absorbed by $Z(x)$, so $\pi^*$ is
-unchanged. Rewards, and therefore DPO's implicit rewards, are identifiable only up to a per-prompt
-offset: compare them only between responses to the same prompt.
+Expect the KV-cached, compiled decoder to gain most: on a GPU its per-step work is tiny, so
+eliminating Python and launch overhead (and enabling CUDA graphs with `reduce-overhead`) exposes the
+bandwidth bound. The cache-less decoder is dominated by large GEMMs that the GPU accelerates well in
+absolute terms, but it remains orders of magnitude slower for long outputs because its work is
+quadratic. On Apple MPS, compilation support is less mature, so gains from `torch.compile` are
+smaller.
 
-#### Exercise 43.3
+#### Exercise 30.3 (Counting redundant work).
 
-With $h=\hat r_w-\hat r_l$, $\partial(-\log\sigma(h))/\partial h=-\sigma(-h)$ and
-$\nabla_\theta h=\beta(\nabla\log\pi_\theta(y_w\mid x)-\nabla\log\pi_\theta(y_l\mid x))$ (the
-reference terms are constants), giving ([-@eq:dpo:grad]). At initialisation $h=0$ and
-$\sigma(0)=1/2$, so
-$\nabla\mathcal{L}=-\frac{\beta}{2}\nabla(\log\pi_\theta(y_w)-\log\pi_\theta(y_l))$. This is why the
-first steps of DPO resemble "SFT on winners minus SFT on losers" at half strength.
+Dense token-positions: without cache $\sum_{t=0}^{n-1}(P+t)=nP+n(n-1)/2$; with cache $P+n$ (one
+prefill plus one single-token call per generated token; the last call is avoidable, giving $P+n-1$).
+Query--key products per head and layer: without cache each step runs full causal attention over
+$L=P+t$ tokens, $\sum_{L=P}^{P+n-1}L(L+1)/2$; with cache, $P(P+1)/2$ for prefill plus
+$\sum_{t=1}^{n-1}(P+t)$. For $P=1000,n=100$: dense ratio $104{,}950/1{,}100\approx95$, attention
+ratio $\approx91$. For $P=100,n=1000$: dense ratio $599{,}500/1{,}100=545$, attention ratio
+$\approx367$. Long *outputs* benefit most, because the waste grows with $n^2$.
 
-#### Exercise 43.4
+#### Exercise 30.4 (KV budget planning).
 
-Setting the derivative $-(1-\varepsilon)\sigma(-h)+\varepsilon\sigma(h)$ to zero gives
-$\sigma(h^*)=1-\varepsilon$, i.e. $h^*=\log\frac{1-\varepsilon}{\varepsilon}$ ($\log 9\approx2.20$
-for $\varepsilon=0.1$). The minimum is the binary entropy
-$-(1-\varepsilon)\log(1-\varepsilon)-\varepsilon\log\varepsilon$. As $\varepsilon\to0$,
-$h^*\to\infty$: plain DPO has no finite optimum on a single, always-agreeing pair.
+\(a\) $(80-16.4-4)\,\text{GB}/147456\,\mathrm{B}\approx404{,}000$ tokens. (b)
+$404{,}000/8{,}192\approx49$ conversations. (c) An fp8 KV cache halves bytes per token: $\approx99$
+conversations. Int4 weights shrink the model to $\approx4.1\,\mathrm{GB}$, leaving 71.9 :
+$\approx59$ conversations with a bf16 cache and $\approx119$ with fp8. Both techniques compound; for
+long contexts the KV format matters more than the weight format.
 
-#### Exercise 43.5
+#### Exercise 30.5 (Critical batch size).
 
-With uniform $\pi_{\text{ref}}$ the reference terms cancel and the log-ratio margin is
-$h_0=\log\sigma(z)-\log\sigma(-z)=z$. DPO: $-\log\sigma(\beta z)$ decreases monotonically in $z$, so
-the infimum is at $z\to\infty$, i.e. $\pi(y_w)\to1$ (deterministic). IPO: $(z-\frac{1}{2\tau})^2$ is
-minimised at $z^*=1/(2\tau)$, so $\pi(y_w)=\sigma(1/(2\tau))<1$. The squared loss keeps the policy
-at a finite distance from $\pi_{\text{ref}}$, controlled by $\tau$.
+Weight GEMMs have intensity $2B/b$; setting it equal to the ridge $\Pi/\beta$ gives
+$B^*=(\Pi/\beta)\,b/2$. bf16 ($b=2$): A100 $\approx153$, H100 $\approx295$, RTX 4090 $\approx164$.
+Int8 weights ($b=1$): $\approx77$, $\approx148$, $\approx82$. Fewer bytes per weight means each byte
+read feeds more FLOPs, so the step leaves the memory-bound regime at a smaller batch; equivalently,
+at batch 1 weight-only quantization makes decoding up to $2\times$ (int8) or $4\times$ (int4)
+faster, which is why it is so popular for local inference.
 
-#### Exercise 43.6
+#### Exercise 30.6 (The LM head at prefill).
 
-Mean log-probs give $h=\beta\big[\frac{1}{|y_w|}\Delta_w-\frac{1}{|y_l|}\Delta_l\big]$ with
-$\Delta=\log\pi_\theta-\log\pi_{\text{ref}}$, i.e. DPO with $\beta_y=\beta/|y|$. A winner twice as
-long as the loser has its log-ratio down-weighted by $2\times$ relative to the loser's. Compared
-with standard DPO, where a long winner accumulates log-ratio over more tokens, this removes the
-incentive to lengthen responses. Relative to summed DPO, it favours shorter outputs.
+Full logits: $2\cdot1024\cdot151{,}936\cdot4096\approx1.27\,\mathrm{TFLOP}$ and a
+$4096\times151{,}936$ bf16 tensor of 1.24  (twice that if upcast to fp32). Last row only: 311  and
+0.3 . Implementation: in `forward`, apply `final_norm` and `out_head` to `x[:, -1:]` when
+`last_only`. The memory saving often determines the maximum prefill chunk size on small GPUs.
 
-#### Exercise 43.7
+#### Exercise 30.7 (Cache copies).
 
-With mismatched truncation, the prompt or response tokens differ between cache and policy, so at
-step 0 the per-pair log-ratios are not zero: the loss deviates from $\ln 2$, the margins are
-non-zero, and reward accuracy is not $1/2$. Dropout in the policy pass adds zero-mean noise to the
-log-ratios, so the loss is slightly *above* $\ln 2$ on average and accuracy is random around $1/2$.
-Assertions after the first micro-batch:
+At decode step $t$, `torch.cat` reads and writes the existing $(P+t)$-token cache of every layer:
+$\approx2\kappa(P+t)$ bytes, so the total over $n$ steps is $\approx2\kappa(nP+n^2/2)$, quadratic in
+$n$. `StaticKVCache` writes only the new token: $\kappa$ bytes per step. The copy traffic exceeds
+the 1.19  weight traffic of a step when $2\kappa(P+t)>1.19\,\text{GB}$, i.e. at about $5{,}200$
+tokens ($10{,}400$ counting only one direction).
 
-``` python
-assert abs(loss0 - math.log(2)) < 1e-3, "policy != reference at step 0"
-assert margins0.abs().max() < 1e-4,      "cache/template/truncation mismatch"
-assert not policy.training or no_dropout(policy), "disable dropout for DPO"
-```
+#### Exercise 30.8 (Recompilation hunting).
 
-#### Exercise 43.8
+With the growing cache the key length changes every step. Dynamo specializes on the first shape,
+recompiles on the second, and then (automatic dynamic shapes) marks the dimension dynamic, so one
+sees one or two recompiles followed by a dynamic-shape graph with less aggressive optimization. The
+static cache avoids reallocation, but our implementation returns a growing view, so the attention
+shapes still vary; only a variant that attends over the full buffer with a length mask, with the
+write position held in a device tensor, gives truly static shapes and zero recompiles after warm-up
+(and is CUDA-graphable).
 
-Pack $[x, y_w, y_l]$ into one row with positions $0..T_p{-}1$, $T_p..T_p{+}T_w{-}1$,
-$T_p..T_p{+}T_l{-}1$, and a mask in which $y_l$ attends to $x$ and causally to itself but not to
-$y_w$. The log-probs then match the pair batch to float precision. With toy responses of about 6
-tokens, tokens per pair are $2T_p+12$ (naive) vs $T_p+12$ (shared): 20 vs 16 for $T_p=4$, 44 vs 28
-for $T_p=16$, 140 vs 76 for $T_p=64$. The saving approaches 50% as prompts dominate.
+#### Exercise 30.9 (Little's law).
 
-#### Exercise 43.9
+E2E latency $=0.3+299\times0.025\approx7.8\,\mathrm{s}$. With at most 128 concurrent requests,
+$\lambda_{\max}=128/7.8\approx16.5$ requests/s. Arriving 20% faster (19.8 requests/s) grows the
+queue at $\approx3.3$ requests/s, i.e. about 2,000 queued requests after ten minutes; the last
+arrivals wait $\approx2000/16.5\approx120\,\mathrm{s}$ before their prefill even starts. Overload is
+not graceful: queueing delay grows linearly with time until load drops or requests are shed.
 
-$2\cdot4\cdot2048\cdot151936\cdot4\approx9.96$ GB of fp32 logits. (a) Slicing to the response half
-before the LM head halves it, to $\approx4.98$ GB. (b) Chunking over 8 sequence chunks keeps only
-one chunk's logits alive: $\approx1.24$ GB peak (plus the saved per-token log-probs, which are
-negligible). (c) bf16 logits halve storage, to $\approx4.98$ GB unchunked; compute `logsumexp` in
-fp32 per chunk to avoid precision loss.
+#### Exercise 30.10 (Determinism).
 
-#### Exercise 43.10
-
-Per round: $8\times10^4$ responses of $\sim$`<!-- -->`{=html}512 tokens is $\approx4\times10^7$
-generated tokens. Decode for a 7B model is memory-bound ([@ch:inference]); with large batches
-an H100 sustains on the order of $10^4$ tokens/s, so 8 GPUs take
-$\approx40\text{M}/(8\cdot1.5\times10^4)\approx5$--6 minutes. Scoring with a 1B reward model costs
-$\approx2\cdot10^9\cdot768\cdot8\times10^4\approx1.2\times10^{17}$ FLOPs, under a minute. Training
-on $2\times10^4$ pairs of $2(256+512)=1536$ tokens at $8N$ FLOPs/token (policy plus reference) is
-$\approx1.7\times10^{18}$ FLOPs, about 9 minutes at 40% MFU on 8 H100s. The phases are batched and
-of similar length, so time-share all 8 GPUs (generate, score, train, sync weights once per round)
-rather than splitting them: a disaggregated layout would leave half the GPUs idle in every phase.
+Typically the outputs eventually diverge. GEMM libraries choose different kernels and split-K
+strategies for different batch sizes, and attention kernels use different tilings; floating-point
+addition is not associative, so logits differ in the last bits, and as soon as two candidates are
+nearly tied, the argmax flips and the continuations diverge. For evaluation, fix batch size and
+kernels (or use batch-invariant kernels) when comparing runs. For RL, the same effect makes the
+sampling engine's log-probabilities differ from the trainer's, which motivates importance-sampling
+corrections ([@ch:rlsys]).

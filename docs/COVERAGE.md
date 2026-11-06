@@ -36,7 +36,7 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | CUDA graphs | ch:inference (ch:perf, ch:profiling) | 6a, 4a | existing (brief) |
 | CUTLASS / CuTe | ch:cuda | 4a | planned |
 | CUPTI and profiling tools from other vendors | ch:profiling | 4a | planned |
-| Data-transfer benchmarking for a long-haul multi-stream reasoning setup, with detailed compute profiling | ch:movestudy (P9) | 6b, 9c | planned |
+| Data-transfer benchmarking for a long-haul multi-stream reasoning setup, with detailed compute profiling | ch:movestudy (P9) | 6b, 6P | planned |
 | Prefix caching; KV eviction | ch:kvcache (ch:serving) | 6a | existing (brief) |
 
 ## Detailed topic list: 1. Core CS and hardware systems
@@ -132,7 +132,7 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | Expert placement, replicating hot experts (EPLB), online rebalancing, EP vs TP for MoE serving | ch:serving (ch:moe) | 6a | planned |
 | Expert offload and caching (GPU/CPU split, prefetch) | ch:serving (ch:memory) | 6a | planned |
 | 2-GPU MoE serving experiment with experts split across the A100s | ch:serving | 6a | planned |
-| P8 acceptance: ranks load only their own experts | P8 | 9c | planned |
+| P8 acceptance: ranks load only their own experts | P8 | 4P | planned |
 
 ## Weight streaming (owner request, 2026-11-05)
 
@@ -141,3 +141,42 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | Layer-wise CPU→GPU weight prefetch overlapped with compute: pinned buffers, copy streams, events, double buffering | ch:memory | 4b | planned |
 | Models larger than GPU memory: feasibility crossover, FlexGen, ZeRO-Inference, Accelerate offload, llama.cpp -ngl, PowerInfer | ch:efficient (ch:memory, ch:serving) | 6a | planned |
 | Lab: layer-streaming runner, equality test, crossover batch size measured on the A100 | ch:efficient | 6a | planned |
+
+## Capstones at the end of every part (owner request, 2026-11-05)
+
+| Part | Capstones | Stage | Status |
+|---|---|---|---|
+| I Foundations | P10 Know your machine; P11 Low-precision training study | 1P | planned |
+| II Building an LLM | P12 Bring up a new open model; P13 Sequence mixers at long context | 2P | planned |
+| III Pretraining at scale | P1 LM from scratch; P2 Training systems; P3 Scaling study; P4 Web data | 3P | existing chapters, partial kits |
+| IV From Python to the metal | P8 MoE systems; P14 Tiny tensor compiler; P15 Kernel library | 4P | planned |
+| V Fine-tuning | P16 PEFT study; P17 Domain specialist | 5P | planned |
+| VI Inference and serving | P6 Serving engine; P7 CPU runtime; P9 Profiler; P18 Long-context multi-agent serving | 6P | planned |
+| VII Reasoning and post-training | P5 Post-training; P19 Agentic RL with tools; P20 Reasoning distillation | 7P | existing P5 chapter; rest planned |
+
+## Gap check against popular concepts and 2026 research (owner request, 2026-11-05)
+
+| Topic | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| RoPE and extensions: PI, NTK-aware, YaRN, ALiBi, NoPE, partial RoPE | ch:modern, ch:archdesign | 2 | existing |
+| SentencePiece/Unigram, WordPiece; tokenizer-free and byte-level models (ByT5, MegaByte, BLT) | ch:text | 2 | planned |
+| Adaptive compute: mixture-of-depths, early exit/LayerSkip, looped/recurrent depth, latent reasoning | ch:archdesign (ch:scaling) | 2, 7b | planned |
+| RWKV, xLSTM, Griffin/RecurrentGemma, Hyena, Titans/TTT; 2026 hybrids (Qwen3-Next, Kimi Linear, Nemotron-H) | ch:attnalt (ch:anatomy) | 2 | planned |
+| 8-bit Adam, GaLore, schedule-free optimisation, EMA/Polyak averaging | ch:optim | 3 | planned |
+| Model merging: checkpoint averaging, soups, task arithmetic, TIES, DARE | ch:pretrain (ch:instruct) | 3 | planned |
+| Long-context training: progressive length, document masking | ch:pretrain | 3 | planned |
+| Data-mixture optimisation (DoReMi, RegMix); synthetic data; model collapse; public corpora recipes | ch:data | 3 | planned |
+| Scaling variants: inference-aware/overtraining, data-constrained, precision, MoE | ch:scalinglaws | 3 | planned |
+| Reliability: SDC, stragglers, async/distributed checkpointing, elastic training, heterogeneous clusters | ch:distributed | 3 | planned |
+| Kernel DSLs: FlexAttention, ThunderKittens, TileLang, CuTe DSL, Pallas/Mosaic | ch:cudakernels (ch:compilers) | 4b | planned |
+| Batch invariance and deterministic inference; energy, joules/token, TCO | ch:inference (ch:movestudy) | 6a | planned |
+| Serving ecosystem: Dynamo/NIXL, llm-d, LMDeploy, Triton server | ch:serving | 6a | planned |
+| Hierarchical context caching (Strata) | ch:kvcache | 6a | planned |
+| BitNet b1.58, QuIP#/AQLM, HQQ, Marlin, 2:4 sparsity with SparseGPT/Wanda, Minitron | ch:efficient | 6a | planned |
+| FAISS/IVF/PQ, hybrid BM25+dense, GraphRAG, long context vs RAG; MCP, computer use, agent memory | ch:retrieval | 6b | planned |
+| Code/math/long-context benchmarks, eval harnesses, pass@k, saturation, contamination | ch:eval | 7b | planned |
+| Faster RL rollouts: speculative rollouts, partial rollouts, heterogeneous RL | ch:rlsys | 7a | planned |
+| Safety in practice: jailbreaks, prompt injection, guardrails, watermarking, unlearning | ch:alignment | 7b | planned |
+| Interpretability for practitioners: probing, logit lens, induction heads, patching, SAEs, steering | ch:alignment | 7b | planned |
+| Speech and audio models | ch:alignment | 7b | planned |
+| Diffusion language models | out of scope (PLAN.md) | — | owner decision |

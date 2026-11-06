@@ -1,119 +1,96 @@
-## Chapter 44: Reinforcement Learning with Verifiable Rewards: GRPO {#chapter-44-reinforcement-learning-with-verifiable-rewards-grpo .unnumbered}
+## Chapter 31: Batching and Serving Engines {#chapter-31-batching-and-serving-engines .unnumbered}
 
-#### Exercise 44.1
+#### Exercise 31.1 (Per-row positions).
 
-With partial credit the rewards of [@fig:grpo:step] become $(1,1,0.5,0)$: mean $0.625$,
-unbiased std $0.479$, advantages $(+0.783,+0.783,-0.261,-1.305)$. The unboxed "7" is still pushed
-down, but by a third of its previous weight, and the wrong boxed "8" is now pushed down hardest. The
-loss is $-\frac14[0.783(-2.269)+0.783(-3.059)-0.261(-1.299)-1.305(-3.400)]=-0.151$. Partial credit
-makes *correctness* the dominant signal early (correct-but-unboxed answers are no longer lumped with
-wrong ones), which helps when the model is rarely correct. It weakens the pressure to adopt the
-format, since an unboxed correct answer is only mildly penalised, so format adoption is slower. A
-common compromise is to anneal the partial credit to 0.
+Compute $p_b$ = number of left pads of row $b$ and pass
+`position_ids = clamp(arange(T) - p_b, min=0)` for the prefill; during decoding, each row's next
+position is its previous position plus one. Replace `self.pos_emb(arange(start, start+T))` by
+`self.pos_emb(position_ids)`. With the fix, greedy outputs match single-sequence generation exactly
+(up to floating-point reordering). Without it, rows with padding see shifted learned position
+vectors; the logits change noticeably and greedy continuations often diverge after a few tokens.
 
-#### Exercise 44.2
+#### Exercise 31.2 (Dropping finished rows).
 
-With identical rewards, $r-\bar r=0$ for every rollout, the advantages are exactly 0, the loss is
-$-0\cdot\sum\log\pi=0$ and autograd propagates zeros to every parameter (the optimiser step is still
-taken; AdamW's weight decay is the only change, and it is zero in our loop). This is desirable
-because the group carries no information about *which* behaviour is better. For $p\sim U[0,1]$,
-$\mathbb{E}[p^G+(1-p)^G]=\frac2{G+1}$: 40% wasted for $G=4$ and 11.8% for $G=16$.
+After each step compute `keep = ~done`; index the next-token tensor, the validity mask and, for
+every layer, the cache tensors `k[layer] = k[layer][keep]` (same for `v`). Keep a map from active
+row to original request. With geometric output lengths (mean 200, cap 2,000) a static batch runs to
+near the cap while the mean row needs 200 steps, so dropping rows saves most decode work; the saving
+in wall time is smaller on a GPU at small batch sizes (where step time barely depends on $B$) and
+larger on CPUs or at large $B$.
 
-#### Exercise 44.3
+#### Exercise 31.3 (Padding efficiency).
 
-With $k$ correct rollouts, $\bar r=p=k/G$ and $\sum_i(r_i-\bar r)^2=k(1-p)^2+(G-k)p^2=Gp(1-p)$, so
-$s^2=\frac{G}{G-1}p(1-p)$, giving $A^+=(1-p)/s$ and $A^-=-p/s$. Then
-$\sum_iA_i=[k(1-p)-(G-k)p]/s=G(p-p)/s=0$, and $\frac1{G-1}\sum_iA_i^2=\frac{Gp(1-p)}{(G-1)s^2}=1$
-exactly (ignoring $\epsilon$). As $p\to1/G$ with $G$ large,
-$A^+=(1-p)/s\approx\sqrt{(1-p)/p}\approx\sqrt{G}$: a single success in a large group receives an
-advantage of order $\sqrt G$.
+For i.i.d. $U(a,b)$ lengths, $\mathbb{E}[\max]=a+(b-a)\,B/(B+1)$, so
+$\eta=\frac{(a+b)/2}{a+(b-a)B/(B+1)}$. With $a=50,b=1500$: $\eta=1$ for $B=1$, $0.58$ for $B=8$,
+$0.52$ for $B=64$. Continuous batching has no idle decode slots ($\eta\approx1$); its only waste is
+the scheduler's inability to fill the batch when few requests are present.
 
-#### Exercise 44.4
+#### Exercise 31.4 (Block size).
 
-$b_i$ is a function of the other samples only, which are independent of $y_i$ given $x$, so
-$\mathbb{E}[b_i\nabla\log\pi(y_i)]=\mathbb{E}[b_i]\,\mathbb{E}[\nabla\log\pi(y_i)]=0$ and the
-estimator is unbiased. Algebra: $r_i-b_i=r_i-\frac{G\bar r-r_i}{G-1}=\frac{G}{G-1}(r_i-\bar r)$. So
-GRPO's mean-centred advantage equals the RLOO advantage times $\frac{G-1}{G}$, a constant that the
-learning rate absorbs. The "bias" of including $r_i$ in its own baseline is therefore only a
-rescaling. Dividing by the std adds a genuine per-prompt reweighting.
+Throughput is nearly flat for block sizes 4--64 in the simulator (which charges no indirection
+cost), while internal fragmentation grows roughly as $\text{bs}/2$ tokens per sequence; at 256 the
+waste becomes visible for short requests and reduces the effective batch under memory pressure. On a
+GPU, block size 1 turns every key read into a separate gather through the block table: poor memory
+coalescing, a table as large as the sequence, and many more address computations; blocks of 16--32
+tokens let a warp stream contiguous chunks of K/V and keep tables small.
 
-#### Exercise 44.5
+#### Exercise 31.5 (Copy-on-write fork).
 
-\(a\) Summed loss: every token of rollout $i$ has gradient weight $A_i/G$, independent of length.
-(b) Per-sequence mean: each token has weight $A_i/(G|y_i|)$. For correct answers of lengths 20 and
-2000, the per-token push ratio is $1:1$ under (a) and $100:1$ under (b). Under (a) the total push on
-a sequence's log-likelihood is the same for both, but because $\log\pi$ of the long sequence is a
-sum of 100 times more terms, raising it is "harder". In practice the summed objective most
-efficiently increases the probability of the *short* correct answer. Under (b), long sequences are
-barely pushed per token, so long *wrong* answers are barely penalised. That is the length bias DAPO
-and Dr. GRPO criticise ([@ch:grpo2]).
+After the parent's prefill, each child copies the parent's block table and increments every block's
+reference count. Before a child appends to its last block, check its reference count; if $>1$,
+allocate a fresh block, copy the existing slots (K and V of all layers), decrement the shared block
+and replace the table entry. Give each child its own `torch.Generator`. For $n=16$ children of a
+$P$-token prompt, memory drops from $16(P+L)$ to $P+16L$ tokens (plus at most 16 partially copied
+blocks), and prefill compute drops by $16\times$.
 
-#### Exercise 44.6
+#### Exercise 31.6 (Swap vs. recompute).
 
-PyTorch raises *"Inference tensors cannot be saved for backward"* when the sampled ids (created
-inside inference mode) are fed through `nn.Embedding` in the differentiable pass. The embedding
-saves its index input for backward. Fixes: sample under `no_grad`; or keep inference mode for
-sampling but `.clone()` the ids outside it (cloning outside inference mode produces a normal
-tensor).
+Swap: $2\kappa/\beta=2\times147456\,\mathrm{B}/50\,\mathrm{GB/s}\approx5.9\,\mathrm{\micro s}$ per
+token. Recompute: $2N/\Pi\approx16.6\,\mathrm{\micro s}$ per token at peak plus attention, which
+grows with sequence length. For Qwen3-8B, swapping is cheaper at every length (ignoring fixed
+per-transfer latency), and the gap widens with length. With MHA (32 KV heads,
+$\kappa=576\,\mathrm{KiB}$) swapping costs 23.6 /token; recompute is cheaper until its attention
+term, $4LHd\cdot S/2$ FLOPs per token on average, adds the missing 7 , at $S\approx23{,}600$ tokens.
+An fp8 KV cache halves swap cost (2.9 /token) and makes swapping even more attractive. Real
+decisions also weigh PCIe contention, host memory capacity and prefix-cache hits that make
+recomputation partly free.
 
-#### Exercise 44.7
+#### Exercise 31.7 (Budget trade-off).
 
-$16\times4096\times151936\times4\,\text{B}\approx39.8$ GB for the log-softmax, and the same again
-for its gradient, so $\approx80$ GB. Chunked version:
+Small budgets keep every step short (low TPOT) but admit prefill slowly: TTFT explodes and
+throughput drops because steps are dominated by fixed overheads. Large budgets finish prefills
+quickly but make steps long, so TPOT rises; very large budgets can also hurt TTFT because a few long
+prefills monopolize steps. The curve is a Pareto front with a knee near the budget at which a step
+becomes compute-bound (a few hundred to a few thousand tokens on an H100 for an 8B model). With our
+default trace (`bench.py --exp budget`), budgets of 256--1024 give the best TTFT/TPOT compromise.
 
-``` python
-def sequence_logprob_chunked(model, ids, prompt_len, C=512):
-    h = model_hidden_states(model, ids)          # (T, d) before the LM head
-    total = 0.0
-    for s in range(prompt_len - 1, ids.numel() - 1, C):
-        logits = model.out_head(model.final_norm(h[s:s+C])).float()
-        lp = torch.log_softmax(logits, -1)
-        total = total + lp.gather(1, ids[s+1:s+1+C, None]).sum()
-    return total
-```
+#### Exercise 31.8 (Multi-turn chat).
 
-Peak memory scales with $C\cdot|\mathcal V|$ instead of $T\cdot|\mathcal V|$. With activation
-checkpointing per chunk the backward is bounded the same way. (Exposing hidden states requires a
-small model hook; `llmsys.rl.logprobs.token_logprobs(chunk=...)` chunks after the LM head, which
-bounds the float32 copy but not the bf16 logits.)
+At turn $k$ the prompt is the whole conversation, whose length grows linearly in $k$, while only the
+newest user message (and the previous reply, if it was not cached during generation) is new. Without
+caching the cumulative prefill over $K$ turns is quadratic in $K$; with caching it is linear, and
+the hit rate approaches $1-(\text{new tokens})/(\text{conversation length})\to1$. Caching generated
+blocks too (our engine publishes every full block, including output blocks) makes even the previous
+reply a hit.
 
-#### Exercise 44.8
+#### Exercise 31.9 (Disaggregation sizing).
 
-Sequentially, $t_{\text{sample}}$ grows linearly in both $G$ and $T$ (one forward per token per
-rollout); on CPU the toy gives $a$ of the order of milliseconds per token. $t_{\text{train}}$ is
-also linear in $G\cdot T$ but with a smaller constant per token, since a prefill-style forward
-processes all tokens in parallel. With `sample_rollouts` the $G$ rollouts share each decode step, so
-$t_{\text{sample}}\approx a'\,T$ with $a'$ almost independent of $G$ until the batch stops being
-memory-bound. This is the decode roofline: weights are streamed once per step regardless of batch
-size.
+Prefill of 3,000 tokens:
+$3000\times15.1\,\mathrm{GFLOP}/(0.6\times989\,\mathrm{TFLOP/s})\approx76\,\mathrm{ms}$, so one
+prefill GPU serves $\approx13$ requests/s. Decode: the KV pool of $\approx52\,\mathrm{GB}$ holds
+$\approx111$ sequences of $\approx3{,}150$ tokens; a step then reads
+$16.4+111\times3150\times147\,\mathrm{KB}\approx68\,\mathrm{GB}$: $\approx20\,\mathrm{ms}$, under
+the 30  target. Each decode GPU completes $111/(300\times0.020)\approx18$ requests/s, so roughly 1.4
+prefill GPUs per decode GPU. For the reasoning workload (prompt 300, output 8,000), prefill takes
+$\approx8\,\mathrm{ms}$ (130 requests/s per GPU) while a decode GPU holds only $\approx42$ sequences
+and completes $\approx0.4$ requests/s: about 300 decode GPUs per prefill GPU. Disaggregation buys
+little there; the system is entirely decode-bound and KV memory is the lever.
 
-#### Exercise 44.9
+#### Exercise 31.10 (Fairness).
 
-Qwen3-4B: 36 layers, 8 KV heads, head dim 128, so the KV cache is
-$2\cdot36\cdot8\cdot128\cdot2=147$ KB per token. (i) $256$ sequences $\times4352$ tokens
-$\approx1.11\times10^6$ tokens, about 164 GB. (ii) Weights $\approx8.0$ GB in bf16. Each of the 4096
-decode steps streams the weights plus a cache that grows from 9.7 GB to 164 GB, about 95 GB on
-average, so roughly $4096\times95\,\text{GB}/3.35\,\text{TB/s}\approx116$ s. (iii) Training FLOPs
-$6\cdot4.0\times10^9\cdot1.11\times10^6\approx2.7\times10^{16}$, about 68 s at 40% MFU. The cache
-does not fit next to the weights on one 80 GB GPU ($\approx72$ GB free). It needs
-$\lceil164/72\rceil=3$ waves (or 3+ GPUs), which roughly preserves total sampling time, since each
-wave streams the weights 4096 times.
-
-#### Exercise 44.10
-
-Examples: (1) "`\boxed{7}` ... actually `\boxed{8}`" (first-box readers accept the wrong final
-answer); (2) "`\boxed{17}`" with truth 7 (substring match accepts); (3) "`\boxed{7.0}`" (no
-normalisation rejects a correct answer); (4) "`\boxed{\frac{14}{2}}`" (rejected without fraction
-handling); (5) "`\boxed{1, 2, 3, 4, 5, 6, 7}`" (substring or "contains" accepts). Harden by taking
-the last box, comparing normalised values exactly, and rejecting boxed lists when a scalar is
-expected. RL is most likely to discover the cheap ones (many boxes, lists), because they increase
-reward on *every* prompt without solving anything.
-
-#### Exercise 44.11
-
-With 20 held-out facts, GRPO transfers the *format* almost perfectly (boxing is prompt-independent
-behaviour). Correctness on held-out facts improves little, because a 76k-parameter model trained on
-80 facts has not learned an addition algorithm, and RL with an outcome reward cannot teach a fact it
-never produces. This mirrors the MATH/MATH-500 split: RLVR mostly improves how existing knowledge is
-deployed (format, persistence, self-checking), and held-out evaluation is what separates that from
-memorising the training prompts.
+Keep `served[tenant]` (input tokens weighted plus output tokens) and, when admitting, pick the
+waiting request whose tenant has the smallest counter (lifting a newly active tenant's counter to
+the minimum of the active ones, so idle time is not banked). In the simulator, a heavy tenant at
+$10\times$ the light tenant's rate then fills only the capacity the light tenant leaves unused; the
+light tenant's TTFT stays close to its value in isolation instead of growing with the heavy tenant's
+queue.

@@ -1,4 +1,4 @@
-"""Project 3 (reference solution): report tables from the sweep records (Chapter 51).
+"""Project 3 (reference solution): report tables from the sweep records (Chapter 27).
 
     python p3_report.py --runs out/full/runs.jsonl [--heldout out/full/heldout.jsonl] --out out/full/report.md
 

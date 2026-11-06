@@ -1,4 +1,4 @@
-"""Shared building blocks for the model zoo of Chapter 12.
+"""Shared building blocks for the model zoo of Chapter 14.
 
 Every family in ``llmsys.models`` is assembled from the same few parts: a position-explicit
 attention module that works with growing, rolling and hybrid caches, a RoPE table builder that

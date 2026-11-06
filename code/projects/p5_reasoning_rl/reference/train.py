@@ -439,7 +439,7 @@ def run_ppo(args, task, policy, ledger, log_f, place):
 # =========================================================================== DPO
 def build_pairs(args, task, policy, ledger):
     """Preference pairs: loaded from ``--pref-data`` or built from the SFT policy's own samples
-    (best vs. worst of k by verifier score), the on-policy construction of Chapter 43."""
+    (best vs. worst of k by verifier score), the on-policy construction of Chapter 60."""
     if args.pref_data:
         from llmsys.prefopt import load_preference_jsonl, tokenize_pair
         recs = load_preference_jsonl(args.pref_data)
