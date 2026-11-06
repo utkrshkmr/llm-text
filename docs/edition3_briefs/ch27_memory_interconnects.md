@@ -60,3 +60,14 @@ vs size, NCCL all-reduce/all-gather/all-to-all vs our implementations, overlap f
 - 3FS (Fire-Flyer File System): disaggregated SSD storage over RDMA with chain replication (CRAQ), used for data
   loading, checkpointing and KV-cache offload; throughput numbers and what they imply for training I/O.
 - DeepEP from the interconnect side (asymmetric NVLink/RDMA bandwidth domains); detail in [@ch:moe].
+
+
+## Weight streaming: hiding CPU→GPU layer transfers behind compute (owner request, 2026-11-05). Depth rules §7
+- The mechanism, in full: pinned host staging buffers (and why pageable memory serialises through a bounce buffer
+  and breaks overlap), a dedicated copy stream, CUDA events ordering copy(i+1) before compute(i+1) and compute(i)
+  before buffer reuse, double/triple-buffered GPU layer slots, copy-engine concurrency (H2D and D2H in parallel),
+  stream priorities, interaction with the caching allocator (record_stream), and NUMA placement of the host buffers.
+- Code: code/llmsys/movement/streaming.py (LayerStreamer: wraps a model's blocks, keeps weights in pinned host
+  memory, prefetches block i+1 on a copy stream while block i runs; configurable number of GPU slots; optional
+  resident layers; works for forward-only inference). Measured timeline on the A100 with the ch25 tooling showing
+  the overlap; tests on CPU check scheduling order with a fake stream/clock and numerical equality.

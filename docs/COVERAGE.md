@@ -133,3 +133,11 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | Expert offload and caching (GPU/CPU split, prefetch) | ch:serving (ch:memory) | 6a | planned |
 | 2-GPU MoE serving experiment with experts split across the A100s | ch:serving | 6a | planned |
 | P8 acceptance: ranks load only their own experts | P8 | 9c | planned |
+
+## Weight streaming (owner request, 2026-11-05)
+
+| Topic | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| Layer-wise CPU→GPU weight prefetch overlapped with compute: pinned buffers, copy streams, events, double buffering | ch:memory | 4b | planned |
+| Models larger than GPU memory: feasibility crossover, FlexGen, ZeRO-Inference, Accelerate offload, llama.cpp -ngl, PowerInfer | ch:efficient (ch:memory, ch:serving) | 6a | planned |
+| Lab: layer-streaming runner, equality test, crossover batch size measured on the A100 | ch:efficient | 6a | planned |

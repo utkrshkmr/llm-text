@@ -53,3 +53,17 @@ touched gemv_q4.py) and `python -m pytest -q tests`.
   self-speculation (Medusa heads, EAGLE/EAGLE-2/3 feature-level drafting, MTP heads), token trees and tree-attention
   verification masks (implemented: build the tree mask and verify a tree in one forward pass, test against
   sequential verification), lookahead/n-gram drafting, speculative decoding under batching (when it stops paying).
+
+
+## Weight streaming: hiding CPU→GPU layer transfers behind compute (owner request, 2026-11-05). Depth rules §7
+- Running models larger than GPU memory: layer-wise weight streaming from host memory (mechanism in [@ch:memory]).
+  The feasibility condition: transfer time per layer (layer bytes / PCIe bandwidth, ~25 GB/s here) vs compute per
+  layer (≈ 2·params·tokens / achieved FLOP/s) → overlap succeeds for large-batch prefill and throughput serving,
+  fails for batch-1 decode (PCIe-bound: tokens/s ≈ PCIe BW / model bytes); compute the crossover batch size.
+  Systems: FlexGen (zig-zag block schedule over the batch × layer grid, the LP choosing what lives on GPU/CPU/disk
+  for weights, KV and activations), DeepSpeed ZeRO-Inference, Hugging Face Accelerate device_map/offload,
+  llama.cpp partial GPU offload (-ngl), PowerInfer (hot neurons on GPU, cold on CPU); how weight streaming combines
+  with quantisation (fewer bytes to stream) and with MoE expert offload ([@ch:serving]).
+- Lab 33 addition: a layer-streaming runner for one of our models (using llmsys.movement.streaming); tests: equals
+  the fully resident model; bench.py on the A100: throughput vs batch size with streaming vs resident, measured vs
+  predicted crossover batch size, overlap fraction from the trace.
