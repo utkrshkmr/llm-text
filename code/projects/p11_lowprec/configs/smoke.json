@@ -1,0 +1,35 @@
+{
+ "name": "smoke",
+ "_comment": "About 53 min on one A100 (measured): every recipe once on the tiny transformer and the MLP, one seed, plus the two break-point sweeps. Verdict thresholds: calibrate in the GPU stage.",
+ "baseline": "fp32",
+ "verdict": {"ok": 0.10, "broken": 0.69, "stall_window": 0.25, "stall_tol": 0.05, "tail": 0.1},
+ "models": {
+  "gpt": {"model": "gpt", "vocab": 32, "order": 2, "support": 8, "d": 64, "n_layers": 2,
+          "n_heads": 4, "ctx": 32, "batch": 64, "n_train": 8192, "n_val": 256, "steps": 1000,
+          "warmup": 50, "lr": 0.01, "log_every": 50},
+  "mlp": {"model": "mlp", "d_in": 32, "d_hidden": 256, "d_out": 8, "n_hidden": 3,
+          "teacher_hidden": 32, "teacher_layers": 1, "batch": 256, "steps": 2000,
+          "warmup": 100, "lr": 0.001, "log_every": 100}
+ },
+ "runs": [
+  {"model": "gpt", "recipes": ["fp32"], "seeds": [0], "set": {"hist_steps": [50, 500, 999]}},
+  {"model": "gpt", "recipes": ["bf16", "bf16_pure", "bf16_pure_sr", "bf16_lowsens",
+                               "fp16_noscale", "fp16_dynamic", "fp16_lowsens",
+                               "bf16_acc", "bf16_acc_promote",
+                               "fp8_noscale", "fp8_tensor", "fp8_tensor_hp", "fp8_tensor_sr",
+                               "fp8_delayed", "fp8_e4m3_tensor", "fp8_block",
+                               "mxfp4", "mxfp4_sr", "mxfp4_sr_ceil", "mxfp4_fwd",
+                               "nvfp4", "nvfp4_sr", "nvfp4_sr_hp"], "seeds": [0]},
+  {"model": "mlp", "recipes": ["fp32", "bf16", "bf16_pure", "bf16_pure_sr",
+                               "fp16_noscale", "fp16_static", "fp16_dynamic",
+                               "fp8_noscale", "fp8_tensor", "fp8_e4m3_tensor", "fp8_block",
+                               "mxfp4", "mxfp4_sr", "mxfp4_sr_ceil", "mxfp4_fwd", "nvfp4",
+                               "nvfp4_sr"], "seeds": [0]}
+ ],
+ "sweeps": [
+  {"name": "lr", "model": "mlp", "key": "lr", "values": [0.003, 0.0003],
+   "recipes": ["fp32", "bf16_pure", "bf16_pure_sr"], "seeds": [0]},
+  {"name": "loss_weight", "model": "mlp", "key": "loss_weight", "values": [0.01, 0.001, 0.0001],
+   "recipes": ["fp32", "fp16_noscale", "fp16_static", "fp16_dynamic"], "seeds": [0]}
+ ]
+}

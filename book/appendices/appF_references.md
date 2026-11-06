@@ -58,6 +58,10 @@ Efficient Language Models. arXiv:2312.04927.
 Arora, S., Eyuboglu, S., Zhang, M., et al. (2024). Simple Linear Attention Language Models Balance
 the Recall-Throughput Tradeoff. ICML.
 
+Ashkboos, S., Mohtashami, A., Croci, M. L., Li, B., Cameron, P., Jaggi, M., Alistarh, D., Hoefler,
+T., Hensman, J. (2024). QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs. NeurIPS
+(arXiv:2404.00456).
+
 Austin, J., Douglas, S., Frostig, R., et al. (2025). How to Scale Your Model: A Systems View of LLMs
 on TPUs. Google DeepMind (online book).
 
@@ -85,6 +89,9 @@ Reinforcement Learning from Human Feedback. arXiv:2204.05862.
 Bai, Y., Kadavath, S., Kundu, S., et al. (2022). Constitutional AI: Harmlessness from AI Feedback.
 arXiv:2212.08073.
 
+Banner, R., Nahshan, Y., Soudry, D. (2019). Post Training 4-bit Quantization of Convolutional
+Networks for Rapid-Deployment. NeurIPS.
+
 Baydin, A. G., Pearlmutter, B. A., Radul, A. A., Siskind, J. M. (2018). Automatic Differentiation in
 Machine Learning: a Survey. JMLR.
 
@@ -106,6 +113,9 @@ Blelloch, G. E. (1990). Prefix Sums and Their Applications. Technical Report CMU
 Bloom, B. H. (1970). Space/Time Trade-offs in Hash Coding with Allowable Errors. Communications of
 the ACM.
 
+Bondarenko, Y., Nagel, M., Blankevoort, T. (2023). Quantizable Transformers: Removing Outliers by
+Helping Attention Heads Do Nothing. NeurIPS.
+
 Bradbury, J., Frostig, R., Hawkins, P., et al. (2018). JAX: Composable Transformations of
 Python+NumPy Programs. <http://github.com/google/jax>
 
@@ -123,10 +133,17 @@ Inference Acceleration Framework with Multiple Decoding Heads. ICML.
 Cannon, L. E. (1969). A Cellular Computer to Implement the Kalman Filter Algorithm. PhD thesis,
 Montana State University.
 
+Castro, R. L., Panferov, A., Tabesh, S., Sieberling, O., Chen, J., Nikdan, M., Ashkboos, S.,
+Alistarh, D. (2025). Quartet: Native FP4 Training Can Be Optimal for Large Language Models.
+arXiv:2505.14669.
+
 Chainlit contributors (2023). Chainlit: Build conversational AI applications in Python.
 <https://github.com/Chainlit/chainlit>.
 
 Chameleon Team (2024). Chameleon: Mixed-Modal Early-Fusion Foundation Models. arXiv:2405.09818.
+
+Chan, T. F., Golub, G. H., LeVeque, R. J. (1983). Algorithms for Computing the Sample Variance:
+Analysis and Recommendations. The American Statistician, 37(3).
 
 Chen, C., Borgeaud, S., Irving, G., Lespiau, J.-B., Sifre, L., & Jumper, J. (2023). Accelerating
 Large Language Model Decoding with Speculative Sampling. arXiv:2302.01318.
@@ -158,8 +175,14 @@ LLMs by Human Preference. ICML.
 Child, R., Gray, S., Radford, A., Sutskever, I. (2019). Generating Long Sequences with Sparse
 Transformers. arXiv:1904.10509.
 
+Chmiel, B., Fishman, M., Banner, R., Soudry, D. (2025). FP4 All the Way: Fully Quantized Training of
+LLMs. arXiv:2505.19115.
+
 Cho, K., et al. (2014). Learning Phrase Representations using RNN Encoder-Decoder for Statistical
 Machine Translation. EMNLP.
+
+Choi, J. W., Bedard, D., Fowler, R., Vuduc, R. (2013). A Roofline Model of Energy. IEEE
+International Parallel and Distributed Processing Symposium (IPDPS).
 
 Chollet, F. (2019). On the Measure of Intelligence. arXiv:1911.01547.
 
@@ -180,6 +203,12 @@ Problems. arXiv:2110.14168.
 
 Cohen, J. M., Kaur, S., Li, Y., Kolter, J. Z., Talwalkar, A. (2021). Gradient Descent on Neural
 Networks Typically Occurs at the Edge of Stability. ICLR.
+
+Connolly, M. P., Higham, N. J., Mary, T. (2021). Stochastic Rounding and Its Probabilistic Backward
+Error Analysis. SIAM Journal on Scientific Computing, 43(1).
+
+Croci, M., Fasi, M., Higham, N. J., Mary, T., Mikaitis, M. (2022). Stochastic Rounding:
+Implementation, Error Analysis and Applications. Royal Society Open Science, 9(3).
 
 Cui, G., Yuan, L., Ding, N., et al. (2023). UltraFeedback: Boosting Language Models with
 High-quality Feedback. arXiv:2310.01377 (ICML 2024).
@@ -252,11 +281,18 @@ Foundation Model Alignment. TMLR.
 Dong, Y., Ruan, C. F., Cai, Y., Lai, R., Xu, Z., Zhao, Y., & Chen, T. (2024). XGrammar: Flexible and
 Efficient Structured Generation Engine for Large Language Models. arXiv:2411.15100.
 
+Dósa, G. (2007). The Tight Bound of First Fit Decreasing Bin-Packing Algorithm Is FFD(I) \<= 11/9
+OPT(I) + 6/9. ESCAPE, LNCS 4614.
+
 Dosovitskiy, A., Beyer, L., Kolesnikov, A., et al. (2021). An Image is Worth 16x16 Words:
 Transformers for Image Recognition at Scale. ICLR.
 
-Dósa, G. (2007). The Tight Bound of First Fit Decreasing Bin-Packing Algorithm Is FFD(I) \<= 11/9
-OPT(I) + 6/9. ESCAPE, LNCS 4614.
+Douillard, A., Feng, Q., Rusu, A. A., Chhaparia, R., Donchev, Y., Kuncoro, A., Ranzato, M., Szlam,
+A., Shen, J. (2023). DiLoCo: Distributed Low-Communication Training of Language Models.
+arXiv:2311.08105.
+
+Drumond, M., Lin, T., Jaggi, M., Falsafi, B. (2018). Training DNNs with Hybrid Block Floating Point.
+NeurIPS.
 
 Dubois, Y., Galambosi, B., Liang, P., Hashimoto, T. B. (2024). Length-Controlled AlpacaEval: A
 Simple Way to Debias Automatic Evaluators. arXiv:2404.04475.
@@ -281,8 +317,17 @@ Implementation Matters in Deep Policy Gradients: A Case Study on PPO and TRPO. I
 Ethayarajh, K., Xu, W., Muennighoff, N., Jurafsky, D., Kiela, D. (2024). KTO: Model Alignment as
 Prospect Theoretic Optimization. ICML.
 
+Fasi, M., Higham, N. J., Mikaitis, M., Pranesh, S. (2021). Numerical Behavior of NVIDIA Tensor
+Cores. PeerJ Computer Science, 7:e330.
+
 Fedus, W., Zoph, B., Shazeer, N. (2022). Switch Transformers: Scaling to Trillion Parameter Models
 with Simple and Efficient Sparsity. JMLR.
+
+Fishman, M., Chmiel, B., Banner, R., Soudry, D. (2025). Scaling FP8 Training to Trillion-Token LLMs.
+ICLR.
+
+Frantar, E., Alistarh, D. (2022). Optimal Brain Compression: A Framework for Accurate Post-Training
+Quantization and Pruning. NeurIPS.
 
 Frantar, E., Ashkboos, S., Hoefler, T., & Alistarh, D. (2023). GPTQ: Accurate Post-Training
 Quantization for Generative Pre-trained Transformers. ICLR.
@@ -314,10 +359,16 @@ preprint.
 
 Gemma Team (2024). Gemma 2: Improving Open Language Models at a Practical Size. arXiv:2408.00118.
 
+Gholami, A., Yao, Z., Kim, S., Hooper, C., Mahoney, M. W., Keutzer, K. (2024). AI and Memory Wall.
+IEEE Micro 44(3).
+
 Glorot, X., Bengio, Y. (2010). Understanding the Difficulty of Training Deep Feedforward Neural
 Networks. AISTATS.
 
 Gokaslan, A., Cohen, V. (2019). OpenWebText Corpus. <http://Skylion007.github.io/OpenWebTextCorpus>.
+
+Goldberg, D. (1991). What Every Computer Scientist Should Know About Floating-Point Arithmetic. ACM
+Computing Surveys, 23(1).
 
 Grattafiori, A., Dubey, A., Jauhri, A., et al. (2024). The Llama 3 Herd of Models. arXiv:2407.21783.
 
@@ -326,6 +377,9 @@ Estimates in Reinforcement Learning. JMLR.
 
 Griewank, A., Walther, A. (2000). Algorithm 799: Revolve: An Implementation of Checkpointing for the
 Reverse or Adjoint Mode of Computational Differentiation. ACM Transactions on Mathematical Software.
+
+Griewank, A., Walther, A. (2008). Evaluating Derivatives: Principles and Techniques of Algorithmic
+Differentiation (2nd ed.). SIAM.
 
 Gu, A., Dao, T. (2023). Mamba: Linear-Time Sequence Modeling with Selective State Spaces.
 arXiv:2312.00752.
@@ -345,13 +399,25 @@ Language Modeling. arXiv:2308.08998.
 Guo, C., Pleiss, G., Sun, Y., & Weinberger, K. Q. (2017). On Calibration of Modern Neural Networks.
 ICML.
 
+Gupta, S., Agrawal, A., Gopalakrishnan, K., Narayanan, P. (2015). Deep Learning with Limited
+Numerical Precision. ICML.
+
 Gupta, V., Koren, T., Singer, Y. (2018). Shampoo: Preconditioned Stochastic Tensor Optimization.
 ICML.
 
-Hashimoto, T. (2021). Model Performance Scaling with Multiple Data Sources. ICML.
+Gustafson, J. L., Yonemoto, I. T. (2017). Beating Floating Point at its Own Game: Posit Arithmetic.
+Supercomputing Frontiers and Innovations, 4(2).
 
 Hägele, A., Bakouch, E., Kosson, A., et al. (2024). Scaling Laws and Compute-Optimal Training beyond
 Fixed Training Durations. NeurIPS.
+
+Hashimoto, T. (2021). Model Performance Scaling with Multiple Data Sources. ICML.
+
+Hassibi, B., Stork, D. G. (1993). Second Order Derivatives for Network Pruning: Optimal Brain
+Surgeon. NeurIPS (NIPS 1992).
+
+He, H. (2024). Strangely, Matrix Multiplications on GPUs Run Faster When Given "Predictable" Data!
+Thonk From First Principles (blog), thonking.ai.
 
 He, H., and Thinking Machines Lab (2025). Defeating Nondeterminism in LLM Inference. Thinking
 Machines Lab: Connectionism (blog).
@@ -372,8 +438,17 @@ Hendrycks, D., Gimpel, K. (2016). Gaussian Error Linear Units (GELUs). arXiv:160
 Hestness, J., Narang, S., Ardalani, N., et al. (2017). Deep Learning Scaling is Predictable,
 Empirically. arXiv:1712.00409.
 
+Higham, N. J. (2002). Accuracy and Stability of Numerical Algorithms (2nd ed.). SIAM.
+
 Hinton, G., Vinyals, O., Dean, J. (2015). Distilling the Knowledge in a Neural Network. NeurIPS Deep
 Learning Workshop. arXiv:1503.02531.
+
+Hockney, R. W. (1994). The Communication Challenge for MPP: Intel Paragon and Meiko CS-2. Parallel
+Computing, 20(3), 389-398.
+
+Hoefler, T., Belli, R. (2015). Scientific Benchmarking of Parallel Computing Systems: Twelve Ways to
+Tell the Masses when Reporting Performance Results. Proceedings of SC15 (International Conference
+for High Performance Computing, Networking, Storage and Analysis).
 
 Hoffmann, J., Borgeaud, S., Mensch, A., et al. (2022). Training Compute-Optimal Large Language
 Models. NeurIPS.
@@ -412,6 +487,8 @@ Huber, P. J. (1964). Robust Estimation of a Location Parameter. Annals of Mathem
 
 Hunter, D. R. (2004). MM Algorithms for Generalized Bradley-Terry Models. The Annals of Statistics.
 
+IEEE (2019). IEEE Standard for Floating-Point Arithmetic (IEEE Std 754-2019).
+
 Inan, H., Upasani, K., Chi, J., et al. (2023). Llama Guard: LLM-based Input-Output Safeguard for
 Human-AI Conversations. arXiv:2312.06674.
 
@@ -421,12 +498,17 @@ Case Study on Optimizing Transformers. MLSys.
 Jacobs, S. A., Tanaka, M., Zhang, C., et al. (2023). DeepSpeed Ulysses: System Optimizations for
 Enabling Training of Extreme Long Sequence Transformer Models. arXiv:2309.14509.
 
+Jia, Z., Maggioni, M., Staiger, B., Scarpazza, D. P. (2018). Dissecting the NVIDIA Volta GPU
+Architecture via Microbenchmarking. arXiv:1804.06826.
+
 Jiang, A. Q., Sablayrolles, A., Roux, A., et al. (2024). Mixtral of Experts. arXiv:2401.04088.
 
 Jimenez, C. E., Yang, J., Wettig, A., et al. (2024). SWE-bench: Can Language Models Resolve
 Real-World GitHub Issues? ICLR.
 
 Johnson, D. S. (1973). Near-Optimal Bin Packing Algorithms. PhD thesis, MIT.
+
+Johnson, J. (2018). Rethinking Floating Point for Deep Learning. arXiv:1811.01721.
 
 Jordan, K., Jin, Y., Boza, V., et al. (2024). Muon: An optimizer for hidden layers in neural
 networks. Blog post, kellerjordan.github.io.
@@ -439,6 +521,8 @@ for Machine Learning with Hardware Support for Embeddings. ISCA.
 
 Jouppi, N. P., Young, C., Patil, N., et al. (2017). In-Datacenter Performance Analysis of a Tensor
 Processing Unit. ISCA.
+
+Kahan, W. (1965). Further Remarks on Reducing Truncation Errors. Communications of the ACM, 8(1).
 
 Kahneman, D., Tversky, A. (1979). Prospect Theory: An Analysis of Decision under Risk. Econometrica.
 
@@ -480,11 +564,20 @@ Workshop (DeepRLStructPred).
 Korthikanti, V., Casper, J., Lym, S., McAfee, L., Andersch, M., Shoeybi, M., Catanzaro, B. (2022).
 Reducing Activation Recomputation in Large Transformer Models. arXiv:2205.05198 (MLSys 2023).
 
+Köster, U., Webb, T., Wang, X., et al. (2017). Flexpoint: An Adaptive Numerical Format for Efficient
+Training of Deep Neural Networks. NeurIPS.
+
 Krell, M. M., Kosec, M., Perez, S. P., & Fitzgibbon, A. (2021). Efficient Sequence Packing without
 Cross-contamination: Accelerating Large Language Models without Impacting Performance.
 arXiv:2107.02027.
 
+Kumar, T., Ankner, Z., Spector, B. F., Bordelon, B., Muennighoff, N., Paul, M., Pehlevan, C., Ré,
+C., Raghunathan, A. (2024). Scaling Laws for Precision. arXiv:2411.04330 (ICLR 2025).
+
 Kung, H. T. (1982). Why Systolic Architectures? IEEE Computer.
+
+Kuzmin, A., van Baalen, M., Ren, Y., Nagel, M., Peters, J., Blankevoort, T. (2022). FP8
+Quantization: The Power of the Exponent. NeurIPS.
 
 Kwon, W., Li, Z., Zhuang, S., Sheng, Y., Zheng, L., Yu, C. H., Gonzalez, J. E., Zhang, H., & Stoica,
 I. (2023). Efficient Memory Management for Large Language Model Serving with PagedAttention. SOSP.
@@ -493,6 +586,10 @@ Lambert, N. (2024). Reinforcement Learning from Human Feedback. <https://rlhfboo
 
 Lambert, N., Pyatkin, V., Morrison, J., et al. (2024). RewardBench: Evaluating Reward Models for
 Language Modeling. arXiv:2403.13787.
+
+Le Boudec, J.-Y. (2010). Performance Evaluation of Computer and Communication Systems. EPFL Press.
+
+LeCun, Y., Denker, J. S., Solla, S. A. (1990). Optimal Brain Damage. NeurIPS (NIPS 1989).
 
 Lee, H., Phatale, S., Mansoor, H., et al. (2024). RLAIF vs. RLHF: Scaling Reinforcement Learning
 from Human Feedback with AI Feedback. ICML.
@@ -511,6 +608,10 @@ Tuning. EMNLP.
 
 Leviathan, Y., Kalman, M., & Matias, Y. (2023). Fast Inference from Transformers via Speculative
 Decoding. ICML.
+
+Li, A., Song, S. L., Chen, J., Li, J., Liu, X., Tallent, N. R., Barker, K. J. (2020). Evaluating
+Modern GPU Interconnect: PCIe, NVLink, NV-SLI, NVSwitch and GPUDirect. IEEE Transactions on Parallel
+and Distributed Systems, 31(1), 94-110.
 
 Li, B., Zhang, Y., Guo, D., et al. (2024). LLaVA-OneVision: Easy Visual Task Transfer.
 arXiv:2408.03326.
@@ -579,10 +680,17 @@ Perspective (Dr. GRPO). arXiv:2503.20783.
 Liu, Z., Yuan, J., Jin, H., Zhong, S., Xu, Z., Braverman, V., Chen, B., & Hu, X. (2024). KIVI: A
 Tuning-Free Asymmetric 2bit Quantization for KV Cache. ICML.
 
+Liu, Z., Zhao, C., Fedorov, I., Soran, B., Choudhary, D., Krishnamoorthi, R., Chandra, V., Tian, Y.,
+Blankevoort, T. (2025). SpinQuant: LLM Quantization with Learned Rotations. ICLR.
+
 Loshchilov, I., Hutter, F. (2019). Decoupled Weight Decay Regularization. ICLR.
 
 Lozhkov, A., Li, R., Ben Allal, L., et al. (2024). StarCoder 2 and The Stack v2: The Next
 Generation. arXiv:2402.19173.
+
+Luo, W., Fan, R., Li, Z., Du, D., Wang, Q., Chu, X. (2024). Benchmarking and Dissecting the Nvidia
+Hopper GPU Architecture. IEEE International Parallel and Distributed Processing Symposium (IPDPS);
+arXiv:2402.13499.
 
 Madaan, A., Tandon, N., Gupta, P., et al. (2023). Self-Refine: Iterative Refinement with
 Self-Feedback. NeurIPS.
@@ -592,6 +700,9 @@ Model Fit. arXiv:2312.10523.
 
 Mazeika, M., Phan, L., Yin, X., et al. (2024). HarmBench: A Standardized Evaluation Framework for
 Automated Red Teaming and Robust Refusal. ICML.
+
+McCalpin, J. D. (1995). Memory Bandwidth and Machine Balance in Current High Performance Computers.
+IEEE Computer Society Technical Committee on Computer Architecture (TCCA) Newsletter, December 1995.
 
 McCandlish, S., Kaplan, J., Amodei, D., OpenAI Dota Team (2018). An Empirical Model of Large-Batch
 Training. arXiv:1812.06162.
@@ -622,6 +733,9 @@ MiniMax (2025). MiniMax-01: Scaling Foundation Models with Lightning Attention. 
 MiniMax (2025). MiniMax-M1: Scaling Test-Time Compute Efficiently with Lightning Attention (CISPO).
 arXiv:2506.13585.
 
+Mishra, A., Stosic, D., Layton, S., Micikevicius, P. (2025). Recipes for Pre-training LLMs with
+MXFP8. arXiv:2506.08027.
+
 Moore, R. C., Lewis, W. (2010). Intelligent Selection of Language Model Training Data. ACL.
 
 Moritz, P., Nishihara, R., Wang, S., et al. (2018). Ray: A Distributed Framework for Emerging AI
@@ -637,6 +751,9 @@ Muennighoff, N., Yang, Z., Shi, W., et al. (2025). s1: Simple Test-Time Scaling.
 
 Munos, R., et al. (2023). Nash Learning from Human Feedback. arXiv:2312.00886 (ICML 2024).
 
+Nagel, M., Amjad, R. A., van Baalen, M., Louizos, C., Blankevoort, T. (2020). Up or Down? Adaptive
+Rounding for Post-Training Quantization. ICML.
+
 Narang, S., Chung, H. W., Tay, Y., et al. (2021). Do Transformer Modifications Transfer Across
 Implementations and Applications? EMNLP.
 
@@ -646,12 +763,32 @@ Parallelism for DNN Training. SOSP.
 Narayanan, D., Shoeybi, M., Casper, J., et al. (2021). Efficient Large-Scale Language Model Training
 on GPU Clusters Using Megatron-LM. SC.
 
+Neumaier, A. (1974). Rundungsfehleranalyse einiger Verfahren zur Summation endlicher Summen.
+Zeitschrift für Angewandte Mathematik und Mechanik, 54(1).
+
+Noune, B., Jones, P., Justus, D., Masters, D., Luschi, C. (2022). 8-bit Numerical Formats for Deep
+Neural Networks. arXiv:2206.02915.
+
+NVIDIA (2020). NVIDIA A100 Tensor Core GPU Architecture (whitepaper).
+
+NVIDIA (2021). GTC 2021 session S33322, on tuning for the A100 (describes its L2 as a near and a far
+20 MB partition).
+
 NVIDIA (2022). NVIDIA H100 Tensor Core GPU Architecture. Whitepaper.
 
 NVIDIA (2025). Nemotron-H: A Family of Accurate and Efficient Hybrid Mamba-Transformer Models.
 arXiv:2504.03624.
 
+NVIDIA (2025). Pretraining Large Language Models with NVFP4. arXiv:2509.25149.
+
+NVIDIA (n.d.). NCCL User Guide, Troubleshooting: GPU-to-GPU communication, IOMMU and PCI ACS.
+https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/troubleshooting/gpu_troubleshooting.html
+
 Olsson, C., et al. (2022). In-context Learning and Induction Heads. Transformer Circuits Thread.
+
+Open Compute Project (2023). OCP 8-bit Floating Point Specification (OFP8), Revision 1.0.
+
+Open Compute Project (2023). OCP Microscaling Formats (MX) Specification, Version 1.0.
 
 OpenAI (2024). Learning to Reason with LLMs (OpenAI o1). OpenAI blog.
 
@@ -697,6 +834,9 @@ Outperforming Curated Corpora with Web Data, and Web Data Only. NeurIPS Datasets
 
 Peng, B., Quesnelle, J., Fan, H., Shippole, E. (2023). YaRN: Efficient Context Window Extension of
 Large Language Models. arXiv:2309.00071.
+
+Peng, H., Wu, K., Wei, Y., et al. (2023). FP8-LM: Training FP8 Large Language Models.
+arXiv:2310.18313.
 
 Phan, L., Gatti, A., Han, Z., et al. (2025). Humanity's Last Exam. arXiv:2501.14249.
 
@@ -766,6 +906,9 @@ Rogozhnikov, A. (2022). Einops: Clear and Reliable Tensor Manipulations with Ein
 ICLR.
 
 Rouhani, B. D., et al. (2023). Microscaling Data Formats for Deep Learning. arXiv:2310.10537.
+
+Rouhani, B. D., Lo, D., Zhao, R., et al. (2020). Pushing the Limits of Narrow Precision Inferencing
+at Cloud Scale with Microsoft Floating Point. NeurIPS.
 
 Rumelhart, D. E., Hinton, G. E., Williams, R. J. (1986). Learning Representations by
 Back-Propagating Errors. Nature.
@@ -837,6 +980,10 @@ Training Multi-Billion Parameter Language Models Using Model Parallelism. arXiv:
 Singhal, P., Goyal, T., Xu, J., Durrett, G. (2023). A Long Way to Go: Investigating Length
 Correlations in RLHF. arXiv:2310.03716.
 
+Sinha, P., Guliani, A., Jain, R., Tran, B., Sinclair, M. D., Venkataraman, S. (2022). Not All GPUs
+Are Created Equal: Characterizing Variability in Large-Scale, Accelerator-Rich Systems. Proceedings
+of SC22.
+
 Snell, C., Lee, J., Xu, K., and Kumar, A. (2024). Scaling LLM Test-Time Compute Optimally can be
 More Effective than Scaling Model Parameters. arXiv:2408.03314.
 
@@ -856,6 +1003,12 @@ Long-Horizon Pretraining Dataset. arXiv:2412.02595.
 
 Su, J., Lu, Y., Pan, S., Murtadha, A., Wen, B., Liu, Y. (2021). RoFormer: Enhanced Transformer with
 Rotary Position Embedding. arXiv:2104.09864.
+
+Sun, M., Chen, X., Kolter, J. Z., Liu, Z. (2024). Massive Activations in Large Language Models.
+COLM.
+
+Sun, X., Choi, J., Chen, C.-Y., et al. (2019). Hybrid 8-bit Floating Point (HFP8) Training and
+Inference for Deep Neural Networks. NeurIPS.
 
 Sun, Y., Dong, L., Huang, S., et al. (2023). Retentive Network: A Successor to Transformer for Large
 Language Models. arXiv:2307.08621.
@@ -898,6 +1051,11 @@ Neural Network Computations. MAPL Workshop.
 Touvron, H., Martin, L., Stone, K., et al. (2023). Llama 2: Open Foundation and Fine-Tuned Chat
 Models. arXiv:2307.09288.
 
+Tseng, A., Yu, T., Park, Y. (2025). Training LLMs with MXFP4. AISTATS (arXiv:2502.20586).
+
+Valpey, B., Li, X., Pai, S., Gopalakrishnan, G. (2025). An SMT Formalization of Mixed-Precision
+Matrix Multiplication: Modeling Three Generations of Tensor Cores. arXiv:2502.15999.
+
 van de Geijn, R. A., Watts, J. (1997). SUMMA: Scalable Universal Matrix Multiplication Algorithm.
 Concurrency: Practice and Experience.
 
@@ -910,6 +1068,12 @@ Polosukhin, I. (2017). Attention Is All You Need. NeurIPS.
 Vidgen, B., Scherrer, N., Kirk, H. R., et al. (2024). SimpleSafetyTests: A Test Suite for
 Identifying Critical Safety Risks in Large Language Models. arXiv:2311.08370.
 
+Volkov, V. (2016). Understanding Latency Hiding on GPUs. PhD thesis, University of California,
+Berkeley.
+
+Volkov, V., Demmel, J. W. (2008). Benchmarking GPUs to Tune Dense Linear Algebra. Proceedings of
+SC08.
+
 von Werra, L., Belkada, Y., Tunstall, L., et al. (2020-). TRL: Transformer Reinforcement Learning.
 GitHub: huggingface/trl.
 
@@ -918,6 +1082,9 @@ arXiv:2409.11321.
 
 Wang, L., Yang, N., Huang, X., et al. (2024). Improving Text Embeddings with Large Language Models.
 ACL.
+
+Wang, N., Choi, J., Brand, D., Chen, C.-Y., Gopalakrishnan, K. (2018). Training Deep Neural Networks
+with 8-bit Floating Point Numbers. NeurIPS.
 
 Wang, P., Bai, S., Tan, S., et al. (2024). Qwen2-VL: Enhancing Vision-Language Model's Perception of
 the World at Any Resolution. arXiv:2409.12191.
@@ -936,6 +1103,9 @@ Wei, J., et al. (2022). Emergent Abilities of Large Language Models. TMLR.
 Wei, J., Wang, X., Schuurmans, D., et al. (2022). Chain-of-Thought Prompting Elicits Reasoning in
 Large Language Models. NeurIPS.
 
+Welford, B. P. (1962). Note on a Method for Calculating Corrected Sums of Squares and Products.
+Technometrics, 4(3).
+
 Wenzek, G., Lachaux, M.-A., Conneau, A., et al. (2020). CCNet: Extracting High Quality Monolingual
 Datasets from Web Crawl Data. LREC.
 
@@ -947,6 +1117,9 @@ Reinforcement Learning. Machine Learning 8(3-4).
 
 Williams, S., Waterman, A., Patterson, D. (2009). Roofline: An Insightful Visual Performance Model
 for Multicore Architectures. Communications of the ACM.
+
+Wortsman, M., Liu, P. J., Xiao, L., et al. (2024). Small-scale Proxies for Large-scale Transformer
+Training Instabilities. ICLR.
 
 Wu, S., et al. (2023). BloombergGPT: A Large Language Model for Finance. arXiv:2303.17564.
 
@@ -973,6 +1146,10 @@ Xu, Y., Lee, H., Chen, D., et al. (2021). GSPMD: General and Scalable Paralleliz
 Computation Graphs. arXiv:2105.04663.
 
 Yang, A. et al. (2025). Qwen3 Technical Report. arXiv:2505.09388.
+
+Yang, C., Kurth, T., Williams, S. (2020). Hierarchical Roofline Analysis for GPUs: Accelerating
+Performance Optimization for the NERSC-9 Perlmutter System. Concurrency and Computation: Practice
+and Experience 32(20).
 
 Yang, G., Hu, E. J., Babuschkin, I., et al. (2022). Tensor Programs V: Tuning Large Neural Networks
 via Zero-Shot Hyperparameter Transfer. arXiv:2203.03466.
@@ -1004,6 +1181,9 @@ Serving. MLSys.
 Young, J. W. (1974). A First Order Approximation to the Optimum Checkpoint Interval for Restarts.
 Communications of the ACM.
 
+Yu, G. X., Gao, Y., Golikov, P., Pekhimenko, G. (2021). Habitat: A Runtime-Based Computational
+Performance Predictor for Deep Learning Training. USENIX Annual Technical Conference (ATC).
+
 Yu, G.-I., Jeong, J. S., Kim, G.-W., Kim, S., Chun, B.-G. (2022). Orca: A Distributed Serving System
 for Transformer-Based Generative Models. OSDI.
 
@@ -1013,8 +1193,14 @@ Predicting Million-byte Sequences with Multiscale Transformers. NeurIPS.
 Yu, Q., Zhang, Z., Zhu, R., et al. (2025). DAPO: An Open-Source LLM Reinforcement Learning System at
 Scale. arXiv:2503.14476.
 
+Yuan, J., Gao, H., Dai, D., et al. (2025). Native Sparse Attention: Hardware-Aligned and Natively
+Trainable Sparse Attention. ACL (arXiv:2502.11089).
+
 Yuan, W., Pang, R. Y., Cho, K., Li, X., Sukhbaatar, S., Xu, J., Weston, J. (2024). Self-Rewarding
 Language Models. ICML.
+
+Zamirai, P., Zhang, J., Aberger, C. R., De Sa, C. (2020). Revisiting BFloat16 Training.
+arXiv:2010.06192.
 
 Zelikman, E., Wu, Y., Mu, J., Goodman, N. D. (2022). STaR: Bootstrapping Reasoning With Reasoning.
 NeurIPS.
@@ -1026,6 +1212,9 @@ Zhai, X., Mustafa, B., Kolesnikov, A., Beyer, L. (2023). Sigmoid Loss for Langua
 Pre-Training. ICCV.
 
 Zhang, B., Sennrich, R. (2019). Root Mean Square Layer Normalization. NeurIPS.
+
+Zhao, C., Deng, C., Ruan, C., et al. (2025). Insights into DeepSeek-V3: Scaling Challenges and
+Reflections on Hardware for AI Architectures. ISCA (arXiv:2505.09343).
 
 Zhao, Y., Gu, A., Varma, R., et al. (2023). PyTorch FSDP: Experiences on Scaling Fully Sharded Data
 Parallel. VLDB.

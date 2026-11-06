@@ -94,3 +94,43 @@ well-tuned dense training achieves, so ask: are padding tokens counted as tokens
 or non-embedding count? Are attention FLOPs or recomputation included (that would make it hardware
 FLOPs utilisation, HFU, not MFU)? Is the peak taken as the bf16 or the fp8 rate? Is the throughput a
 steady-state peak or an average including evaluation and checkpoint stalls?
+
+#### Exercise 2.11
+
+(a) An L2 probe keeps source and destination inside the 40 MB L2 (for example two 8 MiB buffers)
+and runs the copy many times inside one timed call (a Python loop of 100 copies, or a CUDA graph of
+them), dividing the bytes moved by the total time; with the per-call fixed cost of about 14 μs
+amortised, the probe measures the L2's bandwidth, several times the 1.37 TB/s HBM roof. Report it
+with the same median and p10/p90 as `time_stats`. (b) Only kernels whose working set fits in L2
+and is re-read can be limited by it. The streaming kernels of [@tab:pytorch:points] (add, row sum,
+softmax, the GEMV and the decode attention) touch hundreds of megabytes once each, so HBM binds.
+The tiled GEMMs and the prefill attention re-read their tiles of $\mathbf{A}$, $\mathbf{B}$ or
+$\mathbf{K}$, $\mathbf{V}$ many times, mostly from L2: their L2 intensity is far below their HBM
+intensity, and for the $M=256$ GEMM, which sits just right of the HBM ridge, the L2 roof is the
+candidate. (c) Nsight Compute's `dram__bytes_read.sum` and `dram__bytes_write.sum` give
+$Q_{\text{HBM}}$, and `lts__t_bytes.sum` gives the L2 traffic. Divide the kernel's $F$ by each to get
+$I_{\text{HBM}}$ and $I_{\text{L2}}$, and plot the kernel's achieved FLOP/s at both intensities
+against both roofs; the roof the kernel is closest to is the one that binds. For a well-tiled GEMM
+the HBM point lies near $Q_{\min}$ and the L2 point far to the left but still under the much higher
+L2 roof, so neither memory level binds and the kernel is limited by the tensor cores and the
+pipeline that feeds them.
+
+#### Exercise 2.12
+
+(a, b) Measured on 2x A100-40GB (PCIe), one GPU, 8,192-cubed bf16 GEMMs run for eight seconds
+each: random normal data, 215 TFLOP/s at an SM clock of 1,035 MHz and 250 W (the limit); random
+data with the low 4 of the 7 mantissa bits zeroed, 230 TFLOP/s at 1,095 MHz and 249 W; zeros,
+290 TFLOP/s at 1,380 MHz and 234 W. Zeroing mantissa bits reduces the number of bits that toggle in
+the multipliers, so each FLOP costs less energy and the power manager allows a higher clock; the
+exponent and the upper mantissa bits of random data still toggle, so the gain is partial. Zeros
+toggle almost nothing and the card is no longer power-limited. (c) Treating the full board power as
+the cost (the card idles near 35 W, which a more careful study subtracts), the random-data GEMM
+costs $250/(214.7\times10^{12}) \approx 1.2$ pJ per FLOP, and the 1 GiB copy, which also runs at
+the 250 W limit at 1,379 GB/s, costs $250/(1.379\times10^{12}) \approx 180$ pJ per byte moved.
+The two energies are equal at an operational intensity of about $180/1.2 \approx 155$ FLOP/byte,
+almost exactly the empirical ridge point: on a power-limited card running at its limit, time and
+energy are proportional and the energy roofline and the time roofline coincide. (d) An H100 SXM
+has a 700 W limit for 989 TFLOP/s, about the same peak FLOP/s per watt of limit as the A100 PCIe
+(312 TFLOP/s for 250 W), so it is also expected to be power-limited on dense random-data GEMMs, and
+reports of data-dependent GEMM throughput on H100s (He, 2024) agree; the size of the effect depends
+on how much clock headroom the power manager has at the limit and has to be measured.

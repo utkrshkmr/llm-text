@@ -1,0 +1,162 @@
+{
+ "_comment": "Single-seed diagnostic runs on GPU 1 of 2x A100-40GB (PCIe), separate from the smoke matrix; produced by the script that became diagnose_fp8_head.py",
+ "fp8_tensor_head_g_sr": {
+  "final_val": 2.039251923561096,
+  "floor": 1.8158479365764928
+ },
+ "fp8_tensor_head_g_bf16": {
+  "final_val": 2.03983998298645,
+  "floor": 1.8158479365764928
+ },
+ "head@300/e5m2_rne": {
+  "mean_signed": -0.012982146226311518,
+  "mean_signed_neg": -0.02245561812628763,
+  "mean_signed_pos": -0.003508674038310644,
+  "dw_rel": 0.07052918524254581
+ },
+ "head@300/e5m2_sr": {
+  "mean_signed": -0.00010946979517144265,
+  "mean_signed_neg": -0.00015510983683828433,
+  "mean_signed_pos": -6.382975211699331e-05,
+  "dw_rel": 0.021053636927514937,
+  "dw_rel_mean": 0.002701131586561218
+ },
+ "head@300/e4m3_rne": {
+  "mean_signed": -0.0030538214690341166,
+  "mean_signed_neg": -0.005805070883092977,
+  "mean_signed_pos": -0.00030257197132820804,
+  "dw_rel": 0.021057021339316355
+ },
+ "head@300/bf16": {
+  "mean_signed": 2.9231294687219032e-05,
+  "mean_signed_neg": 3.834393469852634e-05,
+  "mean_signed_pos": 2.0118654398857435e-05,
+  "dw_rel": 0.0006588498359118282
+ },
+ "head@600/e5m2_rne": {
+  "mean_signed": -0.005017501072379993,
+  "mean_signed_neg": -0.0072519057948287335,
+  "mean_signed_pos": -0.002783096305594038,
+  "dw_rel": 0.015226447747113358
+ },
+ "head@600/e5m2_sr": {
+  "mean_signed": -0.000586699184792781,
+  "mean_signed_neg": -0.00013314843021150236,
+  "mean_signed_pos": -0.0010402499483738513,
+  "dw_rel": 0.013579814948942573,
+  "dw_rel_mean": 0.0013884982018806044
+ },
+ "head@600/e4m3_rne": {
+  "mean_signed": -0.0017366120740082871,
+  "mean_signed_neg": -0.0028365923020485383,
+  "mean_signed_pos": -0.0006366318241411668,
+  "dw_rel": 0.006597066858009783
+ },
+ "head@600/bf16": {
+  "mean_signed": 3.1401576267655567e-06,
+  "mean_signed_neg": 2.1435535633118514e-05,
+  "mean_signed_pos": -1.5155220742621944e-05,
+  "dw_rel": 0.00032082184699702454
+ },
+ "head@900/e5m2_rne": {
+  "mean_signed": -0.004510490123509195,
+  "mean_signed_neg": -0.005801402957851317,
+  "mean_signed_pos": -0.0032195772643165855,
+  "dw_rel": 0.02939143824914451
+ },
+ "head@900/e5m2_sr": {
+  "mean_signed": -0.0004258167530496318,
+  "mean_signed_neg": -0.001381451139546643,
+  "mean_signed_pos": 0.0005298176518436487,
+  "dw_rel": 0.0228474722135537,
+  "dw_rel_mean": 0.002833327346124291
+ },
+ "head@900/e4m3_rne": {
+  "mean_signed": -0.0006411420704529044,
+  "mean_signed_neg": -0.0007578397221401931,
+  "mean_signed_pos": -0.0005244444165191483,
+  "dw_rel": 0.009068952777348623
+ },
+ "head@900/bf16": {
+  "mean_signed": -1.6572125052965392e-05,
+  "mean_signed_neg": -2.254487351327482e-05,
+  "mean_signed_pos": -1.0599376477678637e-05,
+  "dw_rel": 0.000519371156683638
+ },
+ "b1.fc2@300/e5m2_rne": {
+  "mean_signed": -6.905320048279923e-05,
+  "mean_signed_neg": 0.002938519636536698,
+  "mean_signed_pos": -0.0030766337155995753,
+  "dw_rel": 0.017670988357985584
+ },
+ "b1.fc2@300/e5m2_sr": {
+  "mean_signed": -0.00019520536011606763,
+  "mean_signed_neg": 0.0005150879879446128,
+  "mean_signed_pos": -0.0009055005214998889,
+  "dw_rel": 0.020833060473978558,
+  "dw_rel_mean": 0.00283447980719911
+ },
+ "b1.fc2@300/e4m3_rne": {
+  "mean_signed": 0.00010777250244953906,
+  "mean_signed_neg": 0.0006252643652833842,
+  "mean_signed_pos": -0.0004097206815003951,
+  "dw_rel": 0.008473368095545003
+ },
+ "b1.fc2@300/bf16": {
+  "mean_signed": 0.0,
+  "mean_signed_neg": 0.0,
+  "mean_signed_pos": 0.0,
+  "dw_rel": 0.0
+ },
+ "b1.fc2@600/e5m2_rne": {
+  "mean_signed": 3.698046210256493e-05,
+  "mean_signed_neg": 0.003037101610489933,
+  "mean_signed_pos": -0.002963101718323689,
+  "dw_rel": 0.015546047147507297
+ },
+ "b1.fc2@600/e5m2_sr": {
+  "mean_signed": 9.241393036087731e-05,
+  "mean_signed_neg": 0.0005208937800554077,
+  "mean_signed_pos": -0.0003360603538963605,
+  "dw_rel": 0.020432989035140802,
+  "dw_rel_mean": 0.0026144973094670387
+ },
+ "b1.fc2@600/e4m3_rne": {
+  "mean_signed": -7.950340133521563e-05,
+  "mean_signed_neg": 0.0006130210192743213,
+  "mean_signed_pos": -0.0007720188268864339,
+  "dw_rel": 0.007733608019695246
+ },
+ "b1.fc2@600/bf16": {
+  "mean_signed": 0.0,
+  "mean_signed_neg": 0.0,
+  "mean_signed_pos": 0.0,
+  "dw_rel": 0.0
+ },
+ "b1.fc2@900/e5m2_rne": {
+  "mean_signed": 3.359337409873677e-05,
+  "mean_signed_neg": 0.0018478983880695452,
+  "mean_signed_pos": -0.0017807509127357435,
+  "dw_rel": 0.03556682396512999
+ },
+ "b1.fc2@900/e5m2_sr": {
+  "mean_signed": -0.00016249989257527091,
+  "mean_signed_neg": 0.00032240288231114863,
+  "mean_signed_pos": -0.0006474131637786964,
+  "dw_rel": 0.05011441494923328,
+  "dw_rel_mean": 0.006404141006908703
+ },
+ "b1.fc2@900/e4m3_rne": {
+  "mean_signed": 4.0211520148041214e-05,
+  "mean_signed_neg": 0.0020005147095333055,
+  "mean_signed_pos": -0.0019201341024109835,
+  "dw_rel": 0.0177050200255966
+ },
+ "b1.fc2@900/bf16": {
+  "mean_signed": 0.0,
+  "mean_signed_neg": 0.0,
+  "mean_signed_pos": 0.0,
+  "dw_rel": 0.0
+ },
+ "fp8_tensor_final_val": 2.3899402022361755
+}

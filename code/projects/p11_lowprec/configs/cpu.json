@@ -1,0 +1,23 @@
+{
+ "name": "cpu-dry-run",
+ "_comment": "Seconds on a CPU: every code path with tiny sizes. Not a result.",
+ "baseline": "fp32",
+ "models": {
+  "gpt": {"model": "gpt", "vocab": 16, "d": 32, "n_layers": 1, "n_heads": 2, "ctx": 16,
+          "batch": 8, "n_train": 256, "n_val": 16, "steps": 20, "warmup": 4, "lr": 0.003,
+          "log_every": 10},
+  "mlp": {"model": "mlp", "d_in": 8, "d_hidden": 32, "d_out": 2, "n_hidden": 2,
+          "teacher_hidden": 16, "teacher_layers": 1, "batch": 64, "steps": 40, "warmup": 4,
+          "lr": 0.003, "log_every": 10}
+ },
+ "runs": [
+  {"model": "gpt", "recipes": ["fp32", "bf16_pure", "fp16_noscale", "fp8_delayed", "fp8_block",
+                               "mxfp4_sr", "nvfp4_sr_hp", "bf16_acc_promote"],
+   "set": {"hist_steps": [5]}},
+  {"model": "mlp", "recipes": ["fp32", "bf16_pure", "bf16_pure_sr", "fp8_noscale"]}
+ ],
+ "sweeps": [
+  {"name": "loss_weight", "model": "mlp", "key": "loss_weight", "values": [0.001],
+   "recipes": ["fp32", "fp16_noscale", "fp16_dynamic"]}
+ ]
+}

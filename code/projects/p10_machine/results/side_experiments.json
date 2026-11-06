@@ -1,0 +1,169 @@
+{
+ "versions": {
+  "hardware": "2x A100-PCIE-40GB",
+  "python": "3.11.18",
+  "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+  "torch": "2.14.1+cu130",
+  "cuda": "13.0",
+  "cpu": "Intel(R) Xeon(R) Gold 6330 CPU @ 2.00GHz",
+  "cpus": 112,
+  "triton": "3.8.0",
+  "driver": "595.91.07",
+  "power_limit": "250.00 W",
+  "max_sm_clock": "1410 MHz",
+  "max_mem_clock": "1215 MHz",
+  "pcie_gen_max": "4",
+  "pcie_width_max": "16",
+  "gpus": [
+   {
+    "name": "NVIDIA A100-PCIE-40GB",
+    "sms": 108,
+    "mem_bytes": 42405855232,
+    "cc": "8.0",
+    "l2_bytes": 41943040
+   },
+   {
+    "name": "NVIDIA A100-PCIE-40GB",
+    "sms": 108,
+    "mem_bytes": 42405855232,
+    "cc": "8.0",
+    "l2_bytes": 41943040
+   }
+  ],
+  "peer_access": {
+   "0->1": true,
+   "1->0": true
+  },
+  "topology": "GPU0\tGPU1\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\nGPU0\t X \tSYS\t0,2,4,6,8,10\t0\t\tN/A\nGPU1\tSYS\t X \t1,3,5,7,9,11\t1\t\tN/A\n\nLegend:\n\n  X    = Self\n  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)\n  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node\n  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)\n  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)\n  PIX  = Connection traversing at most a single PCIe bridge\n  NV#  = Connection traversing a bonded set of # NVLinks",
+  "p2p_read": "GPU0\tGPU1\t\n GPU0\tX\tOK\t\n GPU1\tOK\tX\t\n\nLegend:\n\n  X    = Self\n  OK   = Status Ok\n  CNS  = Chipset not supported\n  GNS  = GPU not supported\n  TNS  = Topology not supported\n  NS   = Not supported\n  U    = Unknown",
+  "p2p_write": "GPU0\tGPU1\t\n GPU0\tX\tOK\t\n GPU1\tOK\tX\t\n\nLegend:\n\n  X    = Self\n  OK   = Status Ok\n  CNS  = Chipset not supported\n  GNS  = GPU not supported\n  TNS  = Topology not supported\n  NS   = Not supported\n  U    = Unknown",
+  "iommu": [
+   {
+    "pci": "0000:17:00.0",
+    "iommu_group": "6",
+    "iommu_type": "DMA-FQ",
+    "numa_node": "0"
+   },
+   {
+    "pci": "0000:ca:00.0",
+    "iommu_group": "8",
+    "iommu_type": "DMA-FQ",
+    "numa_node": "1"
+   }
+  ]
+ },
+ "clock_ramp": [
+  {
+   "spin_s": 0.0,
+   "idle_sm_mhz": "765",
+   "fma_tflops": 10.307525360505258
+  },
+  {
+   "spin_s": 0.05,
+   "idle_sm_mhz": "765",
+   "fma_tflops": 10.413624301858926
+  },
+  {
+   "spin_s": 0.2,
+   "idle_sm_mhz": "765",
+   "fma_tflops": 19.126600781633584
+  },
+  {
+   "spin_s": 0.5,
+   "idle_sm_mhz": "765",
+   "fma_tflops": 18.980539609856354
+  },
+  {
+   "spin_s": 1.0,
+   "idle_sm_mhz": "765",
+   "fma_tflops": 19.007420607762196
+  }
+ ],
+ "int8_layout": {
+  "n": 8192,
+  "row_major_tops": 60.065439036193375,
+  "col_major_tops": 409.54374523623324
+ },
+ "tf32_flag": {
+  "tf32_off_ms": 7.658290863037109,
+  "tf32_on_ms": 1.1125760078430176
+ },
+ "baselines": {
+  "lab02_bf16_tflops": 214.883924492939,
+  "lab02_bw_gbs": 1327.5715009912522,
+  "do_bench_raw_bf16_tflops": 146.7376576670096,
+  "do_bench_raw_copy_gbs": 1357.1164119027876,
+  "perf_bench_bf16_tflops": 217.02275682736908,
+  "perf_bench_copy_gbs": 1365.091728459423
+ },
+ "h2d_repeats": [
+  {
+   "nbytes": 16777216,
+   "bw_gbs": 24.02951622283002,
+   "host_pages": {
+    "N0": 4096
+   }
+  },
+  {
+   "nbytes": 268435456,
+   "bw_gbs": 23.98622878127459,
+   "host_pages": {
+    "N0": 65536
+   }
+  },
+  {
+   "nbytes": 16777216,
+   "bw_gbs": 24.075861419223802,
+   "host_pages": {
+    "N0": 4096
+   }
+  },
+  {
+   "nbytes": 268435456,
+   "bw_gbs": 24.002598199769253,
+   "host_pages": {
+    "N0": 65536
+   }
+  },
+  {
+   "nbytes": 16777216,
+   "bw_gbs": 23.729344137283974,
+   "host_pages": {
+    "N0": 4096
+   }
+  },
+  {
+   "nbytes": 268435456,
+   "bw_gbs": 23.94846281108275,
+   "host_pages": {
+    "N0": 65536
+   }
+  }
+ ],
+ "peer": {
+  "p2p": [
+   {
+    "nbytes": 4096,
+    "bw_gbs": 0.07257262979941256,
+    "correct": false
+   },
+   {
+    "nbytes": 1048576,
+    "bw_gbs": 6.270117432267935,
+    "correct": false
+   },
+   {
+    "nbytes": 67108864,
+    "bw_gbs": 8.304715802113883,
+    "correct": false
+   }
+  ],
+  "nccl": {
+   "allreduce_correct": true,
+   "sendrecv_correct": true,
+   "nbytes": 268435456,
+   "sendrecv_s": 0.017399947345256805,
+   "sendrecv_bw": 15427371742.775707
+  }
+ }
+}

@@ -439,8 +439,8 @@ owner's go-ahead**.
 | Stage | Scope |
 |---|---|
 | 0 | Restructure: rename, outline, renumbering, dark-mode figures, briefs, ledger (no new prose) |
-| 1 | Part I chapters 1–3 (new ch 3) |
-| 1P | Part I capstones: P10, P11 |
+| 1 | Part I chapters 1–3 (new ch 3) — **done** |
+| 1P | Part I capstones: P10, P11 — **done** |
 | 2 | Part II chapters 6–14 (finish ch 12; write ch 13, 14) |
 | 2P | Part II capstones: P12, P13 |
 | 3 | Part III chapters 17–24 (write ch 24) |

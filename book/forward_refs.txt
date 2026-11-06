@@ -12,3 +12,26 @@ sec:encoders:lab      # stage 2 (ch12 draft)
 sec:encoders:serving  # stage 2 (ch12 draft)
 sec:jax:cmm           # stage 8 (appendix C draft)
 sec:jax:shardmap      # stage 8 (appendix C draft)
+# expanded scope (stage 0 outline): new chapters, appendices and capstones not written yet
+app:containers    # stage 8
+app:research      # stage 8
+ch:anatomy        # stage 2
+ch:gpuarch        # stage 4a
+ch:kvcache        # stage 6a
+ch:memory         # stage 4b
+ch:movestudy      # stage 6b
+ch:profiling      # stage 4a
+ch:rlsetup        # stage 7a
+ch:proj6          # stage 6P
+ch:proj7          # stage 6P
+ch:proj8          # stage 4P
+ch:proj9          # stage 6P
+ch:proj12         # stage 2P
+ch:proj13         # stage 2P
+ch:proj14         # stage 4P
+ch:proj15         # stage 4P
+ch:proj16         # stage 5P
+ch:proj17         # stage 5P
+ch:proj18         # stage 6P
+ch:proj19         # stage 7P
+ch:proj20         # stage 7P

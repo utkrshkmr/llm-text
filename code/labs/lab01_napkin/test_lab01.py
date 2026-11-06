@@ -1,3 +1,4 @@
+import pytest
 import torch
 from torch.utils.flop_counter import FlopCounterMode
 
@@ -69,3 +70,20 @@ def test_decode_roofline():
     b = lab.critical_batch(cfg)
     assert 100 < b < 400  # near the H100 ridge point (~295 FLOP/byte)
     assert lab.max_batch_for_kv(cfg, "H100-SXM", 4096) > 0
+
+
+def test_kaplan_convention_is_our_count_at_half_context():
+    # Kaplan's context term is the causal average of ours: a token at a uniformly random position
+    # attends to n_ctx / 2 keys on average. Removing the LM-head matmul recovers their C_forward.
+    for cfg in (GPT_CONFIG_124M, QWEN3_CONFIGS["0.6B"]):
+        n_ctx = 1024
+        ours = lab.forward_flops_per_token(cfg, n_ctx // 2) - 2 * cfg["emb_dim"] * cfg["vocab_size"]
+        assert lab.kaplan_forward_flops(cfg, n_ctx) == ours
+    # GPT-2 small: N = 12 * 12 * 768^2 = 84.9M, so 2N = 170M FLOPs; the context term is 18.9M
+    k = lab.kaplan_forward_flops(GPT_CONFIG_124M, 1024)
+    assert k == 2 * 84_934_656 + 2 * 12 * 1024 * 768
+
+
+def test_reference_box_numbers():
+    hw = lab.HARDWARE["A100-40GB-PCIe"]
+    assert hw["flops"] / hw["bw"] == pytest.approx(200.6, rel=1e-3)

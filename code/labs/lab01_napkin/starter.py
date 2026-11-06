@@ -11,6 +11,7 @@ import math
 BYTES_PER = {"fp32": 4, "bf16": 2, "fp16": 2, "fp8": 1, "int8": 1, "int4": 0.5}
 
 HARDWARE = {  # dense bf16 tensor-core FLOP/s, HBM bytes/s, HBM capacity in bytes
+    "A100-40GB-PCIe": dict(flops=312e12, bw=1.555e12, mem=40e9),   # the book's reference box
     "A100-80GB-SXM": dict(flops=312e12, bw=2.039e12, mem=80e9),
     "H100-SXM": dict(flops=989e12, bw=3.35e12, mem=80e9),
     "RTX-4090": dict(flops=165e12, bw=1.008e12, mem=24e9),
@@ -84,3 +85,14 @@ def critical_batch(cfg: dict, hw: str = "H100-SXM", dtype: str = "bf16", context
     """Smallest batch at which a decode step becomes compute-bound (KV traffic ignored
     when context=0). Solves batch * F / peak_flops >= W / peak_bw."""
     raise NotImplementedError("TODO: Smallest batch for which decode_step_roofline(...)['bound'] == 'compute'.")
+
+
+# --------------------------------------------------------------------------- Task 7
+def kaplan_forward_flops(cfg: dict, n_ctx: int) -> float:
+    """Forward FLOPs per token in the convention of Kaplan et al. (2020), Table 1:
+    C_forward = 2 N + 2 n_layer n_ctx d_attn. N counts the weight matrices of the blocks
+    (12 n_layer d_model^2 for GPT-2; biases, norms, embeddings and the LM head are left out) and
+    the context term is the causal average: a token attends to n_ctx / 2 keys on average.
+    """
+    raise NotImplementedError(
+        "TODO Task 7: 2 * (block weight-matrix params) + 2 * n_layers * n_ctx * n_heads * head_dim.")

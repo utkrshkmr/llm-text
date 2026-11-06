@@ -6,7 +6,7 @@ write files). Plan: docs/PLAN.md (read the parts about your chapter). Python env
     source /home/csgrad/utkarshk/miniconda3/etc/profile.d/conda.sh && conda activate llmtext
     export TMPDIR=/dev/shm/utkarshk-llmtext/tmp
 
-Machine: 2x A100-40GB (PCIe), 112 CPUs, 500 GB RAM, nvcc 12.x via torch's cpp_extension (CUDA driver 13.2).
+Machine: 2x A100-40GB (PCIe), 112 CPUs, 500 GB RAM, nvcc 13.2 at /usr/local/cuda, torch 2.14 cu130 (matching), triton 3.8, pandoc 3.13, cairosvg.
 Other agents work in the same checkout at the same time: touch ONLY the files assigned to you.
 Shared files you must NOT edit: book/book.yml, book/frontmatter/*, README.md,
 book/appendices/appF_references.md, book/appendices/appH_solutions.md, code/run_all_tests.sh,
@@ -163,6 +163,11 @@ pointer to a named function in the lab's solution.py). Study book/solutions/ch09
 The labs' Measurements sections assume a reader with one or two GPUs; this book's reference box is
 2x A100-40GB over PCIe (no NVLink). Tests never need a GPU. Mention PCIe-specific behaviour where it matters
 (all-reduce/all-to-all bandwidth ≈ 20-25 GB/s per direction, no peer-to-peer NVLink).
+On THIS box, direct peer copies between the two GPUs are broken: `x.to("cuda:1")` from cuda:0 (and `copy_`,
+cudaMemcpyPeer) completes but delivers zeros, although `torch.cuda.can_device_access_peer` reports True (GPUs on
+different sockets, `SYS` path; an IOMMU/platform issue, see [@ch:proj10]). NCCL is unaffected (it routes via SHM).
+Never rely on direct cross-GPU tensor copies in labs, projects or benchmarks: use NCCL collectives/send-recv, or stage
+through pinned host memory, and add a correctness check to any benchmark that moves data between GPUs.
 
 ## 5. Reporting back
 

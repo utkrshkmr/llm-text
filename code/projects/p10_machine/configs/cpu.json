@@ -1,0 +1,31 @@
+{
+  "name": "cpu-dry-run",
+  "datasheet": "",
+  "reps": 5,
+  "m1": {
+    "stream_kinds": ["copy", "read"],
+    "stream_sizes": [65536, 1048576, 1],
+    "warm_sizes": [16384, 262144, 1]
+  },
+  "m2": {
+    "matmul_dtypes": ["fp32", "bf16"],
+    "matmul_sizes": [24, 48],
+    "fma_numel": 4096,
+    "fma_iters": [1, 4],
+    "fma_compile": false,
+    "sustained_seconds": 0
+  },
+  "m3": {
+    "launch_n": 20,
+    "graph_n": [5],
+    "sync_reps": 20,
+    "small_copy_bytes": 4
+  },
+  "m4": {
+    "shapes": "tiny",
+    "reps": 3,
+    "compile": false,
+    "loo": false,
+    "band": 0.2
+  }
+}

@@ -15,7 +15,9 @@ transformer and the GPT family, and then extend the story to reasoning models: m
 extra tokens on intermediate steps and that are improved with inference-time scaling, reinforcement
 learning, and distillation. Throughout, we attach a cost model to every stage, so that by the end of
 the chapter you can estimate, to within a factor of two, what it costs to train, fine-tune,
-post-train, and serve a model of a given size. [@fig:landscape:roadmap] shows the plan.
+post-train, and serve a model of a given size. We close with a map of the book and a first look at
+the research frontier of the field as a whole, with a procedure for placing a new paper on that
+map. [@fig:landscape:roadmap] shows the plan.
 
 ![Roadmap of [@ch:landscape]. Stages 1--4 build the conceptual picture of LLMs and reasoning
 models; stage 5 adds the cost model that the rest of the book refines; stage 6 lays out how the
@@ -74,7 +76,7 @@ the label. We will build exactly this spam filter on top of a pretrained GPT in
 Parameter count is the number every model card leads with, but for a systems engineer it is a proxy
 for three more operational quantities: (1) *weight bytes*, which set the minimum memory footprint
 and, during decoding, the minimum memory traffic per generated token; (2) *FLOPs per token*, roughly
-$2N$ for a forward pass over a model with $N$ parameters; and (3) *optimizer state bytes* during
+$2N$ for a forward pass over a model with $N$ parameters; and (3) *optimiser state bytes* during
 training, roughly $16N$ with mixed-precision AdamW. A 7B-parameter model is 14 GB of bf16 weights,
 about 14 GFLOP per generated token, and about 112 GB of training state before a single activation is
 stored. Most of this book's systems content is about managing those three numbers.
@@ -157,8 +159,9 @@ families matter in this book:
 Production assistants then apply *preference tuning*: the model is nudged towards responses that
 humans (or a model trained on human judgements) prefer. The classic recipe is reinforcement learning
 from human feedback (RLHF), which trains a reward model from human rankings and optimises the LLM
-against it with PPO; we study it in [@ch:grpo]. Lighter-weight alternatives such as Direct
-Preference Optimization (DPO) optimise the same kind of preference data without an explicit RL loop.
+against it with PPO; we study it in [@ch:rlhf]. Lighter-weight alternatives such as Direct
+Preference Optimization (DPO, [@ch:dpo]) optimise the same kind of preference data without an
+explicit RL loop.
 Pretraining gives the model raw linguistic competence; SFT teaches it the *format* of being helpful;
 preference tuning shapes *which* of many acceptable responses it prefers (tone, safety, concision).
 
@@ -241,7 +244,7 @@ instructive. First, the mixture is *weighted*: high-quality sources such as Wiki
 sampled more often than their raw size would suggest, so the model sees them for several epochs
 while seeing most of the web data less than once. Second, the model was trained on 300 billion
 tokens, fewer than the roughly 500 billion available, a choice later work on compute-optimal scaling
-([@ch:pretrain]) would revisit: the Chinchilla analysis suggests about 20 tokens per
+([@ch:pretrain; @ch:scalinglaws]) would revisit: the Chinchilla analysis suggests about 20 tokens per
 parameter, and current open models are trained far beyond that (Qwen3 and Llama-3-class models on
 tens of trillions of tokens) because extra training compute is repaid by cheaper inference with a
 smaller model.
@@ -260,7 +263,7 @@ smaller model.
 high-quality sources are upsampled.
 :::
 
-A token is not a word. With GPT-2's byte-pair-encoding tokenizer, English prose averages roughly
+A token is not a word. With GPT-2's byte-pair-encoding tokeniser, English prose averages roughly
 0.75 words per token, and code or non-English text usually needs more tokens per word. Tokens are
 the unit in which every cost in this book is measured: training compute scales with tokens
 processed, context windows are measured in tokens, and serving is priced per token.
@@ -273,7 +276,7 @@ A 15-trillion-token corpus, typical for a 2025-era open model, tokenised with a 
 60$ TB. GPT-3's 300B training tokens with a 50,257-entry vocabulary fit in `uint16`: $600$ GB. At,
 say, 2 GB/s of aggregate read bandwidth per training node, streaming 60 TB once takes about 8.3
 node-hours, negligible compared with the compute, *provided* the data pipeline is prepared offline
-(tokenised, sharded and shuffled) rather than tokenised on the fly ([@ch:text]).
+(tokenised, sharded and shuffled) rather than tokenised on the fly ([@ch:text; @ch:data]).
 :::
 
 The cost of the compute itself is dominated by the model and token count. Using the standard
@@ -360,8 +363,8 @@ pretraining and usually post-training ([@fig:landscape:levers]):
 2.  **Reinforcement learning** updates the weights so that the model is more likely to produce
     outputs that earn high reward. For reasoning, the reward is usually *verifiable*, for instance
     "the final answer matches the reference" or "the code passes the tests" (RL with verifiable
-    rewards, RLVR). [@ch:grpo; @ch:grpo2; @ch:rlsys] implement GRPO and the systems around
-    it.
+    rewards, RLVR). [@ch:rlsetup] sets up the problem, [@ch:pg] derives policy gradients, and
+    [@ch:grpo; @ch:grpo2; @ch:rlsys] implement GRPO and the systems around it.
 
 3.  **Distillation** transfers reasoning behaviour from a strong *teacher* model to a smaller
     *student*, typically by supervised fine-tuning the student on reasoning traces generated by the
@@ -514,7 +517,7 @@ three facts, each derived properly later.
 
 3.  **Memory**: weights take $N\times$(bytes per parameter); mixed-precision AdamW training state
     takes $\approx 16N$ bytes; the KV cache takes $2\,L\,H_{kv}\,d_h$ values per token of context
-    ([@ch:inference]).
+    ([@ch:inference; @ch:kvcache]).
 
 ::: {#tab:landscape:qwen3napkin .table-float}
 |            |          |               |          |               |                   |
@@ -528,8 +531,8 @@ three facts, each derived properly later.
 | Qwen3-14B  |    14.8B |          31.3 |  160 KiB |       640 MiB |               111 |
 | Qwen3-32B  |    32.8B |          72.6 |  256 KiB |     1,024 MiB |                50 |
 
-: Napkin numbers for the dense Qwen3 family, produced by the calculator you build in Lab 1
-([@sec:landscape:lab]). "Decode tok/s" is the roofline upper bound for a single sequence:
+: Napkin numbers for the dense Qwen3 family, produced by the calculator you build in
+[@lab:landscape]. "Decode tok/s" is the roofline upper bound for a single sequence:
 weight bytes plus KV bytes divided by 3.35 TB/s. Real engines reach a large fraction of it at batch
 1; throughput beyond it requires batching.
 :::
@@ -538,9 +541,9 @@ weight bytes plus KV bytes divided by 3.35 TB/s. Real engines reach a large fr
 Two features stand out. First, KV-cache bytes per token are small and nearly constant across sizes
 (thanks to grouped-query attention, [@ch:modern]), so at long contexts the cache, not the
 weights, limits how many requests fit in memory. Second, single-sequence decoding speed is set by
-*bandwidth*: the smallest model streams its 1.2 GB of weights about 2,000 times per second, and
-nothing short of batching, quantisation ([@ch:efficient]) or speculative decoding can beat
-that bound.
+*bandwidth*: the smallest model streams its 1.2 GB of weights plus 448 MiB of KV cache about 2,000
+times per second (the weights alone would allow about 2,800), and nothing short of batching,
+quantisation ([@ch:efficient]) or speculative decoding can beat that bound.
 
 ::: napkinmath
 [GPT-3 in GPU-days]{.box-title}
@@ -604,9 +607,9 @@ table in this chapter: nearly every optimisation in the book is an attack on one
 | Workload | Dominant operation | Usual bottleneck | Main remedies (chapter) |
 |:---|:---|:---|:---|
 | Pretraining | large GEMMs, fwd + bwd | compute; then interconnect | mixed precision, kernel fusion, Flash­Attention, parallelism ([-@ch:pretrain], [-@ch:distributed]) |
-| Fine-tuning | same, smaller scale | memory capacity (optimizer state) | LoRA and QLoRA, ZeRO and FSDP, checkpointing ([-@ch:instruct], [-@ch:distributed]) |
+| Fine-tuning | same, smaller scale | memory capacity (optimiser state) | LoRA and QLoRA, ZeRO and FSDP, checkpointing ([-@ch:instruct], [-@ch:distributed]) |
 | Prefill | GEMMs over prompt | compute | FlashAttention, chunked prefill, prefix caching ([-@ch:attention], [-@ch:serving]) |
-| Decode | GEMVs + attention over cache | memory bandwidth; KV capacity | batching, paged KV, GQA, quantisation, speculative decoding ([-@ch:serving], [-@ch:efficient]) |
+| Decode | GEMVs + attention over cache | memory bandwidth; KV capacity | batching, paged KV, GQA, quantisation, speculative decoding ([-@ch:serving], [-@ch:kvcache], [-@ch:efficient]) |
 | RL rollouts | decode at scale | bandwidth; long-tail lengths | inference engines inside the trainer, async RL ([-@ch:rlsys]) |
 | Evaluation | batched decode + checking | bandwidth; verifier CPU time | batching, caching, sandboxed parallel verifiers ([-@ch:eval]) |
 
@@ -622,21 +625,62 @@ compute budget $C\approx6ND$, loss is minimised when parameters and tokens grow 
 proportion, at about 20 tokens per parameter. A 70B model is then "compute-optimal" at about 1.4T
 tokens. Production models deliberately overshoot ($D/N$ in the hundreds or thousands) because a
 smaller model trained longer is cheaper to *serve*, and lifetime serving cost dominates
-([@fig:landscape:lifecyclecost]). [@ch:pretrain] derives the compute-optimal
-allocation.
+([@fig:landscape:lifecyclecost]). [@ch:scalinglaws] derives the compute-optimal
+allocation and fits these laws to our own runs.
+:::
+
+::: deepdive
+[Reading the research: Kaplan et al. (2020), "Scaling Laws for Neural Language Models"]{.box-title}
+
+**The cost model, in our notation.** The paper's Table 1 counts, for a decoder with $L$ layers,
+width $d$, attention width $d_{\text{attn}}=H d_h$ and MLP width $d_{\text{ff}}$, the
+*non-embedding* parameters $N = 2\,d\,L\,(2d_{\text{attn}} + d_{\text{ff}})$, which is
+$12\,L\,d^2$ for the GPT shape $d_{\text{attn}}=d$, $d_{\text{ff}}=4d$, and the forward cost per
+token $$\begin{equation}
+C_{\text{forward}} \;=\; 2N + 2\,L\,n_{\text{ctx}}\,d_{\text{attn}},
+\label{eq:landscape:kaplan}
+\end{equation}$$ from which training costs $C\approx 6N$ FLOPs per token, $C\approx6ND$ in all.
+The second term looks like half of what [@sec:landscape:cost] charges for attention
+($4\,L\,d_{\text{attn}}$ per key attended, for $QK^\top$ and $PV$). It is not a different count
+but an average: in a causal sequence of $n_{\text{ctx}}$ tokens a token attends to
+$n_{\text{ctx}}/2$ keys on average. Embeddings and the output head are left out of $N$, biases and
+norm gains too.
+
+**What our code reproduces.** `kaplan_forward_flops` in [@lab:landscape] implements
+([-@eq:landscape:kaplan]) and the lab's test checks that it equals our own
+`forward_flops_per_token(cfg, n_ctx / 2)` minus the LM-head matmul, *exactly*, for GPT-2 and
+Qwen3. The paper then argues that the context term is negligible when $d > n_{\text{ctx}}/12$,
+which follows from the ratio $L\,n_{\text{ctx}}\,d_{\text{attn}}/N = n_{\text{ctx}}/(12d)$ for the
+GPT shape. The lab gives the fraction of $C_{\text{forward}}$ in the context term: 10% for GPT-2
+small at $n_{\text{ctx}}=1{,}024$, the regime of the paper; 35% for Qwen3-0.6B at 4,096 tokens
+(its attention is twice as wide as its residual stream, so the GPT-shape criterion is optimistic)
+and 81% at 32,768; 8% and 41% for Qwen3-8B at the same two lengths. The "$6N$" rule is an
+excellent model of 2020-era pretraining and a poor one of long-context training. We do not
+reproduce the paper's loss exponents ($\alpha_N\approx0.076$, $\alpha_D\approx0.095$,
+$\alpha_C\approx0.050$) or its allocation $N_{\text{opt}}\propto C^{0.73}$ here: that needs
+training runs, which [@ch:scalinglaws] and [@ch:proj3] make.
+
+**What the evaluation leaves out.** The fits count FLOPs, never time, memory or serving cost, so
+they cannot see that a smaller model trained longer is cheaper to deploy. Every run used one
+learning-rate schedule length regardless of its token budget; Hoffmann et al. (2022) showed that
+this biased the allocation towards large models, and their refit moved the exponent from 0.73 to
+about 0.5. Excluding embedding parameters changes the fitted exponents at small scale (Pearce and
+Song, 2024). The data are one distribution (WebText2) seen for at most one epoch, the largest model
+has about 1.5B parameters, and the context term is dropped. Each omission became a later paper.
 :::
 
 ### The hardware zoo
 
 Most LLM work today runs on NVIDIA GPUs (A100, H100/H200, B200), whose programming model, CUDA, is
-the one we use in [@app:triton]. Google's TPUs organise compute as large systolic matrix
+the one we program in [@ch:cuda] and, one level up, in Triton ([@app:triton]); [@ch:gpuarch]
+takes the GPU and its competitors apart. Google's TPUs organise compute as large systolic matrix
 units fed by high-bandwidth memory and connect chips in a torus with dedicated inter-chip links. A
 third family of *dataflow* or near-memory architectures, including Tenstorrent's grids of
 RISC-V-controlled Tensix cores, Cerebras's wafer-scale engine and Groq's deterministic LPU, trades
 the GPU's cache hierarchy for explicitly scheduled on-chip SRAM and data movement. The vocabulary of
 this book (FLOPs, bytes, arithmetic intensity, bandwidth, interconnect, overlap) applies unchanged
-to all of them; only the constants and the knobs differ. [@fig:landscape:hwzoo] sketches
-the common abstraction.
+to all of them; only the constants and the knobs differ ([@app:accel]).
+[@fig:landscape:hwzoo] sketches the common abstraction.
 
 ![Three accelerator families, one abstraction. Performance analysis in this book reduces any of them
 to compute throughput, memory capacity and bandwidth, and interconnect bandwidth and
@@ -644,41 +688,253 @@ latency.](figures/ch01_landscape-11.svg){#fig:landscape:hwzoo}
 
 ## A roadmap for this book {#sec:landscape:roadmap}
 
-The book follows two complementary arcs. The first builds a GPT-style model in three stages: (1)
-data preparation and the attention mechanism, then the full architecture; (2) pretraining,
-evaluation and loading pretrained weights; (3) fine-tuning for classification and for instruction
-following. The second starts from an existing pretrained (and post-trained) model and adds
-reasoning: it builds a text-generation pipeline, an evaluation harness with a math verifier, then
-inference-time techniques (chain of thought, sampling, self-consistency, self-refinement), then
-training techniques (RL with GRPO, and distillation). We merge the two arcs and wrap them in a
-systems layer ([@fig:landscape:bookmap]), and one part of that layer goes all the way down:
-C++ extensions for PyTorch, CUDA kernels, and the compilers between a Python program and the GPU
-(Part IV).
+The book follows two arcs and wraps them in a systems layer. The first arc builds a GPT-style model
+and trains it: data and tokenisation, attention, the full architecture, pretraining, and fine-tuning
+for classification and for following instructions. The second starts from a pretrained (and
+post-trained) model and turns it into a reasoning model: a text-generation pipeline, an evaluation
+harness with a math verifier, inference-time techniques (chain of thought, sampling,
+self-consistency, self-refinement), and training techniques (policy gradients, RLHF, DPO, GRPO and
+distillation). The systems layer runs through every chapter as Systems Lens and Napkin Math boxes,
+and one part of it goes all the way down, from a Python program to C++, CUDA, compilers and the
+memory system. Our goal throughout is not only to explain how today's systems work but to leave
+you able to read, reproduce and extend the research that will replace them.
 
-![How the chapters fit together. Blue chapters build and train the model, green chapters turn it
-into a reasoning model, amber chapters are the systems layer, and purple chapters cover the model
-design space, data, scaling, preference optimization and alignment, plus the nine capstone projects
-of Part VIII. Every chapter except the project guides ends with a
-lab.](figures/ch01_landscape-12.svg){#fig:landscape:bookmap}
+![How the chapters fit together. Each band is one part of the book, read left to right and top to
+bottom. Boxes are coloured by theme (blue: models and training; amber: systems, hardware and
+serving; green: data and evaluation; purple: reasoning and post-training; grey: appendices), and
+the dashed boxes are the capstone projects that close each part. Every chapter except the project
+guides ends with a lab.](figures/ch01_landscape-12.svg){#fig:landscape:bookmap}
+
+[@fig:landscape:bookmap] shows the seven parts. Every part ends with research-grade capstone
+projects that use only the material of that part and the parts before it; each has a
+specification framed as research questions, milestones with automated acceptance tests,
+baselines, a compute budget sized for two A100-40GB GPUs connected over PCIe, and a reference
+solution.
+
+- **Part I, Foundations.** This chapter; PyTorch and the machine underneath it, with the roofline
+  as the book's first performance model ([@ch:pytorch]); and how numbers are represented, rounded
+  and accumulated on the machine, from fp32 to fp8 and integer formats ([@ch:numerics]).
+  Capstones: characterising your own machine ([@ch:proj10]) and a low-precision training study
+  ([@ch:proj11]).
+
+- **Part II, Building an LLM.** Text and tokenisation ([@ch:text]), attention ([@ch:attention]),
+  GPT-2 ([@ch:gpt]), a modern Qwen3-style model ([@ch:modern]), the architecture design space
+  ([@ch:archdesign]), alternatives to softmax attention ([@ch:attnalt]), encoders and
+  encoder--decoders ([@ch:encoders]), mixture-of-experts models end to end ([@ch:moe]), and the
+  anatomy of today's open models down to their checkpoint files ([@ch:anatomy]). Capstones:
+  bringing up a new open model against reference logits ([@ch:proj12]) and sequence mixers at long
+  context ([@ch:proj13]).
+
+- **Part III, Pretraining at scale.** Optimisers ([@ch:optim]), the pretraining loop
+  ([@ch:pretrain]), pretraining data ([@ch:data]), scaling laws ([@ch:scalinglaws]), single-GPU
+  performance engineering ([@ch:perf]), distributed training ([@ch:distributed]), sharded data
+  parallelism ([@ch:sharding]) and a calculus for sharded computation ([@ch:shardcalc]).
+  Capstones: a language model from scratch ([@ch:proj1]), training systems on PCIe GPUs
+  ([@ch:proj2]), a budgeted scaling study ([@ch:proj3]) and a web-data pipeline ([@ch:proj4]).
+
+- **Part IV, From Python to the metal.** C++ for PyTorch ([@ch:cpp]), GPU and accelerator
+  architecture ([@ch:gpuarch]), CUDA kernels from first principles ([@ch:cuda]), attention and
+  mixture-of-experts kernels ([@ch:cudakernels]), the profiling toolchain ([@ch:profiling]), ML
+  compilers ([@ch:compilers]), and memory, data movement and interconnects ([@ch:memory]).
+  Capstones: mixture-of-experts systems ([@ch:proj8]), a tiny tensor compiler ([@ch:proj14]) and a
+  kernel library measured against vendor libraries ([@ch:proj15]).
+
+- **Part V, Fine-tuning.** Classification ([@ch:classify]) and instruction tuning with LoRA and
+  its relatives ([@ch:instruct]). Capstones: a parameter-efficient fine-tuning study
+  ([@ch:proj16]) and a domain specialist built end to end ([@ch:proj17]).
+
+- **Part VI, Inference and serving.** How one request is generated ([@ch:inference]), how a
+  server batches thousands ([@ch:serving]), how the KV cache is allocated, shared, evicted and
+  moved ([@ch:kvcache]), how to make each token cheaper ([@ch:efficient]), inference on CPUs and
+  devices ([@ch:ondevice]), retrieval and compound systems ([@ch:retrieval]), and a measured study
+  of data movement in a long-running multi-stream reasoning workload ([@ch:movestudy]).
+  Capstones: a serving engine ([@ch:proj6]), a CPU runtime ([@ch:proj7]), a profiler
+  ([@ch:proj9]) and long-context multi-agent serving ([@ch:proj18]).
+
+- **Part VII, Reasoning and post-training.** Evaluation ([@ch:eval]), inference-time scaling
+  ([@ch:scaling]), self-refinement ([@ch:refine]), the reinforcement-learning setup for LLMs
+  ([@ch:rlsetup]), policy gradients ([@ch:pg]), RLHF with PPO ([@ch:rlhf]), DPO ([@ch:dpo]), GRPO
+  and its descendants ([@ch:grpo; @ch:grpo2]), RL training systems ([@ch:rlsys]), distillation
+  ([@ch:distill]) and alignment and multimodality ([@ch:alignment]). Capstones: post-training a
+  reasoning model ([@ch:proj5]), agentic RL with tools ([@ch:proj19]) and reasoning distillation
+  under a budget ([@ch:proj20]).
+
+The appendices cover Triton ([@app:triton]), accelerators beyond the GPU ([@app:accel]), JAX and
+XLA ([@app:jax]), the lab setup ([@app:setup]), containerising an ML project
+([@app:containers]), the references ([@app:refs]), how to follow, read, reproduce and do research
+in LLM systems ([@app:research]), and worked solutions to the exercises ([@app:solutions]).
 
 ##### How to read this book.
 
-The chapters are written to be read in order, but there are shortcuts. A reader mainly interested in
-reasoning can read [@ch:landscape; @ch:pytorch], skim [@ch:gpt; @ch:modern], and jump
-to Part VII. A reader mainly interested in systems can read the Systems Lens and Napkin Math boxes,
-then
-[@ch:pytorch; @ch:perf; @ch:distributed; @ch:sharding; @ch:serving; @ch:efficient; @ch:rlsys]
-plus [@app:triton; @app:accel]. A reader who learns best by building can work through the
-capstone projects of Part VIII: each project guide lists, task by task, the chapters and labs that
-teach what the project needs.
+The chapters are written to be read in order, but there are shorter paths. Four of them cover the
+readers we have in mind; each ends at capstones that test it.
 
-##### Labs.
+- **Systems researcher.** [@ch:landscape; @ch:pytorch; @ch:numerics], then [@ch:proj10]; the
+  Systems Lens boxes of Part II; [@ch:perf; @ch:distributed; @ch:sharding; @ch:shardcalc]; all
+  of Part IV; [@ch:inference; @ch:serving; @ch:kvcache; @ch:movestudy]; [@ch:rlsys]; appendices
+  [@app:accel; @app:jax; @app:research]. Capstones: [@ch:proj2; @ch:proj14; @ch:proj15; @ch:proj9].
+
+- **Inference engineer.** [@ch:pytorch; @ch:numerics]; [@ch:attention; @ch:modern; @ch:moe;
+  @ch:anatomy]; [@ch:gpuarch; @ch:cudakernels; @ch:profiling; @ch:memory]; all of Part VI; then
+  [@ch:scaling] for the serving cost of reasoning. Capstones: [@ch:proj6; @ch:proj7; @ch:proj18].
+
+- **Training engineer.** Part I; [@ch:gpt; @ch:modern; @ch:moe]; all of Part III;
+  [@ch:compilers; @ch:memory]; [@ch:instruct]. Capstones: [@ch:proj1; @ch:proj2; @ch:proj3;
+  @ch:proj11].
+
+- **Post-training and RL researcher.** [@ch:landscape; @ch:pytorch]; [@ch:gpt; @ch:modern];
+  [@ch:instruct]; [@ch:inference; @ch:serving]; then Part VII in order, starting with
+  [@ch:eval; @ch:rlsetup]. Capstones: [@ch:proj5; @ch:proj19; @ch:proj20].
+
+A reader who learns best by building can start from a capstone: each project guide lists, task by
+task, the chapters and labs that teach what the project needs.
+
+##### Labs and research sections.
 
 Each chapter closes with a lab in `code/labs/`. A lab has a `starter.py` with `TODO`s, a reference
 `solution.py`, and tests that run on a laptop CPU in seconds using tiny model configurations; most
 labs also ship a `run.py` or `bench.py` meant for a real GPU and real checkpoints. Tests are graded
 with `pytest` ([@app:setup]). The shared library `llmsys` contains the reusable pieces (model
-definitions, KV caches, sampling, training loops) built up over the first chapters.
+definitions, KV caches, sampling, training loops) built up over the first chapters. Every measured
+number in the book is labelled with the machine it was measured on; ours is a workstation with two
+A100-40GB GPUs connected over PCIe, without NVLink.
+
+Every chapter also ends, before its summary, with a *Research frontier* section: the open problems,
+the handful of papers that define the area and what each changed, the assumptions that new
+hardware or models are likely to break, and the axes along which new papers vary, so that you can
+place a new paper in a minute. Each chapter also works through one landmark paper in a *Reading
+the research* box: its cost model in our notation, which of its numbers our lab code reproduces
+and how closely, and what its evaluation leaves out. [@sec:landscape:frontier] does this for the
+field as a whole.
+
+## Research frontier {#sec:landscape:frontier}
+
+Every later chapter closes with the frontier of its own topic. Here we take the field as a whole:
+where LLM systems research is moving, the works that defined it, the assumptions most likely to
+fail next, and a procedure for placing a new paper on the map in a minute.
+
+### Where the field is moving
+
+**Reasoning and test-time compute.** Reasoning models move cost from training into generated
+tokens ([@sec:landscape:levers]). The open problems are allocation (how to split a budget between
+a larger model and more thinking per query; Snell et al., 2024), verification beyond domains with
+programmatic checkers, and serving: a 10,000-token trace is a long decode that holds KV cache for
+seconds to minutes, which turns KV-cache capacity, not FLOPs, into the binding constraint
+([@ch:scaling; @ch:kvcache; @ch:movestudy]).
+
+**Hybrid and sparse architectures.** Fine-grained mixture-of-experts models (DeepSeek-AI, 2024,
+"V3") decouple parameters from FLOPs per token; state-space and linear-attention layers mixed with
+a few attention layers (Gu and Dao, 2023; Lieber et al., 2024) bound the per-token state; trained
+sparse attention (Yuan et al., 2025) skips most of the cache. None has a settled scaling law, and
+each changes the cost model of [@sec:landscape:cost]: active and total parameters differ, KV bytes
+stop growing linearly with context, and the kernels become irregular ([@ch:moe; @ch:attnalt;
+@ch:cudakernels]).
+
+**Low precision.** Training moved from fp32 to bf16 and, at the frontier, to fp8 with fine-grained
+scaling (DeepSeek-AI, 2024, "V3"); block-scaled microscaling formats (Rouhani et al., 2023) push to
+6 and 4 bits. Precision is now a scaling-law variable in its own right (Kumar et al., 2024), and
+the open questions are where each format is safe (weights, activations, gradients, optimiser
+state, KV cache) and how to know before a long run diverges ([@ch:numerics; @ch:proj11]).
+
+**Disaggregated and memory-centric serving.** Prefill is compute-bound and decode is
+bandwidth-bound ([@tab:landscape:bottlenecks]); running them on the same GPUs makes each slow the
+other. Splitting them across machines (Patel et al., 2024; Zhong et al., 2024) and treating the KV
+cache as a distributed store (Qin et al., 2024) trade interference for data movement, so the
+interconnect becomes the bottleneck to study ([@ch:serving; @ch:kvcache; @ch:memory]).
+
+**RL systems.** An RL step for reasoning is mostly generation: an inference engine and a trainer
+share the GPUs and exchange weights every step (Sheng et al., 2025). Open problems are the
+long tail of rollout lengths, how stale (off-policy) rollouts may be before learning suffers,
+and how to move weights between trainer and generator cheaply ([@ch:rlsetup; @ch:rlsys]).
+
+**Hardware co-design.** Models are now designed around the hardware they will run on and the
+reverse: DeepSeek-V3's latent attention, fp8 recipe and communication-hiding pipeline were chosen
+around the interconnect limits of its H800 cluster, and its authors spell out what they want from
+the next chips (Zhao et al., 2025). At the other extreme, training across poorly connected sites
+(Douillard et al., 2023) asks how little communication training needs ([@ch:gpuarch; @ch:memory;
+@app:accel]).
+
+### The works that defined the field
+
+- Vaswani et al. (2017), "Attention Is All You Need": the transformer, a model made almost entirely
+  of matrix multiplications, which is why GPUs and TPUs could scale it.
+- Kaplan et al. (2020): loss is a smooth power law in $N$, $D$ and $C$, and $C\approx6ND$; scale
+  became something to plan rather than to hope for.
+- Hoffmann et al. (2022), "Chinchilla": the compute-optimal allocation is about 20 tokens per
+  parameter, and most models of the time were undertrained.
+- Dao et al. (2022), "FlashAttention": an exact algorithm restructured around the memory
+  hierarchy is several times faster; IO-awareness became the default way to design a kernel.
+- Pope et al. (2023), "Efficiently Scaling Transformer Inference": inference cost as a function of
+  batch, sharding layout and memory bandwidth, the template for every serving cost model.
+- Kwon et al. (2023), "PagedAttention" (vLLM): KV-cache memory managed like virtual memory, which
+  made large-batch serving practical and created the open serving-engine ecosystem.
+- Snell et al. (2024): test-time compute can substitute for parameters, and the optimal amount
+  depends on the difficulty of the query.
+- DeepSeek-AI (2024), "DeepSeek-V3": a frontier model co-designed with its cluster (MLA,
+  fine-grained MoE, fp8 training, overlapped expert communication), documented in enough detail to
+  reproduce the systems choices.
+- DeepSeek-AI (2025), "DeepSeek-R1": reinforcement learning with verifiable rewards on a strong base
+  model yields long chain-of-thought reasoning, with open weights and a recipe.
+- Zhong et al. (2024), "DistServe": optimise prefill and decode for their own latency targets on
+  separate hardware, measured as goodput; disaggregation entered production serving.
+
+### Assumptions that are likely to break
+
+- *"Training compute is $6ND$."* It omits the context term (the box on Kaplan et al. shows
+  it reaching 81% of the forward cost at 32k tokens for a small model), counts total rather than
+  active parameters for MoE, and ignores generation, which dominates RL.
+- *"Pretraining dominates compute."* Serving and RL rollouts already exceed post-training
+  ([@fig:landscape:lifecyclecost]), and reasoning models multiply serving tokens.
+- *"Decode is memory-bound, prefill compute-bound."* Large decode batches, MoE (each expert sees a
+  fraction of the batch) and sparse attention move both operations along the roofline, and the
+  ridge point moves between chip generations: in bf16 from 153 FLOP/byte on an A100-80GB SXM to 295
+  on an H100, because peak FLOP/s grew $3.2\times$ while bandwidth grew $1.6\times$, and back down
+  to about 206 on the H200, which kept the H100's compute and added bandwidth. Counting the
+  lower-precision tensor cores, the ridge climbs steeply: about 562 FLOP/byte in fp8 and 1,125 in fp4
+  on a B200 ([@ch:pytorch]).
+- *"bf16 is the working precision."* fp8 training and 4-bit inference are in production; formats
+  are becoming per-tensor design decisions ([@ch:numerics]).
+- *"GPUs in a job are connected by a fast fabric."* Boxes like ours (PCIe only), multi-site
+  training and disaggregated serving make the slowest link the design point.
+
+### How to recognise the next variant
+
+Most systems papers are a point in a small space. Place a new one by answering six questions,
+which [@tab:landscape:axes] applies to papers from this section and later chapters:
+
+1. **Stage:** pretraining, post-training, inference or RL (which mixes the last two)?
+2. **Resource attacked:** FLOPs, HBM bandwidth, HBM capacity, interconnect, host CPU, or latency
+   and launch overhead? Our three-line cost model says which one binds.
+3. **Mechanism:** do less work (sparsity, early exit), move fewer bytes (quantisation,
+   compression, fusion), reuse (batching, caching, sharing), overlap (pipelining, asynchrony),
+   re-partition (sharding, disaggregation), or trade one resource for another (recompute versus
+   store)?
+4. **Exactness:** does the output stay bit-identical, equal in distribution, or does the model
+   change and need a quality evaluation?
+5. **Hardware ratio assumed:** which ratio (FLOP/s per byte/s, capacity per bandwidth, interconnect
+   per HBM bandwidth) makes the idea pay off, and does it hold on your machine?
+6. **Evaluation:** what is held fixed (model, quality metric, hardware, baseline), and at what
+   scale?
+
+::: {#tab:landscape:axes .table-float}
+| Work | Stage | Resource attacked | Mechanism | Exactness |
+|:---|:---|:---|:---|:---|
+| FlashAttention | training, inference | HBM bytes | fusion, tiling in SRAM | exact |
+| PagedAttention | inference | HBM capacity | paged allocation, sharing | exact |
+| Speculative decoding | inference | sequential decode steps | spend FLOPs to save weight reads | same distribution |
+| GPTQ, AWQ | inference | HBM bytes and capacity | quantisation | approximate |
+| DistServe | inference | prefill--decode interference | disaggregation | exact |
+| ZeRO / FSDP | training | HBM capacity | sharding, communication | exact |
+| GRPO | RL | HBM capacity, compute | no critic: group baseline | different algorithm |
+| DeepSeek-V3 fp8 | training | FLOPs, HBM bytes | low precision with fine scaling | approximate |
+
+: Placing papers on the axes of [@sec:landscape:frontier]. Most new papers differ from one of these
+rows in a single column.
+:::
+
+Two questions finish the placement: what does the paper's cost model predict on *your* hardware,
+and which of its numbers could you reproduce in a day? [@app:research] turns these questions into
+a working method for reading, reproducing and extending papers.
 
 ## Summary {#sec:landscape:summary}
 
@@ -702,6 +958,17 @@ definitions, KV caches, sampling, training loops) built up over the first chapte
 
 - A three-line cost model ($2N$ FLOPs/token forward, $6ND$ training FLOPs, $16N$ bytes of training
   state plus a per-token KV cache) is enough to estimate most budgets to within a small factor.
+  Its attention term, which Kaplan et al. (2020) could drop at 1k tokens, cannot be dropped at
+  long context.
+
+- The book has seven parts, each closed by capstone projects that use only that part and earlier
+  ones; four reading paths serve systems researchers, inference engineers, training engineers and
+  post-training researchers.
+
+- The frontier of the field is set by reasoning and test-time compute, hybrid and sparse
+  architectures, low precision, disaggregated serving, RL systems and hardware co-design. A new
+  paper is placed by its stage, the resource it attacks, its mechanism, its exactness, the hardware
+  ratio it assumes and what its evaluation holds fixed.
 
 ## Exercises {#sec:landscape:exercises}
 
@@ -793,6 +1060,29 @@ scaling, RL, and distillation for this setting and justify the ranking using the
 [@sec:landscape:levers].
 :::
 
+::: exercise
+[Kaplan's accounting at long context]{.box-title}
+
+Extend the napkin calculator to the setting of Kaplan et al. (2020). (a) Using
+`kaplan_forward_flops`, find for GPT-2 small, Qwen3-0.6B and Qwen3-8B the context length at which
+the context term of ([-@eq:landscape:kaplan]) equals $2N$. (b) Derive the general condition and
+explain why the paper's rule $d > n_{\text{ctx}}/12$ is too optimistic for Qwen3. (c) A team plans
+to continue pretraining Qwen3-8B on 100B tokens at a 32k context and budgets $6ND$. By what factor
+is the budget wrong, and in which direction? (d) Place Kaplan et al. and Hoffmann et al. on the six
+axes of [@sec:landscape:frontier].
+:::
+
+::: exercise
+[Predict, then measure: the reference box]{.box-title}
+
+Predict with `report.py --hw A100-40GB-PCIe` the batch-1 decode time per token of Qwen3-0.6B at a
+1,024-token context and the critical batch size on one A100-40GB PCIe, and compare both with the
+H100 numbers of [@tab:landscape:qwen3napkin]. Then measure the decode step with the benchmark of
+[@lab:inference], in eager mode and with `torch.compile`. Which of the predicted and measured
+ratios between the two GPUs would you expect to agree, and which not? Explain the gap between
+prediction and measurement with the three regimes of [@fig:pytorch:async].
+:::
+
 ## Lab 1: A napkin-math calculator for LLMs {#sec:landscape:lab}
 
 ::: labbox
@@ -840,13 +1130,19 @@ so every formula can be checked against a model built from the same dictionary.
     decode step, the smallest batch that makes it compute-bound, and the largest batch whose KV
     cache fits.
 
+7.  `kaplan_forward_flops`: the per-token forward cost in the convention of Kaplan et al. (2020),
+    ([-@eq:landscape:kaplan]). The test checks that it equals your
+    `forward_flops_per_token` at half the context, minus the LM head.
+
 **Measurements**
 
 Run `python labs/lab01_napkin/report.py` to regenerate [@tab:landscape:qwen3napkin] for the
-GPT-2 and Qwen3 families. Then use `--hw A100-80GB-SXM` and `--hw RTX-4090` and note how the
-critical batch size tracks the ratio of peak FLOP/s to bandwidth (the *ridge point*,
-[@ch:pytorch]) rather than the model. Expect critical batches of a few hundred on datacentre
-GPUs.
+GPT-2 and Qwen3 families. Then use `--hw A100-40GB-PCIe` (this book's reference box),
+`--hw A100-80GB-SXM` and `--hw RTX-4090` and note how the critical batch size tracks the ratio of
+peak FLOP/s to bandwidth (the *ridge point*, [@ch:pytorch]) rather than the model. Expect critical
+batches of a few hundred on datacentre GPUs: about 200 on the A100-40GB PCIe and about 300 on the
+H100 for Qwen3-0.6B. `python labs/lab01_napkin/figures.py` redraws the book map of
+[@fig:landscape:bookmap].
 
 **Deliverables**
 

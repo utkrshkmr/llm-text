@@ -1,0 +1,41 @@
+{
+ "name": "full",
+ "_comment": "The study (estimate: about 10 GPU-h; make full splits the transformer and MLP runs over the two GPUs). Three seeds of every recipe on a larger transformer and MLP; finer break-point sweeps with two seeds. Verdict thresholds: calibrate in the GPU stage.",
+ "baseline": "fp32",
+ "verdict": {"ok": 0.10, "broken": 0.69, "stall_window": 0.25, "stall_tol": 0.05, "tail": 0.1},
+ "models": {
+  "gpt": {"model": "gpt", "vocab": 64, "order": 2, "support": 8, "d": 128, "n_layers": 4,
+          "n_heads": 4, "ctx": 64, "batch": 64, "n_train": 32768, "n_val": 512, "steps": 2000,
+          "warmup": 150, "lr": 0.006, "log_every": 50},
+  "mlp": {"model": "mlp", "d_in": 32, "d_hidden": 512, "d_out": 8, "n_hidden": 4,
+          "teacher_hidden": 32, "teacher_layers": 1, "batch": 512, "steps": 3000,
+          "warmup": 200, "lr": 0.001, "log_every": 100}
+ },
+ "runs": [
+  {"model": "gpt", "recipes": ["fp32"], "seeds": [0, 1, 2],
+   "set": {"hist_steps": [100, 1000, 1999]}},
+  {"model": "gpt", "recipes": ["bf16", "fp16_dynamic", "bf16_pure", "bf16_pure_sr",
+                               "bf16_lowsens", "fp16_noscale", "fp16_static", "fp16_lowsens",
+                               "bf16_acc", "bf16_acc_promote",
+                               "fp8_noscale", "fp8_tensor", "fp8_delayed", "fp8_e4m3_tensor",
+                               "fp8_block", "fp8_block_acc14", "fp8_block_acc14_promote", "fp8_tensor_hp",
+                               "fp8_tensor_sr", "mxfp4", "mxfp4_sr", "mxfp4_sr_ceil", "mxfp4_fwd",
+                               "nvfp4", "nvfp4_sr", "nvfp4_sr_hp"], "seeds": [0, 1, 2]},
+  {"model": "mlp", "recipes": ["fp32", "bf16", "bf16_pure", "bf16_pure_sr",
+                               "fp16_noscale", "fp16_static", "fp16_dynamic",
+                               "fp8_noscale", "fp8_tensor", "fp8_tensor_hp", "fp8_tensor_sr",
+                               "fp8_delayed", "fp8_e4m3_tensor", "fp8_block",
+                               "mxfp4", "mxfp4_sr", "mxfp4_sr_ceil", "mxfp4_fwd", "nvfp4",
+                               "nvfp4_sr"], "seeds": [0, 1, 2]}
+ ],
+ "sweeps": [
+  {"name": "lr", "model": "mlp", "key": "lr",
+   "values": [0.01, 0.003, 0.001, 0.0003, 0.0001],
+   "recipes": ["fp32", "bf16_pure", "bf16_pure_sr"], "seeds": [0, 1]},
+  {"name": "loss_weight", "model": "mlp", "key": "loss_weight",
+   "values": [1.0, 0.1, 0.01, 0.001, 0.0001, 0.00001],
+   "recipes": ["fp32", "fp16_noscale", "fp16_static", "fp16_dynamic"], "seeds": [0, 1]},
+  {"name": "gpt_lr", "model": "gpt", "key": "lr", "values": [0.002, 0.0006],
+   "recipes": ["fp32", "bf16_pure", "bf16_pure_sr"], "seeds": [0]}
+ ]
+}

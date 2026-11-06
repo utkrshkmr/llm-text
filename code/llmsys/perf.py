@@ -1,9 +1,14 @@
 """Single-device performance engineering toolkit (Chapter 21).
 
 Benchmarking
+    ``warm_up``            run a function for a fixed wall time (lets GPU clocks ramp up).
     ``time_fn``            warm-up + synchronise + repeat; returns mean/std/median/min/all.
     ``cuda_event_time``    GPU-side timing with CUDA events (excludes host overhead).
     ``bench``              ``triton.testing.do_bench`` on GPU, ``time_fn`` elsewhere.
+    All three first run the measured function for ``warmup_s`` seconds (default
+    ``DEFAULT_WARMUP_S`` on a GPU, 0 on a CPU): an idle A100 clocks its SMs far below the
+    1,410 MHz maximum and needs about half a second of load to reach it, so a few warm-up calls
+    of a fast kernel measure a cold GPU.
 Annotation
     ``nvtx_range``         context manager: NVTX range (Nsight) + ``record_function`` (torch.profiler).
     ``annotate_modules``   forward/backward hooks that push an NVTX range per module call.
@@ -25,7 +30,7 @@ from __future__ import annotations
 import contextlib
 import statistics
 import timeit
-from typing import Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Union
 
 import torch
 from torch.utils.checkpoint import checkpoint
@@ -39,13 +44,40 @@ def synchronize():
         torch.mps.synchronize()
 
 
+DEFAULT_WARMUP_S = 0.5
+
+
+def _warmup_seconds(warmup: int, warmup_s: Optional[float]) -> float:
+    """Explicit ``warmup_s`` wins; otherwise DEFAULT_WARMUP_S on a GPU unless the caller asked
+    for no warm-up at all (``warmup=0``), and nothing on a CPU."""
+    if warmup_s is not None:
+        return warmup_s
+    return DEFAULT_WARMUP_S if (warmup > 0 and torch.cuda.is_available()) else 0.0
+
+
+def warm_up(fn: Callable[[], object], seconds: float,
+            sync: Callable[[], None] = synchronize) -> int:
+    """Call ``fn`` (synchronising after each call) until ``seconds`` of wall time have passed.
+    Returns the number of calls made."""
+    calls = 0
+    t_end = timeit.default_timer() + seconds
+    while timeit.default_timer() < t_end:
+        fn()
+        sync()
+        calls += 1
+    return calls
+
+
 def time_fn(fn: Callable[[], object], warmup: int = 5, iters: int = 10,
-            sync: Callable[[], None] = synchronize) -> Dict[str, object]:
-    """Time ``fn`` honestly: ``warmup`` untimed calls, then ``iters`` synchronised calls.
+            sync: Callable[[], None] = synchronize,
+            warmup_s: Optional[float] = None) -> Dict[str, object]:
+    """Time ``fn`` honestly: a fixed-time warm-up (``warmup_s``), ``warmup`` untimed calls, then
+    ``iters`` synchronised calls.
 
     Uses ``timeit.default_timer`` (the highest-resolution monotonic clock). Every timed call is
     followed by ``sync()`` because GPU work is launched asynchronously.
     """
+    warm_up(fn, _warmup_seconds(warmup, warmup_s), sync)
     for _ in range(warmup):
         fn()
     sync()
@@ -59,9 +91,13 @@ def time_fn(fn: Callable[[], object], warmup: int = 5, iters: int = 10,
                 median=statistics.median(times), min=min(times), times=times)
 
 
-def cuda_event_time(fn: Callable[[], object], warmup: int = 5, iters: int = 20) -> float:
-    """Median milliseconds measured with CUDA events (device-side clock)."""
+def cuda_event_time(fn: Callable[[], object], warmup: int = 5, iters: int = 20,
+                    warmup_s: Optional[float] = None,
+                    return_all: bool = False) -> Union[float, List[float]]:
+    """Median milliseconds measured with CUDA events (device-side clock); with
+    ``return_all=True``, every sample in milliseconds, in measurement order."""
     assert torch.cuda.is_available(), "CUDA events need a GPU"
+    warm_up(fn, _warmup_seconds(warmup, warmup_s))
     for _ in range(warmup):
         fn()
     starts = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
@@ -71,15 +107,20 @@ def cuda_event_time(fn: Callable[[], object], warmup: int = 5, iters: int = 20) 
         fn()
         e.record()
     torch.cuda.synchronize()
-    return statistics.median(s.elapsed_time(e) for s, e in zip(starts, ends))
+    samples = [s.elapsed_time(e) for s, e in zip(starts, ends)]
+    return samples if return_all else statistics.median(samples)
 
 
-def bench(fn: Callable[[], object], warmup_ms: int = 25, rep_ms: int = 100) -> float:
-    """Milliseconds per call: ``triton.testing.do_bench`` on GPU (flushes L2 between calls)."""
+def bench(fn: Callable[[], object], warmup_ms: int = 25, rep_ms: int = 100,
+          warmup_s: Optional[float] = None) -> float:
+    """Milliseconds per call: ``triton.testing.do_bench`` on GPU (flushes L2 between calls),
+    after a fixed-time warm-up of ``warmup_s`` seconds (do_bench's own ``warmup_ms`` is too
+    short to bring the clocks up)."""
     if torch.cuda.is_available():
         import triton.testing
+        warm_up(fn, _warmup_seconds(1, warmup_s))
         return float(triton.testing.do_bench(fn, warmup=warmup_ms, rep=rep_ms))
-    return 1e3 * time_fn(fn, warmup=2, iters=5)["median"]
+    return 1e3 * time_fn(fn, warmup=2, iters=5, warmup_s=warmup_s)["median"]
 
 
 # =========================================================================== annotation

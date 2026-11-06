@@ -8,6 +8,7 @@ Status values:
 
 - `existing`: the text is there today but has not yet passed the depth review.
 - `planned`: the topic is in a brief but not written yet.
+- `partial`: the topic spans several stages, and the parts written so far have been reviewed.
 - `done`: the topic has been reviewed and ticked off.
 
 Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
@@ -29,8 +30,8 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | Attention sinks, streaming LLMs | ch:attnalt (ch:kvcache) | 2, 6a | existing (brief) |
 | LoRA, in depth | ch:instruct | 5 | existing (brief) |
 | PagedAttention | ch:kvcache (ch:serving, app:triton) | 6a | existing (brief) |
-| Roofline, computational intensity | ch:pytorch (ch:gpuarch) | 1, 4a | existing |
-| Mixed-precision training and inference; all things precision | ch:numerics (ch:perf, ch:pretrain, ch:efficient) | 1 | planned |
+| Roofline, computational intensity | ch:pytorch (ch:gpuarch) | 1, 4a | partial (stage 1 part done) |
+| Mixed-precision training and inference; all things precision | ch:numerics (ch:perf, ch:pretrain, ch:efficient) | 1 | done |
 | Dockerising an ML project (appendix) | app:containers | 8 | planned |
 | RL setup in detail (asked for twice) | ch:rlsetup (ch:rlsys) | 7a | planned |
 | CUDA graphs | ch:inference (ch:perf, ch:profiling) | 6a, 4a | existing (brief) |
@@ -65,13 +66,13 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 |---|---|---|---|
 | GEMM tiling across CTAs, warps and MMA instructions (mma.sync, wgmma, mfma) | ch:cuda (ch:gpuarch) | 4a | planned |
 | Batch-1 decode is GEMV and bandwidth-bound | ch:inference (ch:gpuarch) | 6a, 4a | existing (brief) |
-| IEEE 754 FP32/FP16/BF16; FP8 E4M3/E5M2; FP4; MXFP4; INT8/INT4 | ch:numerics | 1 | planned |
-| Dynamic range, subnormals, underflow/overflow, stochastic rounding | ch:numerics | 1 | planned |
-| Uniform vs non-uniform; symmetric vs asymmetric; per-tensor/channel/group scaling | ch:numerics | 1 | planned |
+| IEEE 754 FP32/FP16/BF16; FP8 E4M3/E5M2; FP4; MXFP4; INT8/INT4 | ch:numerics | 1 | done |
+| Dynamic range, subnormals, underflow/overflow, stochastic rounding | ch:numerics | 1 | done |
+| Uniform vs non-uniform; symmetric vs asymmetric; per-tensor/channel/group scaling | ch:numerics | 1 | done |
 | Hessian-informed sensitivity: GPTQ, AWQ, SmoothQuant | ch:efficient (ch:numerics) | 6a | existing (brief) |
-| Autodiff graphs, activation checkpointing (rematerialisation) | ch:pytorch, ch:perf | 1, 3 | existing (brief) |
+| Autodiff graphs, activation checkpointing (rematerialisation) | ch:pytorch, ch:perf | 1, 3 | partial (stage 1 part done) |
 | Operator categories: elementwise, reduction, broadcast, layout | ch:perf (ch:compilers) | 3 | planned |
-| Online softmax as a streaming reduction, the basis of FlashAttention | ch:attention (ch:numerics) | 2, 1 | existing (brief) |
+| Online softmax as a streaming reduction, the basis of FlashAttention | ch:attention (ch:numerics) | 2, 1 | partial (stage 1 part done) |
 
 ## 3. LLM architecture and serving mechanics
 
@@ -103,7 +104,7 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | DeepSeekMoE → V2 → V3 routing: fine-grained/shared experts, device/node-limited routing, sigmoid gates, loss-free balancing | ch:moe | 2 | partial code |
 | Multi-token prediction, and its use for speculative decoding | ch:anatomy, ch:efficient (ch:serving) | 2, 6a | existing (brief) |
 | DualPipe | ch:distributed | 3 | existing (brief) |
-| V3 FP8 recipe: tile/block scaling, per-128 promotion, high-precision components | ch:numerics (ch:perf) | 1, 3 | planned |
+| V3 FP8 recipe: tile/block scaling, per-128 promotion, high-precision components | ch:numerics (ch:perf) | 1, 3 | partial (stage 1 part done) |
 | Native Sparse Attention (NSA) | ch:attnalt (ch:kvcache) | 2, 6a | planned |
 | DeepSeek Sparse Attention (DSA, V3.2): lightning indexer, top-k selection | ch:attnalt (ch:kvcache) | 2, 6a | planned |
 | DeepGEMM: FP8 and grouped GEMM, contiguous and masked layouts | ch:cudakernels | 4b | planned |
@@ -146,7 +147,7 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 
 | Part | Capstones | Stage | Status |
 |---|---|---|---|
-| I Foundations | P10 Know your machine; P11 Low-precision training study | 1P | planned |
+| I Foundations | P10 Know your machine; P11 Low-precision training study | 1P | done |
 | II Building an LLM | P12 Bring up a new open model; P13 Sequence mixers at long context | 2P | planned |
 | III Pretraining at scale | P1 LM from scratch; P2 Training systems; P3 Scaling study; P4 Web data | 3P | existing chapters, partial kits |
 | IV From Python to the metal | P8 MoE systems; P14 Tiny tensor compiler; P15 Kernel library | 4P | planned |

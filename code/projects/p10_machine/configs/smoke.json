@@ -1,0 +1,47 @@
+{
+  "name": "smoke",
+  "datasheet": "A100-PCIE-40GB",
+  "reps": 20,
+  "m1": {
+    "stream_kinds": ["copy", "read", "reduce", "write", "triad"],
+    "stream_sizes": [1572864, 1610612736, 1],
+    "warm_sizes": [65536, 268435456, 2],
+    "host_sizes": [4096, 268435456, 1],
+    "numa": true,
+    "p2p_sizes": [4096, 268435456, 1],
+    "p2p_bidirectional": true,
+    "staged_chunks": [8388608]
+  },
+  "m2": {
+    "matmul_dtypes": ["fp32", "tf32", "fp16", "bf16", "int8"],
+    "matmul_sizes": [1536, 3072, 6144],
+    "fma_numel": 67108864,
+    "fma_iters": [1, 8, 64, 512],
+    "fma_compile": true,
+    "sustained_seconds": 10,
+    "sustained_n": 8192
+  },
+  "m3": {
+    "launch_n": 500,
+    "graph_n": [10, 100, 1000],
+    "sync_reps": 200,
+    "small_copy_bytes": 4
+  },
+  "m4": {
+    "shapes": "gpu",
+    "reps": 20,
+    "compile": true,
+    "loo": true,
+    "band": 0.2
+  },
+  "acceptance": {
+    "_comment": "GPU-test thresholds; calibrate in the GPU stage",
+    "min_hbm_fraction": 0.75,
+    "min_bf16_fraction": 0.7,
+    "min_pinned_over_pageable": 1.2,
+    "min_graph_speedup": 1.5,
+    "min_within_band": 0.5
+  },
+  "boost_mhz": 1410,
+  "_calibration": "matmul and stream sizes are chosen disjoint from the kernel zoo, so milestone 4 predicts only kernels it was not calibrated on"
+}
