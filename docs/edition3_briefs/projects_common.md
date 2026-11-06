@@ -5,15 +5,15 @@ project ships with" list) and docs/TEST_PLAN.md §5, then the existing project k
 one, and the book chapters your project draws on.
 
 Mapping (project -> chapter file, label, kit dir):
-- P1 -> book/chapters/ch42_proj_basics.tex, ch:proj1, code/projects/p1_lm
-- P2 -> ch43_proj_systems.tex, ch:proj2, p2_systems
-- P3 -> ch44_proj_scaling.tex, ch:proj3, p3_scaling
-- P4 -> ch45_proj_data.tex, ch:proj4, p4_data
-- P5 -> ch46_proj_alignment.tex, ch:proj5, p5_reasoning_rl
-- P6 NEW -> ch47_proj_serving.tex, ch:proj6, p6_serving
-- P7 NEW -> ch48_proj_cpu_runtime.tex, ch:proj7, p7_cpu_runtime (+ code/runtime/, standalone CMake C++ engine)
-- P8 NEW -> ch49_proj_moe.tex, ch:proj8, p8_moe
-- P9 NEW -> ch50_proj_profiler.tex, ch:proj9, p9_profiler
+- P1 -> book/chapters/ch42_proj_basics.md, ch:proj1, code/projects/p1_lm
+- P2 -> ch43_proj_systems.md, ch:proj2, p2_systems
+- P3 -> ch44_proj_scaling.md, ch:proj3, p3_scaling
+- P4 -> ch45_proj_data.md, ch:proj4, p4_data
+- P5 -> ch46_proj_alignment.md, ch:proj5, p5_reasoning_rl
+- P6 NEW -> ch47_proj_serving.md, ch:proj6, p6_serving
+- P7 NEW -> ch48_proj_cpu_runtime.md, ch:proj7, p7_cpu_runtime (+ code/runtime/, standalone CMake C++ engine)
+- P8 NEW -> ch49_proj_moe.md, ch:proj8, p8_moe
+- P9 NEW -> ch50_proj_profiler.md, ch:proj9, p9_profiler
 
 For P1-P5: the chapter exists. Keep its useful material, and bring it to the PLAN §4 scope: research questions,
 milestones, baselines, a compute budget on 2x A100-40GB PCIe, a write-up rubric, open extensions. The chapter
@@ -40,6 +40,6 @@ Budgets and honesty:
 - Depending on an operator from Parts IV/VI: use llmsys.ops with the backend switch, and let tests skip the compiled
   path with a clear reason when it is not built.
 
-Also write book/solutions/chNN_solutions.tex if the chapter has exercises. Compile-check the chapter. Run your kit:
+Also write book/solutions/chNN_solutions.md if the chapter has exercises. Run the site check of BRIEF_conventions.md §2. Run your kit:
 `cd code; LAB_IMPL=solution python -m pytest -q projects/<kit>`. Report as in BRIEF_conventions.md §5, listing what was
 actually run and what is unverified.

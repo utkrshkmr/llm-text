@@ -1,0 +1,91 @@
+## Chapter 26: Inference Fundamentals {#chapter-26-inference-fundamentals .unnumbered}
+
+#### Exercise 26.1 (Unknown words).
+
+Byte-level BPE starts from the 256 single-byte tokens, so every UTF-8 string is representable;
+unseen words simply decompose into more, shorter pieces, down to single bytes in the worst case.
+Invented English-like words typically cost 2--4 tokens instead of 1; scripts that are rare in the
+training data (e.g. many Indic or African scripts) can cost close to one token per UTF-8 byte,
+i.e. 2--3 tokens per character. Since KV memory is per token, the cost per character is
+(tokens/char)$\times$`<!-- -->`{=html}112  for Qwen3-0.6B: a script tokenized at 2 tokens/character
+uses roughly $8\times$ more KV memory and decode steps per character than English at
+$\approx$`<!-- -->`{=html}0.25 tokens/character.
+
+#### Exercise 26.2 (Accelerators).
+
+Expect the KV-cached, compiled decoder to gain most: on a GPU its per-step work is tiny, so
+eliminating Python and launch overhead (and enabling CUDA graphs with `reduce-overhead`) exposes the
+bandwidth bound. The cache-less decoder is dominated by large GEMMs that the GPU accelerates well in
+absolute terms, but it remains orders of magnitude slower for long outputs because its work is
+quadratic. On Apple MPS, compilation support is less mature, so gains from `torch.compile` are
+smaller.
+
+#### Exercise 26.3 (Counting redundant work).
+
+Dense token-positions: without cache $\sum_{t=0}^{n-1}(P+t)=nP+n(n-1)/2$; with cache $P+n$ (one
+prefill plus one single-token call per generated token; the last call is avoidable, giving $P+n-1$).
+Query--key products per head and layer: without cache each step runs full causal attention over
+$L=P+t$ tokens, $\sum_{L=P}^{P+n-1}L(L+1)/2$; with cache, $P(P+1)/2$ for prefill plus
+$\sum_{t=1}^{n-1}(P+t)$. For $P=1000,n=100$: dense ratio $104{,}950/1{,}100\approx95$, attention
+ratio $\approx91$. For $P=100,n=1000$: dense ratio $599{,}500/1{,}100=545$, attention ratio
+$\approx367$. Long *outputs* benefit most, because the waste grows with $n^2$.
+
+#### Exercise 26.4 (KV budget planning).
+
+\(a\) $(80-16.4-4)\,\text{GB}/147456\,\mathrm{B}\approx404{,}000$ tokens. (b)
+$404{,}000/8{,}192\approx49$ conversations. (c) An fp8 KV cache halves bytes per token: $\approx99$
+conversations. Int4 weights shrink the model to $\approx4.1\,\mathrm{GB}$, leaving 71.9 :
+$\approx59$ conversations with a bf16 cache and $\approx119$ with fp8. Both techniques compound; for
+long contexts the KV format matters more than the weight format.
+
+#### Exercise 26.5 (Critical batch size).
+
+Weight GEMMs have intensity $2B/b$; setting it equal to the ridge $\Pi/\beta$ gives
+$B^*=(\Pi/\beta)\,b/2$. bf16 ($b=2$): A100 $\approx153$, H100 $\approx295$, RTX 4090 $\approx164$.
+Int8 weights ($b=1$): $\approx77$, $\approx148$, $\approx82$. Fewer bytes per weight means each byte
+read feeds more FLOPs, so the step leaves the memory-bound regime at a smaller batch; equivalently,
+at batch 1 weight-only quantization makes decoding up to $2\times$ (int8) or $4\times$ (int4)
+faster, which is why it is so popular for local inference.
+
+#### Exercise 26.6 (The LM head at prefill).
+
+Full logits: $2\cdot1024\cdot151{,}936\cdot4096\approx1.27\,\mathrm{TFLOP}$ and a
+$4096\times151{,}936$ bf16 tensor of 1.24  (twice that if upcast to fp32). Last row only: 311  and
+0.3 . Implementation: in `forward`, apply `final_norm` and `out_head` to `x[:, -1:]` when
+`last_only`. The memory saving often determines the maximum prefill chunk size on small GPUs.
+
+#### Exercise 26.7 (Cache copies).
+
+At decode step $t$, `torch.cat` reads and writes the existing $(P+t)$-token cache of every layer:
+$\approx2\kappa(P+t)$ bytes, so the total over $n$ steps is $\approx2\kappa(nP+n^2/2)$, quadratic in
+$n$. `StaticKVCache` writes only the new token: $\kappa$ bytes per step. The copy traffic exceeds
+the 1.19  weight traffic of a step when $2\kappa(P+t)>1.19\,\text{GB}$, i.e. at about $5{,}200$
+tokens ($10{,}400$ counting only one direction).
+
+#### Exercise 26.8 (Recompilation hunting).
+
+With the growing cache the key length changes every step. Dynamo specializes on the first shape,
+recompiles on the second, and then (automatic dynamic shapes) marks the dimension dynamic, so one
+sees one or two recompiles followed by a dynamic-shape graph with less aggressive optimization. The
+static cache avoids reallocation, but our implementation returns a growing view, so the attention
+shapes still vary; only a variant that attends over the full buffer with a length mask, with the
+write position held in a device tensor, gives truly static shapes and zero recompiles after warm-up
+(and is CUDA-graphable).
+
+#### Exercise 26.9 (Little's law).
+
+E2E latency $=0.3+299\times0.025\approx7.8\,\mathrm{s}$. With at most 128 concurrent requests,
+$\lambda_{\max}=128/7.8\approx16.5$ requests/s. Arriving 20% faster (19.8 requests/s) grows the
+queue at $\approx3.3$ requests/s, i.e. about 2,000 queued requests after ten minutes; the last
+arrivals wait $\approx2000/16.5\approx120\,\mathrm{s}$ before their prefill even starts. Overload is
+not graceful: queueing delay grows linearly with time until load drops or requests are shed.
+
+#### Exercise 26.10 (Determinism).
+
+Typically the outputs eventually diverge. GEMM libraries choose different kernels and split-K
+strategies for different batch sizes, and attention kernels use different tilings; floating-point
+addition is not associative, so logits differ in the last bits, and as soon as two candidates are
+nearly tied, the argmax flips and the continuations diverge. For evaluation, fix batch size and
+kernels (or use batch-invariant kernels) when comparing runs. For RL, the same effect makes the
+sampling engine's log-probabilities differ from the trainer's, which motivates importance-sampling
+corrections ([@ch:rlsys]).

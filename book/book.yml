@@ -1,0 +1,80 @@
+title: LLM Systems from Scratch
+subtitle: Building, Training, Serving, and Teaching Language Models to Reason
+front:
+  - frontmatter/preface.md
+  - frontmatter/roadmap.md
+parts:
+  - title: Foundations
+    chapters:
+      - chapters/ch01_landscape.md
+      - chapters/ch02_pytorch_hardware.md
+  - title: Building a Large Language Model
+    chapters:
+      - chapters/ch03_text_data.md
+      - chapters/ch04_attention.md
+      - chapters/ch05_gpt.md
+      - chapters/ch06_modern_arch.md
+      - chapters/ch07_arch_design.md
+      - chapters/ch08_attention_alternatives.md
+      - chapters/ch09_encoders.md
+      - chapters/ch10_moe.md
+      - chapters/ch11_anatomy.md
+  - title: Pretraining at Scale
+    chapters:
+      - chapters/ch12_optimizers.md
+      - chapters/ch13_pretraining.md
+      - chapters/ch14_pretraining_data.md
+      - chapters/ch15_scaling_laws.md
+      - chapters/ch16_perf_engineering.md
+      - chapters/ch17_distributed.md
+      - chapters/ch18_sharding.md
+      - chapters/ch19_shardcalc.md
+  - title: From Python to the Metal
+    chapters:
+      - chapters/ch20_cpp_pytorch.md
+      - chapters/ch21_cuda_kernels.md
+      - chapters/ch22_attn_moe_kernels.md
+      - chapters/ch23_compilers.md
+  - title: Fine-Tuning
+    chapters:
+      - chapters/ch24_classification.md
+      - chapters/ch25_instruction_lora.md
+  - title: Inference and Serving
+    chapters:
+      - chapters/ch26_inference.md
+      - chapters/ch27_serving_engine.md
+      - chapters/ch28_efficient_inference.md
+      - chapters/ch29_ondevice.md
+      - chapters/ch30_retrieval.md
+  - title: Reasoning and Post-Training
+    chapters:
+      - chapters/ch31_evaluation.md
+      - chapters/ch32_inference_scaling.md
+      - chapters/ch33_self_refinement.md
+      - chapters/ch34_policy_gradients.md
+      - chapters/ch35_rlhf_ppo.md
+      - chapters/ch36_dpo.md
+      - chapters/ch37_grpo.md
+      - chapters/ch38_improving_grpo.md
+      - chapters/ch39_rl_systems.md
+      - chapters/ch40_distillation.md
+      - chapters/ch41_alignment_multimodal.md
+  - title: Capstone Projects
+    chapters:
+      - chapters/ch42_proj_basics.md
+      - chapters/ch43_proj_systems.md
+      - chapters/ch44_proj_scaling.md
+      - chapters/ch45_proj_data.md
+      - chapters/ch46_proj_alignment.md
+      - chapters/ch47_proj_serving.md
+      - chapters/ch48_proj_cpu_runtime.md
+      - chapters/ch49_proj_moe.md
+      - chapters/ch50_proj_profiler.md
+appendices:
+  - appendices/appA_triton.md
+  - appendices/appB_accelerators.md
+  - appendices/appC_jax.md
+  - appendices/appD_setup.md
+  - appendices/appE_references.md
+  - appendices/appF_solutions.md
+solutions_appendix: appendices/appF_solutions.md   # solutions/*.md are appended in chapter order

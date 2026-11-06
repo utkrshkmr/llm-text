@@ -1,0 +1,44 @@
+## Chapter 42: Project 1: A Transformer Language Model from Scratch {#chapter-42-project-1-a-transformer-language-model-from-scratch .unnumbered}
+
+#### Exercise 42.1.
+
+The pre-tokens are `x`, ` `, ` =`, ` 10`, `.`, `5`, `;`, ` `, ` y`. `x` matches the letters
+alternative. Of the two spaces before `=`, the whitespace-with-lookahead alternative takes the
+first, because the greedy `\s+` must give back the last space so that the next character is not a
+non-space. The second space then attaches to `=` through the "optional space + symbols" alternative.
+` 10` is the digits alternative with its leading space. The decimal point and `5` are separate
+pre-tokens: `.` is a symbol and `5` a digit run, so numbers with decimals split into three pieces.
+`;` is a symbol; the next two spaces behave as before, giving ` ` and ` y`.
+
+#### Exercise 42.2.
+
+Snapping a guess forward to the next separator moves it by the distance to the next document start.
+For exponential document lengths with mean 4 KB, that distance is itself exponential with mean 4 KB
+(memorylessness), and the largest of $k$ such shifts is about $4\,\text{KB}\cdot\ln k$: about 8 KB
+for $k=8$ and 17 KB for $k=64$. Next to chunk sizes of 1.5 GB or 190 MB, the size imbalance is
+negligible ($<10^{-4}$ relative). What imbalances the workers is *processing time*: text varies in
+regex cost, processes are scheduled unevenly, and there are stragglers. With $k=8$ chunks and 8
+workers, the slowest chunk sets the wall time. With $k=64$ chunks scheduled dynamically
+(`imap_unordered` on a `Pool`), fast workers take more chunks and the tail is at most about one
+small chunk; each task also holds less memory.
+
+#### Exercise 42.3.
+
+Per layer: attention $4d^2=4.19$M, SwiGLU $3dd_{\text{ff}}=8.65$M, so 12.85M; 16 layers give 205.5M.
+Untied embedding and head add $2Vd=65.5$M, for 271.1M in total (plus $\sim$`<!-- -->`{=html}34K norm
+gains). Forward matmul FLOPs per token, excluding the embedding lookup:
+$2\times(205.5\text{M}+32.8\text{M})\approx0.477$ GFLOPs. The attention-score matmuls ($QK^\top$ and
+$PV$ over the full $T\times T$ square) add $4TdL$ per token: $0.134$ GFLOPs at $T=2048$ (22% of the
+total $0.611$) and $2.15$ GFLOPs at $T=32{,}768$ (82%). A causal kernel that skips the masked half
+cuts the attention term roughly in half.
+
+#### Exercise 42.4.
+
+One feasible E2 + E3 plan in 360 minutes: (1) a coarse sweep of 6 learning rates on a $\sqrt{10}$
+grid with 4-minute runs (24 min); (2) a fine sweep of 4 full-budget runs around the best value,
+including one above the stability limit (80 min); (3) for each of 4 batch sizes, 3 learning rates
+with short runs (48 min), then one full-budget confirmation per batch size (80 min). That is 232
+minutes, leaving about two hours for a second seed of the most important comparisons and for reruns.
+Every comparison uses the same token budget, so steps $=\lceil
+\text{tokens}/(BT)\rceil$ and the schedule end change with $B$, and every run is logged with step
+and wall-clock time.

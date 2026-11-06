@@ -1,0 +1,96 @@
+## Chapter 2: PyTorch and the Machine Underneath {#chapter-2-pytorch-and-the-machine-underneath .unnumbered}
+
+#### Exercise 2.1
+
+Contiguous $(2,3,4)$ has strides $(12,4,1)$. After `transpose(0, 2)` the shape is $(4,3,2)$ and the
+strides are $(1,4,12)$, over the same storage. `.view(-1)` requires that the flattened order equal
+the storage order, which no longer holds, so it raises an error. `.reshape(-1)` falls back to a
+copy: one kernel that reads and writes all 24 elements (in general, $2\times$ the tensor's bytes of
+traffic plus a new allocation).
+
+#### Exercise 2.2
+
+bf16 has 7 explicit mantissa bits, so the spacing of representable numbers in $[1,2)$ is
+$2^{-7}=0.0078125$. With round-to-nearest-even, $1+2^{-8}$ rounds back to 1, so any $\delta$
+slightly larger than $2^{-8}\approx0.0039$ is needed to change the value. An update of $10^{-4}$ is
+lost entirely: the weight never moves. fp32 master weights have spacing
+$2^{-23}\approx1.2\times10^{-7}$ near 1, so the update is applied exactly in fp32 and the bf16 copy
+is re-derived from the master after each step; small updates accumulate until they cross a bf16
+rounding boundary.
+
+#### Exercise 2.3
+
+With $a=\sigma(z)$ and $\mathcal{L}=-[y\log a+(1-y)\log(1-a)]$:
+$\partial\mathcal{L}/\partial a = -y/a + (1-y)/(1-a) = (a-y)/(a(1-a))$ and
+$\partial a/\partial z=a(1-a)$, so $\partial\mathcal{L}/\partial z=a-y$. For a batch with mean loss,
+$\nabla_{\boldsymbol{w}}=\frac1N\mathbf{X}^\top(\boldsymbol{a}-\boldsymbol{y})$ and
+$\partial/\partial b=\frac1N\sum_i(a_i-y_i)$. This is exactly `logistic_regression_grads` in the lab
+solution, which matches autograd to $10^{-6}$.
+
+#### Exercise 2.4
+
+Parameters:
+$(784\cdot512+512)+(512\cdot256+256)+(256\cdot10+10)=401{,}920+131{,}328+2{,}570=535{,}818$. In
+fp32: weights 2.14 MB, gradients 2.14 MB, Adam's two moments 4.29 MB, for a total of 8.57 MB (16
+bytes/parameter). Forward FLOPs for a batch of 128:
+$2\times128\times(784\cdot512+512\cdot256+256\cdot10)\approx1.37\times10^8$ (biases and ReLU add
+well under 1%).
+
+#### Exercise 2.5
+
+A100: $I^\star=312/2.04\approx153$ FLOP/byte; a bf16 square GEMM has $I=n/3$, so it becomes
+compute-bound at $n\approx460$. RTX 4090: $I^\star=165/1.008\approx164$, so $n\approx490$. The
+decode critical batch is $B^\star\approx bI^\star/2=I^\star$ in bf16, so the 4090 needs a slightly
+larger batch (about 164 versus 153). Both need far smaller batches than an H100
+($\approx$`<!-- -->`{=html}295), whose compute has outgrown its bandwidth.
+
+#### Exercise 2.6
+
+$d=4096$, hidden $4d=16{,}384$, bf16. *$BT=1$*: each GEMM does
+$2\times4096\times16{,}384\approx1.34\times10^8$ FLOPs and moves about
+$2\times4096\times16{,}384\approx134$ MB (the weight dominates), so $I\approx1$: memory-bound, about
+40 μs each on an H100. GELU touches 16,384 elements, which is negligible but still costs a launch.
+*$BT=4096$*: GEMM 1 does $5.5\times10^{11}$ FLOPs and moves
+$2(4096^2+2\cdot4096\cdot16{,}384)\approx302$ MB, so $I\approx1{,}800$: compute-bound,
+$\approx0.56$ ms at peak; GEMM 2 is the same. GELU reads and writes $4096\times16{,}384$ bf16
+values, 268 MB, $\approx0.08$ ms, memory-bound. Fusing GELU into GEMM 1's epilogue removes that
+round trip (the GEMM output is activated in registers before being stored), saving $\approx0.08$ ms
+of $\approx1.2$ ms, about 7%. Fusion matters far more for chains of elementwise ops without a GEMM
+to hide behind.
+
+#### Exercise 2.7
+
+Gradients are 14 GB in bf16. A ring all-reduce sends and receives $2(P-1)/P\times14\approx24.5$ GB
+per GPU for $P=8$. Over NVLink at 300 GB/s this takes $\approx82$ ms, easily hidden behind a 1.5 s
+step. Over 100 Gb/s Ethernet (12.5 GB/s) it takes $\approx2.0$ s, longer than the compute, so
+communication cannot be hidden and the step at least doubles. The model does not fit for DDP anyway:
+7B parameters $\times$ 16 bytes $=112$ GB of weights, gradients and Adam state exceeds 80 GB before
+activations. This requires ZeRO/FSDP sharding ([@ch:distributed]).
+
+#### Exercise 2.8
+
+For 1,024 elements, both eager and compiled versions are dominated by per-op overhead: eager time is
+about $100\times$ the per-launch cost (hundreds of μs to milliseconds); this is regime (b) of
+[@fig:pytorch:async]. For $10^8$ elements, each op is a memory-bound kernel taking
+$\approx0.24$ ms in fp32 on an H100, so eager time is about 24 ms and overhead is hidden; this is
+regime (a). `torch.compile` fuses the chain into one kernel that reads and writes once. The large
+tensor speeds up by up to $\approx100\times$ in traffic terms, and the small tensor speeds up
+because 100 launches became one; this is regime (c). With `reduce-overhead`, CUDA graphs remove the
+remaining launch cost.
+
+#### Exercise 2.9
+
+At batch 8, the profile is dominated by many small kernels: `addmm`/`mm` at low intensity
+(memory-bound, weight reads dominate), plus optimiser elementwise kernels (`add_`, `mul_`, foreach
+ops) that touch every parameter and are memory-bound. At batch 4096, `addmm`/`mm` in forward and
+backward take the large majority of device time and are compute-bound; elementwise ops shrink to a
+small fraction. Optimiser cost is independent of batch size, so its share falls as the batch grows.
+
+#### Exercise 2.10
+
+Achieved model FLOP/s $=2.1\times10^6\times6\times3\times10^9=3.78\times10^{16}$; peak
+$=64\times989\times10^{12}=6.33\times10^{16}$; MFU $\approx60\%$. That is at the very top of what
+well-tuned dense training achieves, so ask: are padding tokens counted as tokens? Is $N$ the total
+or non-embedding count? Are attention FLOPs or recomputation included (that would make it hardware
+FLOPs utilisation, HFU, not MFU)? Is the peak taken as the bf16 or the fp8 rate? Is the throughput a
+steady-state peak or an average including evaluation and checkpoint stalls?

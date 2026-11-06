@@ -1,0 +1,106 @@
+## Chapter 13: Pretraining on Unlabeled Data {#chapter-13-pretraining-on-unlabeled-data .unnumbered}
+
+#### Exercise 13.1 (Initial loss).
+
+The loss at one position is $-z_y+\log\sum_u e^{z_u}$. Since $z_y$ has mean zero,
+$\mathbb{E}[\mathcal L]=\mathbb{E}[\log\sum_u e^{z_u}]$. For large $V$ the sum concentrates around
+its mean, $V\,\mathbb{E}[e^{z}]=V e^{\sigma^2/2}$ (log-normal mean), so
+$\mathbb{E}[\mathcal L]\approx\ln V+\sigma^2/2$. For GPT-2 small, the final LayerNorm makes each
+hidden coordinate roughly unit variance and the head weights have standard deviation $0.02$, so each
+logit has variance $\approx768\cdot0.02^2=0.31$. Prediction: $\ln 50{,}257+0.15\approx10.98$ nats.
+
+#### Exercise 13.2 (Perplexity across tokenizers).
+
+Model A: total NLL $=3.10\times10^6$ nats over $4.3\times10^6$ bytes $=0.721$ nats/byte $=1.04$
+bits/byte. Model B is byte-level, so tokens $=$ bytes and $0.95$ nats/byte $=1.37$ bits/byte. Model
+A is better, even though its per-token loss is three times larger.
+
+#### Exercise 13.3 (Training vs. validation).
+
+Expect the validation minimum within the first few epochs; dropout delays it slightly and keeps the
+validation loss lower afterwards, because it limits how precisely the model can store the training
+windows. Samples near the validation minimum are novel but story-like; late samples reproduce
+training passages verbatim, especially with greedy decoding.
+
+#### Exercise 13.4 (Temperature limits).
+
+Let $z_1>z_j$ for $j\neq1$. Then $p_\tau(j)/p_\tau(1)=e^{(z_j-z_1)/\tau}\to0$ as $\tau\to0^+$, so
+$p_\tau\to e_1$. As $\tau\to\infty$, $z_j/\tau\to0$ for all $j$ and $p_\tau(j)\to1/V$. With $k$ tied
+maxima the limit is uniform over the tied set (the ratios between tied tokens are always 1), which
+differs from `argmax`, which deterministically returns the first index.
+
+#### Exercise 13.5 (Do top-$k$ and temperature commute?).
+
+Yes for top-$k$: dividing by $\tau>0$ preserves the order of the logits, so the same $k$ tokens
+survive, and the softmax over the survivors is the same either way. No for top-$p$: the kept set
+depends on the cumulative probabilities, which temperature changes. A high temperature flattens the
+distribution, so more tokens are needed to reach mass $p$. Applying temperature first (the common
+convention) lets temperature widen the nucleus.
+
+#### Exercise 13.6 (Resume correctness).
+
+Required: model weights; optimizer state (moments, step counts); scheduler/step counter; CPU and
+CUDA RNG states (dropout); Python `random` and NumPy RNGs if used anywhere; the sampler's generator
+state and the position within the epoch (how many batches have been consumed); worker seeding
+(`worker_init_fn`/base seed) so augmentation inside workers replays; and the `GradScaler` state
+(current scale and growth tracker). Listing 13.5 omits the data-loader position and sampler RNG, the
+Python/NumPy RNGs and the `GradScaler`; autocast itself holds no state.
+
+#### Exercise 13.7 (Checkpoint interval).
+
+Job MTBF $M=50{,}000\,\text{h}/2048=24.4\,\text{h}\approx87{,}900\,\text{s}$. Synchronous
+($\delta=90$ s): $T=\sqrt{2\cdot90\cdot87{,}900}\approx3{,}980$ s ($\approx66$ min). Expected
+overhead $\approx\delta/T+T/(2M)\approx2.3\%+2.3\%=4.5\%$. Asynchronous ($\delta=6$ s):
+$T\approx1{,}030$ s ($\approx17$ min), overhead $\approx0.6\%+0.6\%=1.2\%$ (restart time excluded in
+both).
+
+#### Exercise 13.8 (Accumulation is not always exact).
+
+\(1\) Padding: if each micro-batch's loss is the mean over its *non-padding* tokens and the
+micro-batches contain different numbers of real tokens, averaging the $k$ means weights tokens
+unequally; the exact large-batch loss divides the summed NLL by the total token count. Fix: sum
+token losses and divide by the global token count. (2) Layers with batch statistics (BatchNorm) see
+smaller batches. Also: the last, partial micro-batch of an epoch, and dropout masks that differ
+because the RNG is consumed in a different pattern.
+
+#### Exercise 13.9 (Activation memory, GPT-2 xl).
+
+Model states: $16\times1.558\text{B}=24.9$ GB; budget $0.9\cdot80-24.9=47.1$ GB. (a) No
+FlashAttention: per sample $48\cdot1024\cdot1600\cdot(34+5\cdot25\cdot1024/1600)=8.97$ GB
+$\Rightarrow b=5$. (b) FlashAttention: $48\cdot1024\cdot1600\cdot34=2.67$ GB $\Rightarrow b=17$. (c)
+Full checkpointing: block inputs $2\cdot1024\cdot1600\cdot48=0.157$ GB plus one layer's full
+activations during recomputation ($0.187$ GB) $\approx0.344$ GB per sample $\Rightarrow b\approx136$
+(in practice temporary buffers and the logits tensor limit this much earlier).
+
+#### Exercise 13.10 (Measure MFU).
+
+Typical ordering: fp32 lowest (no tensor cores; TF32 if enabled helps); bf16 autocast a large jump;
+SDPA a further gain (no $T\times T$ materialization, fewer memory-bound kernels); compile another
+10--30% from fusing LayerNorm/GELU/residual chains and reducing launches; activation checkpointing
+reduces MFU by roughly a quarter (recompute is not counted in MFU) but allows larger micro-batches,
+which can partly win it back.
+
+#### Exercise 13.11 (Chinchilla planning).
+
+$C=1000\cdot86{,}400\cdot0.4\cdot989\times10^{12}=3.4\times10^{22}$ FLOPs, so
+$N_{\text{opt}}=\sqrt{C/120}\approx16.9$B and $D_{\text{opt}}\approx338$B tokens. Inference over a
+year: $1.2\times10^{13}$ tokens $\times2N$. Option A ($N=16.9$B): $4.1\times10^{23}$ inference
+FLOPs, total $\approx4.4\times10^{23}$. Option B ($N=8.4$B, $D=1.35$T): training
+$6\cdot8.4\text{B}\cdot1.35\text{T}=6.8\times10^{22}$ (2$\times$ the budget), inference
+$2.0\times10^{23}$, total $\approx2.7\times10^{23}$. Option B is about 40% cheaper in total; with
+the Chinchilla loss fit its loss is only slightly higher than option A's, which is the argument for
+over-training models that will be served heavily.
+
+#### Exercise 13.12 (Chunked loss).
+
+Implement an `autograd.Function` whose forward takes the final hidden states $\mathbf{H}$ `(N, d)`,
+the head weight $\mathbf{W}$ `(V, d)` and targets. Loop over chunks of rows: compute
+$\mathbf{Z}_c=\mathbf{H}_c\mathbf{W}^\top$ in fp32, its log-sum-exp, the chunk loss, and immediately
+the gradient
+$\partial\mathcal L/\partial\mathbf{Z}_c=(\operatorname{softmax}(\mathbf{Z}_c)-\text{onehot})/N$;
+accumulate
+$\partial\mathcal L/\partial\mathbf{H}_c=\partial\mathcal L/\partial\mathbf{Z}_c\,\mathbf{W}$ and
+$\partial\mathcal L/\partial\mathbf{W}\mathrel{+}=(\partial\mathcal L/\partial\mathbf{Z}_c)^\top\mathbf{H}_c$.
+Save only these gradients for backward (which just scales them by the incoming gradient). Peak
+memory drops from $N\cdot V$ to $\text{chunk}\cdot V$ floats; verify with `torch.autograd.gradcheck`
+on small sizes in float64.

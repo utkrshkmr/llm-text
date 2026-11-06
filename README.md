@@ -24,7 +24,7 @@ connect them to Python: bindings, custom PyTorch operators, build systems, testi
 | Appendices | A Triton kernels · B Accelerators beyond the GPU · C JAX and XLA for PyTorch engineers · D Lab setup and toolchains · E References · F Solutions |
 
 ```
-book/    LaTeX source (main.tex)
+book/    Markdown sources (book.yml, chapters, appendices, solutions) and SVG figures
 code/    llmsys package, csrc/ (C++ and CUDA operators), labs (starter / solution / tests / bench
          scripts), project kits with acceptance tests and reference solutions, runtime/ (C++ CPU engine)
 docs/    PLAN.md (scope of this edition), TEST_PLAN.md (GPU validation runbook)
@@ -32,16 +32,14 @@ web/     generator for the online edition (GitHub Pages)
 ```
 
 ## Build the online book
-The book is written in LaTeX (`book/`) and published only as a website. A draft LaTeX pass produces
-the cross-reference numbers; `web/build_site.py` renders every TikZ figure to SVG and converts each
-chapter to HTML (pandoc + MathJax).
+The book is published only as a website. Its sources are Markdown files in `book/` with SVG
+figures; `web/build_site.py` numbers chapters, sections, figures, tables, listings, equations and
+exercises, resolves cross-references, and converts each page to HTML with pandoc and MathJax.
 ```
-(cd book && for i in 1 2; do pdflatex -draftmode -interaction=nonstopmode main.tex; done)
-python3 web/build_site.py --book book --aux book --out site
+python3 web/build_site.py --book book --out site
 python3 -m http.server -d site 8000        # preview at http://localhost:8000
 ```
-Requires TeX Live (tikz, pgfplots, tcolorbox, preview), pandoc >= 3 and poppler. To check a single
-chapter compiles: `CHNUM=4 ./book/check_chapter.sh chapters/ch04_attention.tex`.
+Requires Python 3.9+ and pandoc >= 3. `web/README.md` describes the Markdown conventions.
 
 ## Run the labs
 ```

@@ -1,15 +1,15 @@
 # Brief: Chapter 10 "Mixture-of-Experts End to End" (NEW) + Lab 10
 
-Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.1 item 10, book/chapters/ch06_modern_arch.tex
+Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.1 item 10, book/chapters/ch06_modern_arch.md
 §"Beyond dense models: mixture of experts" (the MoE introduction this chapter deepens; do not repeat it, build on
-it with \cref{sec:modern:moe}), code/llmsys/moe.py (KEEP ITS API UNCHANGED: lab06 tests depend on it),
+it with [@sec:modern:moe]), code/llmsys/moe.py (KEEP ITS API UNCHANGED: lab06 tests depend on it),
 code/llmsys/dist/launch.py and code/labs/lab17_distributed/test_lab17.py (gloo multi-process tests),
 code/llmsys/kernels/triton_kernels.py and code/labs/labA_triton/test_labA.py (Triton + interpreter pattern).
 GPU for your tests: CUDA_VISIBLE_DEVICES=0.
 
 Files you own (create):
-- book/chapters/ch10_moe.tex               \chapter{Mixture-of-Experts End to End}\label{ch:moe}
-- book/solutions/ch10_solutions.tex
+- book/chapters/ch10_moe.md               # Mixture-of-Experts End to End {#ch:moe}
+- book/solutions/ch10_solutions.md
 - code/llmsys/moe_routing.py              routers: token-choice top-k with softmax or sigmoid gates
                                            (DeepSeek-V3 style sigmoid + normalisation), expert-choice routing,
                                            group-limited routing (route on group scores, pick top groups then
@@ -29,7 +29,7 @@ Files you own (create):
                                            (bytes per MoE layer over PCIe vs NVLink), decode-time expert
                                            utilisation vs batch size model, expert offloading/caching cost model
 - code/labs/lab10_moe/{README.md,starter.py,solution.py,test_lab10.py,run.py,bench.py}
-- scratchpad refs file: refs/ch10_moe.tex
+- scratchpad refs file: refs/ch10_moe.md
 
 Chapter content (PLAN §1.1 item 10, fully): routing families with equations and code; expert design
 (fine-grained experts, shared experts, why granularity helps at equal active params); load balancing (aux
@@ -39,7 +39,7 @@ upcycling; router instability (logit drift, dead experts) and remedies (z-loss, 
 expert-choice); MoE scaling behaviour (granularity, active vs total parameters, memory vs FLOPs). Systems:
 expert parallelism with all-to-all dispatch/combine (figure), hierarchical dispatch, PCIe vs NVLink numbers
 (this box: 2x A100 over PCIe ~20–25 GB/s/direction; EP=2 all-to-all bytes per layer per token = ...), grouped
-GEMM kernels (the Triton version here; the CUDA version is \cref{ch:cudakernels}), MoE inference: EP vs TP,
+GEMM kernels (the Triton version here; the CUDA version is [@ch:cudakernels]), MoE inference: EP vs TP,
 expert offloading/caching, batch-size effects on expert utilisation (napkin math with Qwen3-30B-A3B-like
 configuration: 128 experts, 8 active, batch 1 vs 64 tokens per step). Systems Lens and Napkin Math boxes
 throughout. Summary, exercises, Lab 10.
@@ -52,5 +52,5 @@ the same active size on a toy corpus (loss curves to CSV); bench.py: grouped GEM
 GPUs (torchrun), reporting bytes and GB/s.
 
 Constraints: CPU tests, offline, < 60 s; do not modify llmsys/moe.py beyond adding imports-free helpers (prefer
-not touching it at all). Compile check CHNUM=10 for the chapter and the solutions file; run your lab tests, lab06
+not touching it at all). Site check (see BRIEF_conventions.md §2); run your lab tests, lab06
 tests (`LAB_IMPL=solution python -m pytest -q labs/lab06_qwen3`) and `python -m pytest -q tests`.

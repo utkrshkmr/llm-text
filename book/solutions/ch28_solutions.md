@@ -1,0 +1,115 @@
+## Chapter 28: Making Inference Cheaper and Deploying It {#chapter-28-making-inference-cheaper-and-deploying-it .unnumbered}
+
+#### Exercise 28.1.
+
+Qwen3-0.6B stores $2\cdot28\cdot8\cdot128\cdot2=114{,}688$ bytes of KV per token, i.e. 235 MB per
+2048-token sequence. Its weights take 1.19 GB, so the two are equal at
+$B\approx1.19\cdot10^9/2.35\cdot10^8\approx5$. Beyond a handful of concurrent sequences the KV cache
+dominates the bytes per step. Weight-only quantization of a small model therefore barely helps a
+busy server; KV quantization, paging and prefix sharing matter far more.
+
+#### Exercise 28.2.
+
+With $e$ uniform on $[-s/2,s/2]$, $\mathbb{E}[e^2]=\frac1s\int_{-s/2}^{s/2}e^2\,de=s^2/12$. A
+full-range signal uniform on $[-A,A]$ has power $A^2/3$, and $b$ bits give $s=2A/2^b$, so the noise
+power is $A^2/(3\cdot4^b)$. Hence $\mathrm{SQNR}=4^b$, or $10\log_{10}4^b\approx6.02\,b$ dB.
+
+#### Exercise 28.3.
+
+Per row: $s=40/7\approx5.71$, and a value rounds to zero when $|x|<s/2\approx2.86$, which holds for
+$\approx99.6\%$ of standard normal draws. The row is destroyed. With $g=32$, only the outlier's
+group (31 normal values) suffers this. In the other groups the scale is set by the group's own
+maximum ($\approx2.3$), so only $|x|\lesssim0.17$ rounds to zero. A simulation gives $\approx34\%$
+zeros overall, almost all of them in the outlier's group.
+
+#### Exercise 28.4.
+
+\(a\) $4+(16+16)/64=4.5$ bits. (b) $4+8/32=4.25$ bits. (c) $4+8/16=4.5$ bits, plus a negligible
+per-tensor fp32 scale.
+
+#### Exercise 28.5.
+
+For one row, the loss is
+$\ell(\boldsymbol{w}')=(\boldsymbol{w}'-\boldsymbol{w})^\top H(\boldsymbol{w}'-\boldsymbol{w})$.
+Minimise $\ell$ subject to $\boldsymbol{e}_i^\top(\boldsymbol{w}'-\boldsymbol{w})=q_i-w_i$. The
+Lagrangian gives $2H\boldsymbol\delta=\lambda\boldsymbol{e}_i$, so
+$\boldsymbol\delta=\frac{\lambda}{2}H^{-1}\boldsymbol{e}_i$, and the constraint fixes
+$\lambda/2=(q_i-w_i)/[H^{-1}]_{ii}$. Therefore
+$\boldsymbol\delta=-\frac{w_i-q_i}{[H^{-1}]_{ii}}H^{-1}_{:,i}$, whose $i$-th entry is exactly
+$q_i-w_i$ and whose other entries are the stated update. Substituting back,
+$\ell=\boldsymbol\delta^\top H\boldsymbol\delta=(w_i-q_i)^2/[H^{-1}]_{ii}$. GPTQ then removes row
+and column $i$ from $H^{-1}$ (a Schur-complement update), which is what the Cholesky formulation
+does implicitly.
+
+#### Exercise 28.6.
+
+$(X\,\mathrm{diag}(\boldsymbol{s})^{-1})(W\,\mathrm{diag}(\boldsymbol{s}))^\top
+=X\,\mathrm{diag}(\boldsymbol{s})^{-1}\mathrm{diag}(\boldsymbol{s})W^\top=XW^\top$. With
+$\alpha=\tfrac12$, $s_j=\sqrt{a_j/w_j}$ where $a_j=\max|X_{:,j}|$ and $w_j=\max|W_{:,j}|$. Then
+$\max|X'_{:,j}|=a_j/s_j=\sqrt{a_jw_j}=w_js_j=\max|W'_{:,j}|$. To fold the division, note that $X$ is
+the output of RMSNorm with per-channel gain $\gamma_j$; replace $\gamma_j$ by $\gamma_j/s_j$
+offline. (When several linears consume the same normalised input, e.g. Q, K and V, they must share
+$\boldsymbol{s}$.)
+
+#### Exercise 28.7.
+
+Let $x_1$ be emitted at position 1 with probability $p(x_1)$, by the proposition. Conditioned on the
+first draft having been accepted with value $x_1$, the second draft is sampled from
+$q(\cdot\mid x_1)$ and verified against $p(\cdot\mid x_1)$, because the target's second output row
+is computed with $x_1$ in its context. Applying the proposition to this conditional pair gives
+$\Pr[x_2\mid x_1]=p(x_2\mid x_1)$. If the first draft is rejected, the round ends and position 2 is
+produced in the next round, again conditioned on the emitted $x_1$. Either way the joint law is
+$p(x_1)p(x_2\mid x_1)$. Induction extends this to whole sequences.
+
+#### Exercise 28.8.
+
+Maximising $S(\gamma)=(1-\alpha^{\gamma+1})/((1-\alpha)(0.05\gamma+1))$ over integers gives
+$\gamma^{*}=4$ ($S\approx1.92$) for $\alpha=0.6$, $\gamma^{*}=8$ ($S\approx3.09$) for $\alpha=0.8$,
+and $\gamma^{*}=13$ ($S\approx4.67$) for $\alpha=0.9$. Going from $\gamma$ to $\gamma+1$ helps iff
+$S(\gamma+1)>S(\gamma)$, i.e. $\alpha^{\gamma+1}(1-\alpha)(c\gamma+1)>c\,(1-\alpha^{\gamma+1})$: the
+expected marginal token $\alpha^{\gamma+1}$ must outweigh the marginal drafting cost relative to the
+current expected yield.
+
+#### Exercise 28.9.
+
+The step reads $16.4$ GB of weights plus $128\cdot2048\cdot147.5$ KB$\approx38.7$ GB of KV:
+$t_{\text{mem}}\approx16.4$ ms. With $\gamma+1=5$, the step processes 640 tokens:
+$\approx2\cdot8.19\cdot10^9\cdot640\approx
+1.05\cdot10^{13}$ matmul FLOPs, plus $\approx0.8\cdot10^{12}$ for attention, so
+$t_{\text{comp}}\approx11.4$ ms at peak. That is still memory-bound on paper, but at a realistic
+50--60% of peak the compute time reaches $\approx20$ ms, which exceeds the memory time. Every
+rejected draft then costs real time. Choose $\gamma\le2$ (or adapt $\gamma$ to load), and turn
+speculation off entirely at higher batch sizes.
+
+#### Exercise 28.10.
+
+The message size is $m=5120\cdot2=10$ KB per sequence, which is negligible on NVLink
+($m/\beta\approx0.02\,\mu$s). If the per-collective latency is constant ($a=8\,\mu$s, one-shot
+all-reduce), $t(P)=19.6/P+2\cdot64\cdot0.008$ ms$=19.6/P+1.02$ ms. This decreases monotonically:
+10.8 ms at $P=2$, 5.9 ms at $P=4$, 3.5 ms at $P=8$. So use the whole NVLink domain. If the latency
+instead grows like a ring all-reduce, $a(P)=2(P-1)\alpha$ with $\alpha=2\,\mu$s, then $t=10.3$,
+$6.4$ and $6.0$ ms for $P=2,4,8$: diminishing returns, and a two-node $P=16$ would be slower.
+Collective latency, not bandwidth, sets the limit on TP for decode.
+
+#### Exercise 28.11.
+
+In a closed loop a new request is issued only when an old one completes, so the number in the system
+is capped at 64 and the offered load automatically drops when the server slows down. No queue can
+build up, and latency stays bounded by construction. Real traffic is open-loop: Poisson bursts
+arrive regardless of server state. During a burst the queue and the KV cache fill up, and preemption
+and queueing delay grow superlinearly near capacity (Little's law plus queueing theory). Closed-loop
+tools also suffer from "coordinated omission": the slow periods generate fewer samples, so they are
+under-represented in the percentiles.
+
+#### Exercise 28.12.
+
+Assume every message is 150 tokens. The prompt at turn $k$ is about $300(k-1)+150$ tokens, so
+without reuse the total prefill is $\sum_{k=1}^{20}(300k-150)=60{,}000$ tokens. With perfect reuse
+each turn prefills only the new user message plus a few template tokens (and the one generated token
+that was never fed back): about $20\cdot150=3{,}000$ tokens, a $20\times$ reduction. With the
+official Qwen3 template, pitfall (1) strikes first: the earlier assistant turns' `<think>` blocks
+are stripped when the history is re-serialised, so the common prefix ends at the start of the most
+recent assistant reply. Fixes: store in the history exactly what the template will emit (the reply
+without its think block) and accept re-prefilling that shorter reply once, or keep a cache keyed on
+the template's output. Engine-level prefix caching (radix trees) handles this automatically, at
+block granularity.

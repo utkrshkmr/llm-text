@@ -1,13 +1,13 @@
 # Brief: additions to Chapter 17 "Distributed Training" + Lab 17 extension (C++ ring all-reduce, PCIe measurements)
 
 Read first: BRIEF_conventions.md (one level up, incl. §6), docs/PLAN.md §1.2 row "17" and docs/TEST_PLAN.md §1,
-the existing chapter book/chapters/ch17_distributed.tex (keep ALL content), book/solutions/ch17_solutions.tex,
-code/labs/lab17_distributed/*, code/llmsys/dist/*, and from the first wave book/chapters/ch19_shardcalc.tex +
+the existing chapter book/chapters/ch17_distributed.md (keep ALL content), book/solutions/ch17_solutions.md,
+code/labs/lab17_distributed/*, code/llmsys/dist/*, and from the first wave book/chapters/ch19_shardcalc.md +
 code/llmsys/dist/{sharding.py,sharded_ops.py} (cross-reference; don't duplicate the calculus), code/csrc/README.md
 and code/llmsys/ops/__init__.py (§6 JIT workflow). GPUs: both (CUDA_VISIBLE_DEVICES=0,1) for the PCIe
 measurements; keep each run under a minute.
 
-Files you own: book/chapters/ch17_distributed.tex (add), book/solutions/ch17_solutions.tex (add),
+Files you own: book/chapters/ch17_distributed.md (add), book/solutions/ch17_solutions.md (add),
 code/labs/lab17_distributed/* (add tasks/tests/bench; keep existing passing + starter_csrc/), new
 code/csrc/cuda/p2p_ring.cu (a ring all-reduce for 2+ GPUs in ONE process written in C++/CUDA with
 cudaMemcpyPeerAsync / direct peer access and a reduce kernel, exposed as `llmsys::ring_allreduce_p2p(Tensor[]
@@ -16,7 +16,7 @@ chunks_per_device)` — the "NCCL ring from C++" lab: the algorithm NCCL runs, i
 new code/tools/p2p_bandwidth.py and code/tools/allreduce_bench.py (the environment-check scripts named in
 docs/TEST_PLAN.md §1: PCIe bandwidth per direction, NCCL all-reduce bus bandwidth curve with torchrun, JSON
 output), new module code/llmsys/dist/cluster.py (topology descriptions and per-strategy roofline models),
-scratchpad refs/add_ch17.tex.
+docs/edition3_briefs/refs/add_ch17.md.
 
 Additions (sections + exercises + lab tasks):
 1. GPU cluster networking: NVLink/NVSwitch domains (bandwidths per generation), PCIe topologies (switch
@@ -38,6 +38,6 @@ Additions (sections + exercises + lab tasks):
    and writes JSON (test: parses its own output on a fake run), roofline model functions (CPU tests with
    known numbers), config translation helpers (CPU tests).
 
-Constraints: keep all content/tests; compile check CHNUM=17 (chapter + solutions); run
+Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); run
 `LAB_IMPL=solution python -m pytest -q labs/lab17_distributed` (LLMSYS_JIT=1) and `python -m pytest -q tests`.
 Report the measured P2P and all-reduce bandwidths in your final message.

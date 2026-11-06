@@ -1,14 +1,14 @@
 # Brief: additions to Chapter 7 "The Architecture Design Space" + Lab 7 extension
 
 Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.2 row "7", the existing chapter
-book/chapters/ch07_arch_design.tex (keep ALL content; note how its ablation framework is organised),
-book/solutions/ch07_solutions.tex, code/labs/lab07_ablations/* (incl. reference_results.json and run.py),
-code/llmsys/ablate.py, code/llmsys/layers.py. Also skim book/chapters/ch09_encoders.tex (first wave) for the
+book/chapters/ch07_arch_design.md (keep ALL content; note how its ablation framework is organised),
+book/solutions/ch07_solutions.md, code/labs/lab07_ablations/* (incl. reference_results.json and run.py),
+code/llmsys/ablate.py, code/llmsys/layers.py. Also skim book/chapters/ch09_encoders.md (first wave) for the
 T5 relative-bias mention so you don't contradict it.
 
-Files you own: book/chapters/ch07_arch_design.tex (add), book/solutions/ch07_solutions.tex (add),
+Files you own: book/chapters/ch07_arch_design.md (add), book/solutions/ch07_solutions.md (add),
 code/labs/lab07_ablations/* (add tasks/tests/run options; keep existing tests passing), new module
-code/llmsys/mixers.py, scratchpad refs/add_ch07.tex.
+code/llmsys/mixers.py, docs/edition3_briefs/refs/add_ch07.md.
 
 Additions (sections inserted at the matching places of the design-space tour, plus exercises and lab tasks):
 1. Relative position biases: T5 bucketed biases, ALiBi slopes, learned relative biases; how they compose
@@ -29,5 +29,5 @@ Additions (sections inserted at the matching places of the design-space tour, pl
    preserved, parameter counts match formulas, relative bias is translation invariant, talking-heads with
    identity mixing equals MHA), extend run.py grid.
 
-Constraints: keep all existing content and tests; compile check CHNUM=7 (chapter + solutions); run
+Constraints: keep all existing content and tests; Site check (see BRIEF_conventions.md §2); run
 `LAB_IMPL=solution python -m pytest -q labs/lab07_ablations` and `python -m pytest -q tests`.

@@ -1,14 +1,14 @@
 # Brief: Chapter 11 "Anatomy of Modern Open Models" (NEW) + Lab 11
 
-Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.1 item 11, book/chapters/ch06_modern_arch.tex,
-ch07_arch_design.tex, ch08_attention_alternatives.tex (what already exists: Qwen3 dense, GQA, RoPE, MoE intro,
+Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.1 item 11, book/chapters/ch06_modern_arch.md,
+ch07_arch_design.md, ch08_attention_alternatives.md (what already exists: Qwen3 dense, GQA, RoPE, MoE intro,
 design-space ablations, SSMs/linear attention in llmsys/ssm.py and llmsys/linear_attn.py), code/llmsys/qwen3.py
 (the model interface `logits = model(idx, cache=None, pad_mask=None)`, HF weight loader pattern), llmsys/kvcache.py,
 llmsys/flops.py, llmsys/moe.py. GPU for your tests: CUDA_VISIBLE_DEVICES=1 (only if needed; tests are CPU).
 
 Files you own (create):
-- book/chapters/ch11_anatomy.tex           \chapter{Anatomy of Modern Open Models}\label{ch:anatomy}
-- book/solutions/ch11_solutions.tex
+- book/chapters/ch11_anatomy.md           # Anatomy of Modern Open Models {#ch:anatomy}
+- book/solutions/ch11_solutions.md
 - code/llmsys/models/__init__.py           registry: name -> (config dataclass, model class, hf loader)
 - code/llmsys/models/llama.py              Llama-3-style dense (RMSNorm, SwiGLU, GQA, RoPE with Llama-3 frequency
                                            scaling, untied head), HF state-dict loader
@@ -36,11 +36,11 @@ Files you own (create):
                                            cost profile (bytes/step at batch B, arithmetic intensity), from the
                                            config alone; one function `profile(name, cfg, hw)` and a table printer
 - code/labs/lab11_anatomy/{README.md,starter.py,solution.py,test_lab11.py,run.py}
-- scratchpad refs file: refs/ch11_anatomy.tex
+- scratchpad refs file: refs/ch11_anatomy.md
 
 Chapter: side-by-side anatomy of the seven families with one figure per architecture (block diagram) and a
 master comparison table (norms, activation, attention type, positions, KV/token, params, active params,
-context). For each: the equations where they differ from Qwen3 (\cref{ch:modern}), the implementation
+context). For each: the equations where they differ from Qwen3 ([@ch:modern]), the implementation
 listing (abridged from your module), the parameter/FLOP/KV accounting with worked numbers for a published
 config (Llama-3.1-8B, Qwen3-30B-A3B, Mixtral-8x7B, DeepSeek-V3 (671B/37B active), Gemma-3-12B, Mistral-7B
 with 4k window, a hybrid such as Jamba-1.5-Mini or Qwen3-Next), and its inference cost profile on one A100
@@ -63,4 +63,4 @@ against `transformers` if installed (optional dependency; skip gracefully) plus 
 
 Constraints: no network in tests; keep every existing llmsys module unchanged; configs as dataclasses with
 `from_hf_config(dict)`; the model interface must be `model(idx, cache=None, pad_mask=None) -> logits`.
-Compile checks (CHNUM=11) for chapter and solutions; run lab11 tests and `python -m pytest -q tests`.
+Site check (see BRIEF_conventions.md §2); run lab11 tests and `python -m pytest -q tests`.

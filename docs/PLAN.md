@@ -13,7 +13,8 @@ Goals:
    testing, packaging.
 3. The capstone projects are extensive, research-grade work, sized for **2× A100-40GB connected
    over PCIe** (no NVLink).
-4. Output: the **online book only** (GitHub Pages). No PDF is built or published.
+4. Output: the **online book only** (GitHub Pages), built from Markdown sources. No PDF, ebook or
+   LaTeX source exists.
 
 Out of scope: diffusion and other non-autoregressive language models.
 
@@ -212,7 +213,8 @@ code/
 
 ## 3. Website
 
-- Only the online book is built. The draft LaTeX pass exists to resolve cross-reference numbers.
+- Only the online book is built. The sources are Markdown with SVG figures (`book/`); the site builder
+  numbers everything and resolves cross-references itself, so no TeX is involved.
 - Reading comfort:
   - warm, low-glare light / sepia / dark themes;
   - a ~70-character measure; adjustable text size; serif or sans text;

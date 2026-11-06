@@ -1,14 +1,14 @@
 # Brief: additions to Chapter 3 "Text and Tokenisation" + Lab 3 extension
 
 Read first: BRIEF_conventions.md (one level up, incl. §6), docs/PLAN.md §1.2 row "3", the existing chapter
-book/chapters/ch03_text_data.tex (keep ALL existing content; you add sections), book/solutions/ch03_solutions.tex,
+book/chapters/ch03_text_data.md (keep ALL existing content; you add sections), book/solutions/ch03_solutions.md,
 code/labs/lab03_tokenizer/*, code/llmsys/tokenizer.py, code/llmsys/qwen3.py (Qwen3Tokenizer, embedding
-layout), and the finished Chapter 20 material from the first wave: book/chapters/ch20_cpp_pytorch.tex (its BPE
+layout), and the finished Chapter 20 material from the first wave: book/chapters/ch20_cpp_pytorch.md (its BPE
 section), code/csrc/cpu/bpe.cpp, code/llmsys/ops/bpe.py, code/labs/lab20_cpp/ (the C++ BPE encoder/trainer ops
 and their Python wrappers; reuse them, do not write new C++ for BPE).
 
-Files you own: book/chapters/ch03_text_data.tex (add), book/solutions/ch03_solutions.tex (add), code/labs/lab03_tokenizer/*
-(add tasks/tests; keep existing tests passing), new module code/llmsys/vocab_ext.py, scratchpad refs/add_ch03.tex.
+Files you own: book/chapters/ch03_text_data.md (add), book/solutions/ch03_solutions.md (add), code/labs/lab03_tokenizer/*
+(add tasks/tests; keep existing tests passing), new module code/llmsys/vocab_ext.py, docs/edition3_briefs/refs/add_ch03.md.
 
 Additions (new sections before "Summary", new exercises, new lab tasks):
 1. Adding tokens to a trained tokenizer: special tokens vs regular tokens, how merges and the regex interact,
@@ -32,5 +32,5 @@ Additions (new sections before "Summary", new exercises, new lab tasks):
    Tests must skip the C++ parts cleanly when the op is not built (use `llmsys.ops.bpe.build()` as the gate).
 
 Constraints: keep every existing section, exercise, figure and test; append exercises (continue numbering
-implicitly) and their solutions; compile check CHNUM=3 for chapter and solutions; run
+implicitly) and their solutions; Site check (see BRIEF_conventions.md §2); run
 `LAB_IMPL=solution python -m pytest -q labs/lab03_tokenizer` (with and without LLMSYS_JIT=1) and `python -m pytest -q tests`.

@@ -2,8 +2,8 @@
 
 Read first: BRIEF_conventions.md (one level up, INCLUDING §6), docs/PLAN.md §1.1 item 22 and §2, the scaffold
 (code/csrc/*, code/llmsys/ops/*, code/tests/test_ops.py), the existing attention kernel material the reader
-already has: book/chapters/ch04_attention.tex (FlashAttention algorithm), ch16_perf_engineering.tex (FA2 tiled
-PyTorch model and Triton kernels: code/llmsys/kernels/flash2_ref.py, flash2_triton.py), ch27_serving_engine.tex
+already has: book/chapters/ch04_attention.md (FlashAttention algorithm), ch16_perf_engineering.md (FA2 tiled
+PyTorch model and Triton kernels: code/llmsys/kernels/flash2_ref.py, flash2_triton.py), ch27_serving_engine.md
 and code/llmsys/serving/model_runner.py (paged attention reference `paged_attention(q, k_pool, v_pool,
 block_table, ctx_len, block_size, group_size)` and the `attention_fn` hook of ModelRunner), code/llmsys/kernels/
 reference.py (paged_decode_attention), code/llmsys/moe.py (dispatch pipeline), code/llmsys/quant.py (int8 KV).
@@ -11,8 +11,8 @@ Chapter 21 (another writer, in parallel) owns softmax/layernorm/GEMM-ladder kern
 grouped GEMM; coordinate by file ownership only. GPU: CUDA_VISIBLE_DEVICES=1.
 
 Files you own (create):
-- book/chapters/ch22_attn_moe_kernels.tex   \chapter{Attention and MoE Kernels in CUDA}\label{ch:cudakernels}
-- book/solutions/ch22_solutions.tex
+- book/chapters/ch22_attn_moe_kernels.md   # Attention and MoE Kernels in CUDA {#ch:cudakernels}
+- book/solutions/ch22_solutions.md
 - code/csrc/cuda/flash_attn_fwd.cu         FlashAttention-2 forward for bf16/fp16 (and fp32 via a slower path or
                                             upcast), tensor-core MMA (wmma or mma.sync), online softmax, causal
                                             block skipping, GQA head indexing (q heads -> kv head), returns O and
@@ -38,7 +38,7 @@ Files you own (create):
                                             ModelRunner(attention_fn=...)
 - code/labs/lab22_attn_moe_kernels/{README.md,starter.py,solution.py,test_lab22.py,bench.py}
   (starter_csrc/ with TODO-marked kernel skeletons, as in Chapter 21's lab)
-- scratchpad refs file: refs/ch22_attn_moe_kernels.tex
+- scratchpad refs file: refs/ch22_attn_moe_kernels.md
 
 Chapter content (PLAN item 22, in full): FlashAttention-2 forward in CUDA C++: tiling (figure), the MMA
 fragment flow Q·Kᵀ -> online softmax -> P·V, why FA2 keeps the output accumulator in registers and
@@ -48,8 +48,8 @@ fp32 accumulators); a paged-attention decode kernel: block tables, split-K/flash
 step (figure), batch-1 bandwidth bound napkin math, sliding-window and sink masks, dequantising an int8 KV
 cache inside the kernel (bytes saved vs compute added); grouped GEMM and dispatch/combine kernels for MoE
 (figures: permutation and segment layout); wiring each kernel three ways: autograd op for training, backend
-of the \cref{ch:serving} engine, benchmark harness against PyTorch SDPA, the Triton kernels of
-\cref{ch:perf}, and the references; measured results on this box's A100 (label "measured on 2x A100-40GB
+of the [@ch:serving] engine, benchmark harness against PyTorch SDPA, the Triton kernels of
+[@ch:perf], and the references; measured results on this box's A100 (label "measured on 2x A100-40GB
 (PCIe)"), with an honest discussion of the gap to SDPA's FA2; Hopper and Blackwell designs explained
 conceptually (warp specialisation, producer/consumer warpgroups, TMA asynchronous copies, FP8, Blackwell
 tensor memory and 2-SM MMA) — they cannot run on A100, say so. Summary, exercises, Lab 22.
@@ -68,4 +68,4 @@ Priorities: correctness first (all tests), then performance; report measured rat
 and in your final message (TEST_PLAN targets: fwd within 1.5x of SDPA, bwd within 2x, paged within 1.5x).
 Verification: `export LLMSYS_JIT=1 LLMSYS_JIT_DIR=/dev/shm/utkarshk-llmtext/jit CUDA_HOME=/usr/local/cuda
 TORCH_CUDA_ARCH_LIST=8.0 CUDA_VISIBLE_DEVICES=1; cd code; LAB_IMPL=solution python -m pytest -q
-labs/lab22_attn_moe_kernels; python -m pytest -q tests`. Compile checks CHNUM=22.
+labs/lab22_attn_moe_kernels; python -m pytest -q tests`. Site check (see BRIEF_conventions.md §2).

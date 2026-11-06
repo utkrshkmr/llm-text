@@ -2,15 +2,15 @@
 
 Read first: BRIEF_conventions.md (one level up, INCLUDING §6), docs/PLAN.md §1.1 item 21 and §2, the scaffold:
 code/csrc/{README.md,common.h,ops.cpp,cpu/rmsnorm.cpp,cuda/rmsnorm.cu}, code/llmsys/ops/{__init__.py,rmsnorm.py},
-code/tests/test_ops.py; book/appendices/appA_triton.tex (the reader has written Triton kernels: do not repeat the
-Triton material, contrast with it), book/chapters/ch02_pytorch_hardware.tex (roofline vocabulary),
-book/chapters/ch16_perf_engineering.tex (profiling tools already introduced), code/llmsys/kernels/reference.py.
+code/tests/test_ops.py; book/appendices/appA_triton.md (the reader has written Triton kernels: do not repeat the
+Triton material, contrast with it), book/chapters/ch02_pytorch_hardware.md (roofline vocabulary),
+book/chapters/ch16_perf_engineering.md (profiling tools already introduced), code/llmsys/kernels/reference.py.
 GPU for your tests/benchmarks: CUDA_VISIBLE_DEVICES=0. nvcc 13.2 at /usr/local/cuda; A100 = sm_80; `ncu`/`nsys`
 may not be on PATH (check /usr/local/cuda/bin and /opt/nvidia; describe the workflow even if unavailable).
 
 Files you own (create):
-- book/chapters/ch21_cuda_kernels.tex      \chapter{CUDA Kernels from First Principles}\label{ch:cuda}
-- book/solutions/ch21_solutions.tex
+- book/chapters/ch21_cuda_kernels.md      # CUDA Kernels from First Principles {#ch:cuda}
+- book/solutions/ch21_solutions.md
 - code/csrc/cuda/softmax.cu               fused row softmax forward and backward (online max/sum, one block per
                                            row, warp shuffles; large-row loop), op names softmax_fwd/softmax_bwd
 - code/csrc/cuda/layernorm.cu             LayerNorm forward/backward (Welford or two-pass; weight/bias grads
@@ -32,7 +32,7 @@ Files you own (create):
   (starter.py/solution.py: Python side — references, launch wrappers, roofline analysis, the Nsight parsing
   helpers; the CUDA sources above are the "solution" kernels; starter versions of the .cu files go in
   code/labs/lab21_cuda/starter_csrc/ with TODO markers, and the tests JIT-build either set via LAB_IMPL)
-- scratchpad refs file: refs/ch21_cuda_kernels.tex
+- scratchpad refs file: refs/ch21_cuda_kernels.md
 
 Chapter content (PLAN item 21, in full): the CUDA execution model (grids, blocks, warps, SMs, occupancy;
 A100 numbers: 108 SMs, 64 FP32 lanes/SM, 2048 threads/SM, 164 KB shared/SM, 256 KB registers/SM), memory
@@ -59,4 +59,4 @@ tiled algorithm (tile loop order) so the lab has CPU tests too.
 
 Verification: `export LLMSYS_JIT=1 LLMSYS_JIT_DIR=/dev/shm/utkarshk-llmtext/jit CUDA_HOME=/usr/local/cuda
 TORCH_CUDA_ARCH_LIST=8.0 CUDA_VISIBLE_DEVICES=0; cd code; LAB_IMPL=solution python -m pytest -q labs/lab21_cuda;
-python -m pytest -q tests`. Compile checks CHNUM=21. Report the measured GEMM table in your final message.
+python -m pytest -q tests`. Site check (see BRIEF_conventions.md §2). Report the measured GEMM table in your final message.

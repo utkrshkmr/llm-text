@@ -1,0 +1,102 @@
+## Chapter 12: Optimizers and the Training Loop from First Principles {#chapter-12-optimizers-and-the-training-loop-from-first-principles .unnumbered}
+
+#### Exercise 12.1.
+
+Without correction, $m_1=(1-\beta_1)g$ and $v_1=(1-\beta_2)g^2$, so the step is
+$\eta\,(1-\beta_1)|g|/\sqrt{1-\beta_2}\,|g| = \eta\cdot0.1/0.0316\approx3.16\,\eta$ per coordinate.
+With $\beta_2=0.95$ it is $0.1/\sqrt{0.05}\approx0.45\,\eta$. The second-moment correction matters
+more because $\sqrt{1-\beta_2^t}$ stays far below $1-\beta_1^t$ for many steps when $\beta_2$ is
+close to 1. The uncorrected ratio $(1-\beta_1^t)/\sqrt{1-\beta_2^t}$ peaks at about $6.6$ around
+$t=12$ for $(0.9, 0.999)$, so an uncorrected Adam takes steps several times larger than $\eta$
+throughout the first hundreds of steps.
+
+#### Exercise 12.2.
+
+Adam + L2: the gradient is $\lambda\theta$, so $\hat m\approx\lambda\theta$ and
+$\sqrt{\hat v}\approx\lambda|\theta|$ once the moments have adapted, giving a step of
+$\eta\,\mathrm{sign}(\theta)$: a *linear* shrink of $\eta$ per step regardless of $\lambda$, until
+$\theta$ reaches $\approx0$ and oscillates at amplitude $\sim\eta$. AdamW: the adaptive term is zero
+($g=0$, so $m=0$) and $\theta_t=(1-\eta\lambda)^t\theta_0$ decays geometrically with rate set by
+$\lambda$. The coupled version's decay strength therefore depends on the gradient statistics, which
+is the problem decoupling fixes.
+
+#### Exercise 12.3.
+
+\(a\) SGD with momentum in fp32: read $p,g,b$ (12 B), write $p,b$ (8 B), 20 B/param, 5.97 ms per
+billion parameters. (b) Lion with fp32 master weights: read bf16 $g$ (2), master (4), $m$ (4); write
+master (4), $m$ (4), bf16 copy (2): 20 B/param, 5.97 ms/B. (c) AdamW with bf16 $m,v$ and fp32
+master: read $g$ (2), master (4), $m$ (2), $v$ (2); write master (4), $m$ (2), $v$ (2), bf16 copy
+(2): 20 B/param, 5.97 ms/B. For comparison, fp32 or standard mixed-precision AdamW is 28 B/param,
+8.36 ms/B.
+
+#### Exercise 12.4.
+
+$310\times10\times5\,\mu$s $=15.5$ ms of launch overhead per step, against a memory-bound time of
+$28\times0.596\times10^9/3.35\times10^{12}\approx5.0$ ms. The loop implementation is launch-bound,
+three times slower than the bandwidth limit, before counting the kernels' own runtime. The `foreach`
+path issues about ten launches per parameter group ($\sim$`<!-- -->`{=html}50 $\mu$s); a fused
+kernel approaches the 5 ms bound.
+
+#### Exercise 12.5.
+
+Qwen3-0.6B: $N\approx0.596\times10^9$, so model state is $16N\approx9.5$ GB. At $T=4096$ in bf16 the
+saved tensors of [@sec:optim:account] give (per sequence): (i) naive attention,
+$\approx1.26$ GB per layer, dominated by the $2HT^2$ score and probability tensors (1.07 GB), so
+$28\times1.26\approx35.2$ GB, plus about 5 GB for fp32 logits and softmax ($T\cdot V\cdot4\cdot2$
+bytes with $V=151{,}936$). That is $\approx40$ GB per sequence: $\text{mem}(B)\approx40.2B+9.5$ GB,
+which does not fit even $B=1$ on a 24 GB GPU. (ii) With FlashAttention, $\approx0.185$ GB per layer,
+so $\approx5.2+5.0=10.2$ GB per sequence: $\text{mem}(B)\approx10.2B+9.5$ GB, and $B=1$ fits. The
+logits are now half the activation memory: computing the loss in chunks ([@ch:distill]) would
+allow $B=2$, and activation checkpointing ([@sec:pretrain:efficiency]) more.
+
+#### Exercise 12.6.
+
+Their schedule restarts at step 0: if it has warmup, the learning rate ramps up again from near zero
+to the peak, then follows a complete cosine compressed into the remaining steps. The original run
+was somewhere down its cosine (say at $0.4\,\eta_{\max}$), so the resumed run jumps back to
+$\eta_{\max}$. The loss curve shows a bump or spike shortly after resumption (a "warm restart"),
+then decays again. The final loss is usually worse than the uninterrupted run's, and the run is not
+reproducible. The fix is to construct the schedule with the original `total` and call it with the
+restored global step.
+
+#### Exercise 12.7.
+
+The global norm is $\sqrt{3^2+4^2}=5$, so both ranks must scale by $1/5$; the result has norm 1 and
+the original direction. Independent clipping scales rank 0 by $1/3$ and rank 1 by $1/4$: each shard
+has norm 1, the combined norm is $\sqrt2$, and the direction changes (the components' ratio goes
+from $3:4$ to $1:1$). The fix is one scalar collective: each rank computes $s_r=\|g_r\|^2$, then
+`all_reduce(SUM)` over the tensor-parallel group, and every rank uses $\sqrt{\sum_r s_r}$.
+Replicated parameters, such as norm gains that every rank holds, must be counted once, not once per
+rank.
+
+#### Exercise 12.8.
+
+With $X=U\Sigma V^\top$, $XX^\top=U\Sigma^2U^\top$, hence $(XX^\top)X=U\Sigma^3V^\top$ and
+$(XX^\top)^2X=U\Sigma^5V^\top$. So $p(X)=U(a\Sigma+b\Sigma^3+c\Sigma^5)V^\top=U\,p(\Sigma)\,V^\top$,
+and singular vectors are preserved. The scalar map only pushes values in $(0,1]$ into the band
+near 1. For $\sigma$ much above 1 the $c\sigma^5$ term dominates and iterating diverges, so the
+input is divided by its Frobenius norm, which upper-bounds $\sigma_{\max}$. Muon is restricted to
+2-D hidden matrices because 1-D gains and biases have no singular structure, and because embedding
+and unembedding matrices are lookups or classifiers over tokens: each row belongs to one token and
+receives gradient only when that token appears, and orthogonalising would redistribute update
+magnitude across rare and frequent tokens. The original Muon recipe keeps them on AdamW.
+
+#### Exercise 12.9.
+
+Number the $n$ valid windows (e.g. disjoint windows $i\cdot T$). Each epoch draws $a$ with
+$\gcd(a,n)=1$ and an offset $c$; the $k$-th sample is window $(a k + c)\bmod n$, a bijection on
+$\{0,\dots,n-1\}$ computed in $O(1)$ without storing a permutation. The state is (epoch, $k$, $a$,
+$c$), or the seed from which $a$ and $c$ are derived. Affine permutations mix poorly (consecutive
+samples are an arithmetic progression of windows), so production samplers use a small keyed Feistel
+network or a block-shuffled order instead; the state has the same shape.
+
+#### Exercise 12.10.
+
+Expect the following pattern; exact values depend on your hardware and seeds. With clipping, the
+largest learning rates spike but recover; our run at $\eta=1$ spiked from 5.8 to 7.3 and then
+trained. With clipping disabled, the loss at the highest learning rates becomes non-finite within
+tens of steps, which defines the divergence point $\eta_{\text{div}}$. The best learning rate
+typically sits 3--30$\times$ below $\eta_{\text{div}}$ on a broad plateau. Removing QK-norm lets
+attention logits grow with the weights, which lowers $\eta_{\text{div}}$, often by several times,
+and usually moves the optimum down with it: QK-norm buys stability headroom
+([@sec:archdesign:stability]).

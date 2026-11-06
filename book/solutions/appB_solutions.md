@@ -1,0 +1,98 @@
+## Appendix B: Accelerators Beyond the GPU {#appendix-b-accelerators-beyond-the-gpu .unnumbered}
+
+#### Exercise B.1
+
+$x_{mk}$ enters PE$(k,0)$ at cycle $m+k$ and reaches PE$(k,n)$ at $m+k+n$. The partial sum for
+$y_{mn}$ starts at PE$(0,n)$ at cycle $m+n$, moves down one row per cycle and is at PE$(k,n)$ at
+$m+n+k$, the same cycle as $x_{mk}$, so the MAC happens. It leaves the bottom row at $m+n+K-1$. The
+last output ($m=M-1$, $n=N-1$) leaves at cycle $M+N+K-3$, counting from 0, so the pass takes
+$M+N+K-2$ cycles. Loading the weights one row per cycle without overlap adds $K$ cycles: $M+N+2K-2$.
+`simulate_weight_stationary(..., include_weight_load=True)` reports exactly that.
+
+#### Exercise B.2
+
+$K=4096$ and $N=12288$ are multiples of both array sizes, so there is no padding and
+$U = M/(M+R+C-2)$. Half utilisation needs $M=R+C-2$: 254 rows on $128\times128$ and 510 on
+$256\times256$. Larger arrays need larger batches. TPU serving systems therefore aim for decode
+batches of hundreds of sequences per chip (or per TP group), and treat small-batch latency-critical
+traffic as a separate, less efficient regime.
+
+#### Exercise B.3
+
+Every Qwen3-0.6B dimension (1024, 2048, 3072, and the vocabulary $151{,}936 = 1187\times128$) is a
+multiple of 128, so the padding efficiency is exactly 1 for both layouts. GPT-2's 50,257 is
+prime-ish: the LM head needs $\lceil 50257/128\rceil = 393$ column tiles ($50{,}304$ columns), an
+efficiency of 0.99907, and $\lceil50257/32\rceil=1571$ tiles of 32 (50,272), an efficiency of
+0.9997. Padding the vocabulary to $50{,}304 = 393\times128$ makes both exact. The 47 extra rows are
+never targets in training, so their logits are trained towards very negative values or simply sliced
+off before sampling. They cost nothing because the hardware was computing padded tiles anyway.
+
+#### Exercise B.4
+
+Reduce-scatter along $x$ (16 chips, bidirectional ring, $W$ each way): $\frac{15}{16}\frac{S}{2W}$.
+All-reduce along $y$ of the resulting $S/16$: $2\cdot\frac{15}{16}\frac{S/16}{2W}$. All-gather along
+$x$: $\frac{15}{16}\frac{S}{2W}$. The total is $\approx0.996\,S/W$, exactly the bandwidth term of
+one bidirectional ring over all 256 chips ($2\cdot\frac{255}{256}\frac{S}{2W}$). The difference is
+latency: $2\cdot15\cdot2$ ring steps instead of $2\cdot255$. The 2-D schedule can also split $S$ in
+half and run $x$-then-$y$ on one half and $y$-then-$x$ on the other concurrently, using both axes'
+links at once and approaching $0.5\,S/W$, which a single ring cannot do.
+
+#### Exercise B.5
+
+For square blocks, Cannon moves $(p-1)p^2(a+b)$ link-bytes in its shift steps plus the initial skew,
+while SUMMA with multicast moves $p^2(p-1)(a+b)$. Cannon therefore costs SUMMA's traffic *plus* the
+skew, which is $p\sum_i\min(i,p-i)$ block-hops per operand. For $p=4$ on the test matrices that is
+1536 against 1152 bytes. Without multicast SUMMA's line broadcasts cost $p(p-1)/2$ hops each and it
+becomes more expensive than Cannon for $p>2$. Cannon is still attractive on a real NoC because every
+transfer is a single nearest-neighbour hop on the torus. There are no long multi-hop routes that
+contend for links, per-step SRAM use is constant (one $A$ and one $B$ block in flight), and the
+traffic is perfectly balanced across links.
+
+#### Exercise B.6
+
+A Cannon step on $b\times b$ blocks costs $2b^3/C_c$ seconds of compute against moving two blocks,
+$2b^2/W_n$ seconds at 1 byte per element, so
+$b \ge C_c/W_n = 4\times10^{12}/6.4\times10^{10} = 62.5$: take $b=64$, a multiple of the 32-element
+tile. SRAM: two 8-bit input blocks of $64\times64$ are 4 KB each, 16 KB double-buffered, plus a
+$64\times64$ fp32 accumulator (16 KB, or 32 KB double-buffered), under 50 KB in total, so it fits
+easily. The SRAM budget would allow $b$ in the low hundreds, which leaves room to raise $b$ for
+slack against NoC contention.
+
+#### Exercise B.7
+
+With weights resident in SRAM, a batch-1 token needs $2\times3\times10^8 = 6\times10^8$ FLOPs. At
+the card's 8-bit peak (about 466 TFLOP/s) that is under $2\,\mathrm{\micro\second}$, so compute is
+not the bound. Instead, the per-layer critical path is: every layer's ops run in sequence, each with
+dispatch and synchronisation overheads of microseconds, plus NoC transfers of activations between
+the cores that hold consecutive layers. For a model of a few dozen layers with several ops per
+layer, those overheads put the realistic ceiling in the low thousands of tokens per second. The
+DRAM-bound alternative is $576\times10^9/3\times10^8\approx1900$ tokens/s. SRAM residency helps most
+when it removes DRAM from the loop *and* the op overheads are amortised: through batching, op
+fusion, or a static schedule that pipelines layers across cores.
+
+#### Exercise B.8
+
+\(a\) 1000 concurrent users of an 8B model is a throughput and KV-capacity problem: a
+high-bandwidth, high-capacity machine (H100- or TPU v5p-class) with continuous batching and paged KV
+caches. (b) One developer running a 70B model locally needs capacity: a 128 GB unified-memory
+machine (GB10) holds a 4-bit 70B model with a long cache, at single-digit tokens/s. (c) GRPO on a
+1.7B model needs fast rollouts and training in one software ecosystem, which today means a CUDA GPU
+node, or TPUs with a JAX RL stack. (d) A latency-critical single-user 8B assistant is best served by
+an SRAM-resident design (Groq, Cerebras), or a high-bandwidth GPU with speculative decoding.
+
+#### Exercise B.9
+
+A sequence of 4096 tokens has $0.604$ GB of bf16 KV cache. KV traffic equals weight traffic when
+$B\cdot0.604 = 16.4$ (bf16 weights), $B\approx27$, or $B\cdot0.604=8.2$ (fp8 weights), $B\approx14$.
+Quantising the cache to 8 bits halves the per-sequence term and doubles both crossovers, to about 54
+and 27. With fp8 weights, an 8-bit cache is the natural pairing.
+
+#### Exercise B.10
+
+Per-token time is $28.5\,\text{ms}/n$ (8.2 GB of fp8 weights at 288 GB/s, split over $n$ chips) plus
+$72\cdot2(n-1)\alpha$ of all-reduce latency. With $\alpha=2\,\mathrm{\micro\second}$: 14.5, 8.0 and
+5.6 ms for $n=2,4,8$ (69, 125 and 179 tokens/s), so TP keeps paying off. With
+$\alpha=20\,\mathrm{\micro\second}$: 17.1, 15.8 and 23.7 ms (58, 63 and 42 tokens/s), so scaling
+stops at $n=4$, and $n=8$ is slower than $n=2$. For many users, run several TP-2 or TP-4 groups as
+data-parallel replicas and batch requests within each. Batching amortises both the weight streaming
+and the per-step collective latency over many tokens.

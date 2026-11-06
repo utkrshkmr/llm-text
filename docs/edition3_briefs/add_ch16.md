@@ -1,15 +1,15 @@
 # Brief: additions to Chapter 16 "Single-GPU Performance Engineering" + Lab 16 extension
 
 Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.2 row "16", the existing chapter
-book/chapters/ch16_perf_engineering.tex (keep ALL content: it already has activation checkpointing basics,
-the sqrt(L) argument, FA2 in PyTorch and Triton), book/solutions/ch16_solutions.tex, code/labs/lab16_perf/*,
-code/llmsys/perf.py, and from the first wave book/chapters/ch23_compilers.tex + code/llmsys/compile/fx_passes.py
-(torch.fx utilities you can reuse for the planner) and book/chapters/ch22_attn_moe_kernels.tex (Hopper/Blackwell
+book/chapters/ch16_perf_engineering.md (keep ALL content: it already has activation checkpointing basics,
+the sqrt(L) argument, FA2 in PyTorch and Triton), book/solutions/ch16_solutions.md, code/labs/lab16_perf/*,
+code/llmsys/perf.py, and from the first wave book/chapters/ch23_compilers.md + code/llmsys/compile/fx_passes.py
+(torch.fx utilities you can reuse for the planner) and book/chapters/ch22_attn_moe_kernels.md (Hopper/Blackwell
 section: cross-reference instead of repeating). GPU: CUDA_VISIBLE_DEVICES=0 for short measurements only.
 
-Files you own: book/chapters/ch16_perf_engineering.tex (add), book/solutions/ch16_solutions.tex (add),
+Files you own: book/chapters/ch16_perf_engineering.md (add), book/solutions/ch16_solutions.md (add),
 code/labs/lab16_perf/* (add tasks/tests; keep existing passing), new module code/llmsys/ckpt_planner.py,
-scratchpad refs/add_ch16.tex.
+docs/edition3_briefs/refs/add_ch16.md.
 
 Additions (a new section group "Choosing what to recompute" of ~250–350 lines + lab tasks):
 1. Checkpointing as a pebble game: the computation DAG, pebbles = live tensors, moves = compute/free, the
@@ -29,10 +29,10 @@ Additions (a new section group "Choosing what to recompute" of ~250–350 lines 
    drop (reuse llmsys.perf.SavedTensorTracker). This is the lab extension (CPU-testable).
 5. FlashAttention-3/4 design ideas (as a Deeper Dive, 60–100 lines): producer/consumer warp specialisation,
    ping-pong scheduling of GEMM and softmax, FP8 with block scaling, intra-warpgroup pipelining, TMA; and
-   the Blackwell changes; why they do not apply to Ampere; link \cref{ch:cudakernels}.
+   the Blackwell changes; why they do not apply to Ampere; link [@ch:cudakernels].
 6. Exercises + solutions; lab tasks: revolve DP (test: known optimal counts for small chains), cut-point
    selection (test: memory under budget, recompute minimal on a crafted chain), fx planner (test: identical
    gradients; saved bytes reduced), ILP tiny instance (test: matches DP on a chain).
 
-Constraints: keep all content/tests; compile check CHNUM=16 (chapter + solutions); run
+Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); run
 `LAB_IMPL=solution python -m pytest -q labs/lab16_perf` and `python -m pytest -q tests`.

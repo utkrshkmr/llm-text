@@ -1,14 +1,14 @@
 # Brief: additions to Chapter 8 "Beyond Softmax Attention" + Lab 8 extension
 
 Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.2 row "8", the existing chapter
-book/chapters/ch08_attention_alternatives.tex (keep ALL content: linear attention, SSMs/Mamba, hybrids already
-there), book/solutions/ch08_solutions.tex, code/labs/lab08_attnalt/*, code/llmsys/{linear_attn.py,ssm.py,layers.py},
-and from the first wave book/chapters/ch11_anatomy.tex + code/llmsys/models/{sliding.py,hybrid.py} (sliding window
+book/chapters/ch08_attention_alternatives.md (keep ALL content: linear attention, SSMs/Mamba, hybrids already
+there), book/solutions/ch08_solutions.md, code/labs/lab08_attnalt/*, code/llmsys/{linear_attn.py,ssm.py,layers.py},
+and from the first wave book/chapters/ch11_anatomy.md + code/llmsys/models/{sliding.py,hybrid.py} (sliding window
 and hybrids exist there; cross-reference, do not duplicate). GPU: not needed.
 
-Files you own: book/chapters/ch08_attention_alternatives.tex (add), book/solutions/ch08_solutions.tex (add),
+Files you own: book/chapters/ch08_attention_alternatives.md (add), book/solutions/ch08_solutions.md (add),
 code/labs/lab08_attnalt/* (add tasks/tests; keep existing passing), new module code/llmsys/attn_variants.py,
-scratchpad refs/add_ch08.tex.
+docs/edition3_briefs/refs/add_ch08.md.
 
 Additions (this is the largest addition set; ~300–400 lines of new chapter text with figures):
 1. Low-rank sequence projection (Linformer): project keys/values along the sequence axis; cost, why it
@@ -23,7 +23,7 @@ Additions (this is the largest addition set; ~300–400 lines of new chapter tex
    with explicit block indexing) in llmsys/attn_variants.py.
 5. Blockwise "lightning" linear attention (Lightning/MiniMax-style): intra-block quadratic + inter-block
    recurrent form, why it maps well to tensor cores; hybrid stacks interleaving softmax attention layers
-   (ratio choices; link \cref{ch:anatomy}).
+   (ratio choices; link [@ch:anatomy]).
 6. Cross-layer KV sharing (CLA/YOCO-style): sharing K/V across layer groups, cache bytes saved, quality
    notes.
 7. A design taxonomy across all axes: a table/figure classifying every mechanism in the chapter by
@@ -38,5 +38,5 @@ Additions (this is the largest addition set; ~300–400 lines of new chapter tex
    equals the recurrent linear attention of the chapter), cross-layer KV sharing wrapper (test: cache
    size halves, outputs unchanged when layers share weights).
 
-Constraints: keep all content/tests; compile check CHNUM=8 (chapter + solutions); run
+Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); run
 `LAB_IMPL=solution python -m pytest -q labs/lab08_attnalt` and `python -m pytest -q tests`.

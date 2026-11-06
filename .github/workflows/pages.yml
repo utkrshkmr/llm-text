@@ -15,24 +15,18 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container: texlive/texlive:latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pandoc, poppler and python
+      - name: Install pandoc
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends pandoc poppler-utils python3 git ca-certificates
-
-      - name: Resolve cross-references (draft LaTeX pass, no PDF)
-        working-directory: book
-        run: |
-          for i in 1 2; do pdflatex -draftmode -interaction=nonstopmode main.tex > /dev/null || true; done
-          test -f chapters/ch04_attention.aux
+          wget -q https://github.com/jgm/pandoc/releases/download/3.6.4/pandoc-3.6.4-1-amd64.deb
+          sudo dpkg -i pandoc-3.6.4-1-amd64.deb
+          pandoc --version | head -1
 
       - name: Build the website
-        run: python3 web/build_site.py --book book --aux book --out site
+        run: python3 web/build_site.py --book book --out site
 
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4

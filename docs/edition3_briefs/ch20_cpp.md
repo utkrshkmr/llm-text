@@ -9,8 +9,8 @@ Toolchain here: g++ 11.4, cmake 3.22, ninja, nvcc 13.2 at /usr/local/cuda (torch
 and nanobind 3.1 installed in the env.
 
 Files you own (create/modify):
-- book/chapters/ch20_cpp_pytorch.tex       \chapter{C++ for PyTorch: Bindings, Custom Ops, Builds}\label{ch:cpp}
-- book/solutions/ch20_solutions.tex
+- book/chapters/ch20_cpp_pytorch.md       # C++ for PyTorch: Bindings, Custom Ops, Builds {#ch:cpp}
+- book/solutions/ch20_solutions.md
 - code/csrc/cpu/bpe.cpp                   ops `llmsys::bpe_encode(Tensor bytes, Tensor merge_ranks_a, Tensor
                                            merge_ranks_b, Tensor merge_ranks_rank, ...)` (or a simpler table
                                            layout you choose) encoding ONE pre-tokenised chunk, and
@@ -32,7 +32,7 @@ Files you own (create/modify):
                                            each with a tiny Python driver and a README; the lab's optional task
                                            builds them (tests skip if cmake/compiler unavailable)
 - code/labs/lab20_cpp/{README.md,starter.py,solution.py,test_lab20.py,bench.py}
-- scratchpad refs file: refs/ch20_cpp_pytorch.tex
+- scratchpad refs file: refs/ch20_cpp_pytorch.md
 Do NOT edit setup.py, ops.cpp, common.h, ops/__init__.py, tests/test_ops.py (report suggested changes).
 
 Chapter content (PLAN item 20, all of it): when to drop to C++ (interpreter overhead, fusion, data structures,
@@ -59,4 +59,4 @@ fused vs unfused on CPU and GPU.
 
 Verification: `export LLMSYS_JIT=1 LLMSYS_JIT_DIR=/dev/shm/utkarshk-llmtext/jit CUDA_HOME=/usr/local/cuda
 TORCH_CUDA_ARCH_LIST=8.0; cd code; LAB_IMPL=solution python -m pytest -q labs/lab20_cpp; python -m pytest -q
-tests` (tests/test_ops.py must pass, with the compiled parts running thanks to the JIT). Compile checks CHNUM=20.
+tests` (tests/test_ops.py must pass, with the compiled parts running thanks to the JIT). Site check (see BRIEF_conventions.md §2).
