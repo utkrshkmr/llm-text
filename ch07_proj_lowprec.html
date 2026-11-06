@@ -1,0 +1,1436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project 11: A Low-Precision Training Study · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="ch:proj11" class="level1">
+<h1><span class="xn"><span class="num">Chapter 7&nbsp;&nbsp;</span></span>Project 11: A Low-Precision Training Study</h1>
+<p>Nearly every large model of the last five years was trained with fewer bits than the FP32 its optimiser was designed for. BF16 matmuls are the default, FP8 is standard on Hopper-class GPUs, and the newest accelerators add FP4 tensor cores whose throughput is twice that of FP8 again. Each step down saves memory, bandwidth and time, and each step down has broken someone’s training run. The failures are rarely loud. A loss that stops improving a little early, a gradient that is zero in three layers out of forty, a learning-rate schedule whose last third does nothing: these are the symptoms, and they are easy to blame on the model, the data or the optimiser instead of the number format.</p>
+<p>Chapters&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> and <a href="ch05_quant.html#ch:quant">5</a> gave us the tools to reason about these failures one tensor at a time: what a cast does to a value, why an update smaller than half an ulp vanishes, how block scaling buys range. This project asks the question one level up, where it matters: <em>when does the training run break, and which fix recovers it?</em> We train two small models, an MLP and a tiny decoder-only transformer, under two dozen precision recipes (FP16 with and without loss scaling, BF16 with and without master weights, FP8 with per-tensor delayed, per-tensor current and block scaling, MXFP4 and NVFP4, limited-precision accumulators, low-precision normalisation and softmax) and instrument every run so that each failure comes with a mechanism and a counter that measures it.</p>
+<p>This is the second capstone of Part I, and it uses nothing beyond Part I. Our A100s have no FP8 or FP4 tensor cores, so every format below BF16 is <em>emulated</em>: tensors are rounded onto the format’s grid by the bit-exact simulator of Chapters&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> and <a href="ch05_quant.html#ch:quant">5</a> and carried on in FP32. The emulation reproduces the numerics of these formats exactly and their speed not at all; an emulated FP8 step is slower than an FP32 one. The kit provides the models, the synthetic tasks and a complete reference solution in <code>code/projects/p11_lowprec/reference/</code>. Attempt each milestone before reading it.</p>
+<figure id="fig:proj11:roadmap">
+<img style="width: 1680px" src="figures/ch07_proj_lowprec-1.svg" class="fig fig-light" loading="lazy" alt="The project: five research questions, each a failure mode and its candidate fixes, answered by five milestones. Everything is built on llmsys.numerics and PyTorch autograd; the kit supplies models and tasks whose optimal loss is known." /><img style="width: 1680px" src="figures/ch07_proj_lowprec-1-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The project: five research questions, each a failure mode and its candidate fixes, answered by five milestones. Everything is built on llmsys.numerics and PyTorch autograd; the kit supplies models and tasks whose optimal loss is known." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.1: </span></span>The project: five research questions, each a failure mode and its candidate fixes, answered by five milestones. Everything is built on <code>llmsys.numerics</code> and PyTorch autograd; the kit supplies models and tasks whose optimal loss is known.</figcaption>
+</figure>
+<section id="sec:proj11:glance" class="level2">
+<h2><span class="xn"><span class="num">7.1&nbsp;&nbsp;</span></span>The project at a glance</h2>
+<section id="research-questions" class="level3">
+<h3><span class="xn"><span class="num">7.1.1&nbsp;&nbsp;</span></span>Research questions</h3>
+<p>A precision recipe assigns a format to each role a number plays in training: the inputs of each matrix multiplication, its accumulator, the activations and gradients stored between kernels, the normalisations and the loss, the weights the optimiser updates, and the optimiser’s own state. Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a> derived the standard recipe from first principles. This project tests it by removing one safeguard at a time.</p>
+<ol type="1">
+<li><strong>FP16 without loss scaling.</strong> FP16’s smallest subnormal is <span class="math inline">\(2^{-24}\approx6\times10^{-8}\)</span>. Which gradients fall below it, how many, and at what gradient scale does the loss start to suffer? Does a static scale suffice, or is dynamic scaling needed?</li>
+<li><strong>BF16 without master weights.</strong> With weights stored in BF16 and updated with round-to-nearest, every update below half an ulp is lost. Which fraction of updates is lost, can we <em>predict</em> it from the update-to-weight ratio alone, and does stochastic rounding recover the FP32 loss?</li>
+<li><strong>FP8.</strong> With E4M3 forward and E5M2 backward, what does each scaling rule buy: no scaling, per-tensor <em>delayed</em> scaling from an amax history, per-tensor <em>current</em> scaling, and 1-D block scaling with E4M3 everywhere?</li>
+<li><strong>FP4.</strong> MXFP4 (E2M1 in blocks of 32 with a power-of-two scale) and NVFP4 (blocks of 16 with an E4M3 scale and a tensor scale), applied to all three GEMMs of every linear layer. Where do they break, and which fix recovers them: stochastic rounding of gradients, keeping the backward pass in BF16, or keeping the output layer in BF16?</li>
+<li><strong>Accumulation and sensitive operations.</strong> Does a BF16 accumulator break training, and does promoting partial sums to FP32 every 128 elements fix it? What happens when LayerNorm, softmax and the loss are computed in BF16 or FP16 instead of FP32?</li>
+</ol>
+<p>Each answer is a <em>verdict</em> (the run is as good as FP32, degraded, broken or diverged) with a mechanism and a measured counter behind it. And one finding of the literature is reproduced quantitatively: that BF16 weights updated with round-to-nearest lose precisely the updates smaller than half the local gap (Section&nbsp;<a href="#sec:proj11:reproduce">7.7</a>), together with the activation-gradient histogram that motivated loss scaling (Micikevicius et al., 2018).</p>
+</section>
+<section id="prerequisites" class="level3">
+<h3><span class="xn"><span class="num">7.1.2&nbsp;&nbsp;</span></span>Prerequisites</h3>
+<p>Chapter&nbsp;<a href="ch02_pytorch.html#ch:pytorch">2</a>: tensors and dtypes, autograd (we write custom <code>autograd.Function</code>s) and the training loop (Sections&nbsp;<a href="ch02_pytorch.html#sec:pytorch:autograd">2.4</a> and <a href="ch02_pytorch.html#sec:pytorch:loop">2.7</a>). Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>: the asynchronous execution model, which explains why our emulation’s cost is dominated by kernel launches (Section&nbsp;<a href="ch03_machine.html#sec:machine:async">3.7</a>). Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a>: the formats (Sections&nbsp;<a href="ch04_numerics.html#sec:numerics:ieee">4.3</a> and <a href="ch04_numerics.html#sec:numerics:lowfp">4.4</a>), rounding and the lost update (Section&nbsp;<a href="ch04_numerics.html#sec:numerics:rounding">4.5</a>) and accumulation (Section&nbsp;<a href="ch04_numerics.html#sec:numerics:accum">4.6</a>). Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a>: block scaling (Sections&nbsp;<a href="ch05_quant.html#sec:quant:mx">5.1</a> and <a href="ch05_quant.html#sec:quant:backward">5.3</a>) and the mixed-precision recipes (Sections&nbsp;<a href="ch05_quant.html#sec:quant:mixed">5.6</a> and <a href="ch05_quant.html#sec:quant:deepseek">5.7</a>). The library <code>llmsys.numerics</code> is used, not modified. The models are provided because Part II, where the reader builds a transformer, comes later. AdamW appears as a black box; the one property of it we need (its update has a magnitude close to the learning rate) is derived where we use it. Part III’s treatment of optimisers (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">19</span>) and mixed precision in large runs (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">20</span>) are optional reading, and extensions that need them are marked.</p>
+</section>
+<section id="milestones-and-acceptance-tests" class="level3">
+<h3><span class="xn"><span class="num">7.1.3&nbsp;&nbsp;</span></span>Milestones and acceptance tests</h3>
+<div id="tab:proj11:milestones" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 7.1: </span></span>Milestones of Project 11 and the tests that gate them.</caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Milestone</th>
+<th style="text-align: left;">Deliverable</th>
+<th style="text-align: left;">Automated acceptance (<code>test_p11_acceptance.py</code>; CPU unless marked GPU)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">1 Emulation layer</td>
+<td style="text-align: left;">element casts, quantisers with six scaling rules, a linear layer whose three GEMMs are quantised along their own reduction dimensions, an emulated accumulator, storage casts</td>
+<td style="text-align: left;">casts bit-exact against <code>torch.float16</code>, <code>bfloat16</code>, <code>float8_e4m3fn</code>, <code>float8_e5m2</code> over 200,000 values including ties, subnormals and overflow; block, MX and NVFP4 quantisers equal <code>numerics</code>; forward and both backward GEMMs equal hand computations; accumulator equals <code>numerics.matmul_sim</code>; GPU: casts bit-exact on CUDA</td>
+</tr>
+<tr>
+<td style="text-align: left;">2 Instrumentation</td>
+<td style="text-align: left;">overflow, underflow and subnormal counters per operand role; update-to-weight ratio, lost-update fraction and its half-ulp prediction; gradient histograms; loss floors</td>
+<td style="text-align: left;">counters on crafted tensors and against <code>numerics.classify</code>; delayed scaling overflows on a spike and recovers; half-ulp rule equals the measured loss of updates on 100,000 random updates; optimiser storage modes; loss scaler</td>
+</tr>
+<tr>
+<td style="text-align: left;">3 Run matrix</td>
+<td style="text-align: left;">recipes as data; two models; synthetic tasks; seeds and sweeps; results JSON written after every run</td>
+<td style="text-align: left;">every recipe builds; tiny runs bit-identical across repeats; end-to-end study on the CPU</td>
+</tr>
+<tr>
+<td style="text-align: left;">4 Analysis</td>
+<td style="text-align: left;">excess loss over the floor, gap to FP32, verdicts, failure/fix table, the half-ulp reproduction</td>
+<td style="text-align: left;">verdicts on synthetic curves; tiny runs show each mechanism’s counter; GPU: unscaled FP8 measurably worse than scaled</td>
+</tr>
+<tr>
+<td style="text-align: left;">5 Write-up</td>
+<td style="text-align: left;">the paper, figures from <code>figures.py</code></td>
+<td style="text-align: left;">rubric (Section&nbsp;<a href="#sec:proj11:writeup">7.8.1</a>)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The tests check the instrument, not the science. A correct emulation layer and correct counters are testable without a GPU; whether a recipe breaks at a given scale is a finding, argued in the write-up with seeds and error bars.</p>
+</section>
+<section id="the-kit" class="level3">
+<h3><span class="xn"><span class="num">7.1.4&nbsp;&nbsp;</span></span>The kit</h3>
+<pre><code>code/projects/p11_lowprec/
+  reference/            the reference solution (a package)
+    emulate.py          milestone 1: cast, Quantizer, Counter, qmm, QLinearFn, StorageCast
+    recipes.py          recipes as data: Recipe, RECIPES, FIXES, make_recipe
+    models.py           Precision, MLP, TinyGPT, sensitive ops in a chosen format
+    data.py             TeacherRegression and MarkovLanguage: tasks with known loss floors
+    optim.py            LowPrecisionAdamW, update_stats, the half-ulp rule
+    train.py            one instrumented run; loss scaling; divergence detection
+    study.py            milestone 3: expand a config into runs, run, write results
+    analysis.py         milestone 4: excess loss, gap, verdicts, tables, Markdown report
+    diagnose.py         rounding_bias: the bias of a format on a captured tensor
+  run.py                driver: --config, --only, --device, --out
+  figures.py            this chapter&#39;s figures from a results file
+  diagnose_fp8_head.py  the FP8 output-head diagnostic of the results section
+  configs/              smoke.json (about 53 min), full.json (the study), cpu.json (dry run)
+  results/              smoke_a100_pcie.json and .md: the smoke run quoted in this chapter;
+                        diag_fp8_head_a100_pcie.json: the FP8 diagnostic runs
+  test_p11_acceptance.py, Makefile (test, test-gpu, dry, smoke, full, figures), README.md</code></pre>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> code/projects/p11_lowprec</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test                                   <span class="co"># CPU acceptance tests on reference/ (seconds)</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="va">P11_IMPL</span><span class="op">=</span>~/my_p11 <span class="fu">make</span> test                 <span class="co"># your package: same module names as reference/</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> dry                                    <span class="co"># every code path on the CPU, tiny sizes</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> smoke                                  <span class="co"># every recipe once on one A100</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> run.py <span class="at">--config</span> configs/smoke.json <span class="at">--only</span> bf16_pure fp8   <span class="co"># a subset plus its baselines</span></span></code></pre></div>
+<div id="tab:proj11:interface" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 7.2: </span></span>The interface of a Project 11 implementation. Docstrings in <code>reference/</code> are the contract.</caption>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Module</th>
+<th style="text-align: left;">What the acceptance tests call</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>emulate</code></td>
+<td style="text-align: left;"><code>cast</code>, <code>QSpec</code>, <code>Quantizer</code> (with <code>.counter</code>), <code>Counter</code>, <code>Log2Histogram</code>, <code>AccSpec</code>, <code>qmm</code>, <code>QLinearFn</code>, <code>store</code>, <code>FORMATS</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>recipes</code>, <code>models</code></td>
+<td style="text-align: left;"><code>make_recipe</code>, <code>RECIPES</code>; <code>Precision</code> (with <code>.policy</code>)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>optim</code>, <code>train</code></td>
+<td style="text-align: left;"><code>predicted_lost</code>, <code>relative_half_ulp</code>, <code>LowPrecisionAdamW</code>; <code>train</code>, <code>LossScaler</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code>, <code>study</code>, <code>analysis</code>, <code>diagnose</code></td>
+<td style="text-align: left;"><code>MarkovLanguage</code>; <code>run</code>, <code>expand</code>; <code>verdict</code>, <code>gap</code>, <code>final_val</code>, <code>render_markdown</code>; <code>rounding_bias</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="sec:proj11:emulate" class="level2">
+<h2><span class="xn"><span class="num">7.2&nbsp;&nbsp;</span></span>Milestone 1: emulating formats we do not have</h2>
+<section id="fake-quantisation" class="level3">
+<h3><span class="xn"><span class="num">7.2.1&nbsp;&nbsp;</span></span>Fake quantisation</h3>
+<p>The A100’s tensor cores multiply FP16, BF16, TF32, INT8 and INT4 operands; FP8 arrived with Hopper and the MX and NVFP4 formats with Blackwell. To study a format the hardware lacks we <em>fake-quantise</em>: a tensor <span class="math inline">\(x\)</span> that a recipe puts in format <span class="math inline">\(F\)</span> with scale <span class="math inline">\(s\)</span> is replaced by <span class="xn" id="eq:proj11:fq"></span><span class="math display">\[\hat{x} = s\cdot\operatorname{round}_F\!\left(\frac{x}{s}\right),
+\tag{7.1}\]</span> computed and stored in FP32. Every value of every format up to BF16 is exact in FP32, and so is the product of an FP8 or FP4 value with a power-of-two scale, so <span class="math inline">\(\hat{x}\)</span> carries exactly the information a real FP8 tensor would. A real FP8 GEMM multiplies the codes and applies <span class="math inline">\(s\)</span> to the accumulated result; we multiply the dequantised values. The two agree up to the accumulation order, which we model separately (Section&nbsp;<a href="#sec:proj11:acc">7.2.4</a>).</p>
+<p>The rounding function comes from <code>llmsys.numerics.round_to_format</code>, which rounds in float64 to any <code>FloatFormat</code>. When PyTorch has the format as a dtype we can also round by casting there and back; the acceptance tests require the two to agree bit for bit on every probe value, and the training loop uses the native cast where it exists because it is much faster (two kernels instead of about twenty; on a CPU, 0.13 ms against 11 ms for a million values).</p>
+<div id="lst:proj11:cast" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 7.1: </span></span>Rounding to a format: the native dtype when PyTorch has one, the simulator otherwise (from <code>emulate.cast</code>).
+</div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> cast(x, fmt, rounding<span class="op">=</span><span class="st">&quot;rne&quot;</span>, generator<span class="op">=</span><span class="va">None</span>, backend<span class="op">=</span><span class="st">&quot;auto&quot;</span>):</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> fmt <span class="op">==</span> <span class="st">&quot;fp32&quot;</span> <span class="kw">and</span> (rounding <span class="op">==</span> <span class="st">&quot;rne&quot;</span> <span class="kw">or</span> x.dtype <span class="op">==</span> torch.float32):</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> N.round_to_format(x, N.FP32) <span class="cf">if</span> x.dtype <span class="op">==</span> torch.float64 <span class="cf">else</span> x.<span class="bu">float</span>()</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    native <span class="op">=</span> fmt <span class="kw">in</span> TORCH_DTYPES <span class="kw">and</span> rounding <span class="op">==</span> <span class="st">&quot;rne&quot;</span> <span class="kw">and</span> x.dtype <span class="op">!=</span> torch.float64</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> backend <span class="op">==</span> <span class="st">&quot;torch&quot;</span> <span class="kw">or</span> (backend <span class="op">==</span> <span class="st">&quot;auto&quot;</span> <span class="kw">and</span> native):</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> x.<span class="bu">float</span>().to(TORCH_DTYPES[fmt]).<span class="bu">float</span>()       <span class="co"># one RNE rounding, then exact</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> backend <span class="op">==</span> <span class="st">&quot;auto&quot;</span> <span class="kw">and</span> fmt <span class="op">==</span> <span class="st">&quot;bf16&quot;</span> <span class="kw">and</span> rounding <span class="op">==</span> <span class="st">&quot;stochastic&quot;</span>:</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> N.stochastic_round_bf16(x, generator).<span class="bu">float</span>()  <span class="co"># the bit trick of kernels</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> N.round_to_format(x, FORMATS[fmt], rounding, generator<span class="op">=</span>generator)</span></code></pre></div>
+</div>
+<p>Two details of Listing&nbsp;<a href="#lst:proj11:cast">7.1</a> matter. A float64 input is rounded <em>once</em>, directly to the target; converting it to FP32 first would round twice, and double rounding is wrong whenever the first rounding lands exactly on a tie of the second (a test constructs such a value). And the FP8 casts of PyTorch 2.14 saturate E4M3 (448 for anything larger, including infinity) but overflow E5M2 to infinity, exactly as the OCP specification and <code>numerics</code> define them; the bit-exact test covers both edges.</p>
+<div class="systemslens box">
+<p><strong>Systems Lens: Emulation measures numerics, not speed</strong></p>
+<p>An emulated low-precision step is <em>slower</em> than FP32, not faster. Every quantised operand costs a scale computation, a division, a rounding (several kernels in float64 for formats without a native dtype) and a multiplication, and block formats add reshapes. On our tiny models the step is bound by kernel launches (Section&nbsp;<a href="ch03_machine.html#sec:machine:async">3.7</a>), so the cost grows with the number of casts rather than their size: the smoke run measured 14 ms per step for FP32, 44 for BF16, 48 for per-tensor FP8 and 86 for MXFP4 on the transformer (Table&nbsp;<a href="#tab:proj11:results">7.4</a>). Nothing in this project says how fast FP8 training is; for that one needs FP8 tensor cores, and Chapter&nbsp;<a href="ch06_proj_machine.html#ch:proj10">6</a>’s methods applied to an H100. What emulation does give us is the exact sequence of roundings a real FP8 or FP4 run would perform, under our control, with a counter on every cast.</p>
+</div>
+</section>
+<section id="scaling-rules" class="level3">
+<h3><span class="xn"><span class="num">7.2.2&nbsp;&nbsp;</span></span>Scaling rules</h3>
+<p>A narrow format has a fixed range: E4M3 spans <span class="math inline">\(2^{-9}\)</span> to 448, E5M2 <span class="math inline">\(2^{-16}\)</span> to 57,344, E2M1 only <span class="math inline">\(0.5\)</span> to 6. A scale <span class="math inline">\(s\)</span> moves a tensor into that range. The quantiser of the kit (<code>emulate.Quantizer</code>) implements six rules, the four of (<a href="#eq:proj11:scales">7.2</a>) and the MX and NVFP4 block rules: <span class="xn" id="eq:proj11:scales"></span><span class="math display">\[s =
+\begin{cases}
+1 &amp; \text{none}\\[2pt]
+\dfrac{\max_i |x_i|}{F_{\max}} &amp; \text{current (per tensor)}\\[8pt]
+\dfrac{\max\{a_{t-L},\dots,a_{t-1}\}\cdot 2^{\mu}}{F_{\max}} &amp; \text{delayed (per tensor)}\\[8pt]
+\dfrac{\max_{i\in b} |x_i|}{F_{\max}} \;\text{ for each block } b &amp; \text{block}
+\end{cases}
+\tag{7.2}\]</span> where <span class="math inline">\(a_t\)</span> is the amax recorded for the same tensor at step <span class="math inline">\(t\)</span>, <span class="math inline">\(L\)</span> the history length (16 in our recipes) and <span class="math inline">\(\mu\)</span> a safety margin in binades. MX and NVFP4 are block rules with their own scale formats (Section&nbsp;<a href="ch05_quant.html#sec:quant:mx">5.1</a>): an E8M0 power of two per 32 elements, chosen by the OCP rule <span class="math inline">\(2^{\lfloor\log_2 \text{amax}\rfloor - e_{\max}}\)</span> so the largest element may saturate, and an E4M3 scale per 16 elements under an FP32 tensor scale.</p>
+<p>The rules differ in <em>when</em> the amax is known. Current scaling needs a full reduction over the tensor before the first element can be cast: an extra read, or a global synchronisation inside a fused kernel. Delayed scaling uses last step’s amax, so the cast fuses into the kernel that produces the tensor, at the risk that a tensor larger than its history saturates. Block scaling needs only a local reduction, which one warp can do. We count the price of each: the counters of Section&nbsp;<a href="#sec:proj11:instrument">7.3</a> report how many elements each rule clipped or flushed.</p>
+<div id="lst:proj11:quantizer" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 7.2: </span></span>The per-tensor branch of <code>Quantizer.__call__</code>: scale, round, saturate, count, unscale.
+</div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> sp.scaling <span class="op">==</span> <span class="st">&quot;tensor&quot;</span>:                       <span class="co"># current: amax of this tensor, now</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    amax <span class="op">=</span> x.detach().<span class="bu">abs</span>().amax().<span class="bu">float</span>()</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    scale <span class="op">=</span> torch.where(amax <span class="op">&gt;</span> <span class="dv">0</span>, fmt.max_finite <span class="op">/</span> amax, torch.ones_like(amax))</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="cf">elif</span> sp.scaling <span class="op">==</span> <span class="st">&quot;delayed&quot;</span>:                    <span class="co"># Transformer-Engine style: last steps&#39; amax</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> <span class="va">self</span>.amax.history:</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.amax.update(x)                      <span class="co"># seed the history on the first call</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    scale <span class="op">=</span> <span class="va">self</span>.amax.scale                      <span class="co"># numerics.AmaxHistory: F_max / max(history)</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="va">self</span>.amax.update(x)</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>y <span class="op">=</span> x <span class="cf">if</span> scale <span class="kw">is</span> <span class="va">None</span> <span class="cf">else</span> x <span class="op">*</span> scale</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>q <span class="op">=</span> cast(y, sp.fmt, sp.rounding, <span class="va">self</span>.generator)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> sp.fmt <span class="kw">in</span> (<span class="st">&quot;e4m3&quot;</span>, <span class="st">&quot;e5m2&quot;</span>, <span class="st">&quot;e2m1&quot;</span>):</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    q <span class="op">=</span> q.clamp(<span class="op">-</span>fmt.max_finite, fmt.max_finite)  <span class="co"># FP8/FP4 conversions saturate</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.counter.add(x, y, q, fmt)                    <span class="co"># overflow, underflow, subnormal</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> q <span class="cf">if</span> scale <span class="kw">is</span> <span class="va">None</span> <span class="cf">else</span> q <span class="op">/</span> scale</span></code></pre></div>
+</div>
+</section>
+<section id="three-gemms-three-reduction-dimensions" class="level3">
+<h3><span class="xn"><span class="num">7.2.3&nbsp;&nbsp;</span></span>Three GEMMs, three reduction dimensions</h3>
+<p>A linear layer <span class="math inline">\(Y = XW^\top\)</span> with <span class="math inline">\(X\in\mathbb{R}^{n\times d_{\text{in}}}\)</span> (<span class="math inline">\(n\)</span> tokens) and <span class="math inline">\(W\in\mathbb{R}^{d_{\text{out}}\times d_{\text{in}}}\)</span> performs three matrix multiplications per training step: <span class="xn" id="eq:proj11:gemms"></span><span class="math display">\[Y = Q_x(X)\,Q_w(W)^\top,\qquad
+\frac{\partial L}{\partial X} = Q_g\!\left(\frac{\partial L}{\partial Y}\right) Q_{wb}(W),\qquad
+\frac{\partial L}{\partial W} = Q_g\!\left(\frac{\partial L}{\partial Y}\right)^{\!\top} Q_{xb}(X).
+\tag{7.3}\]</span> The first reduces over <span class="math inline">\(d_{\text{in}}\)</span>, the second over <span class="math inline">\(d_{\text{out}}\)</span>, the third over the <span class="math inline">\(n\)</span> tokens (Figure&nbsp;<a href="#fig:proj11:gemms">7.2</a>). Fake-quantising only the forward pass, which is what a naive <code>forward</code> hook does, leaves the backward pass in FP32 and measures the wrong thing: the FP8 literature’s central difficulty is the gradients, with their wider range (Micikevicius et al., 2022). So the kit’s layer is a custom <code>autograd.Function</code> that quantises all five operands.</p>
+<figure id="fig:proj11:gemms">
+<img style="width: 1722px" src="figures/ch07_proj_lowprec-2.svg" class="fig fig-light" loading="lazy" alt="The three GEMMs of one linear layer and their quantisers. Each block-scaled operand is blocked along the reduction dimension of the GEMM it feeds, so the weight and the activation are quantised twice, in two orientations." /><img style="width: 1722px" src="figures/ch07_proj_lowprec-2-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The three GEMMs of one linear layer and their quantisers. Each block-scaled operand is blocked along the reduction dimension of the GEMM it feeds, so the weight and the activation are quantised twice, in two orientations." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.2: </span></span>The three GEMMs of one linear layer and their quantisers. Each block-scaled operand is blocked along the reduction dimension of the GEMM it feeds, so the weight and the activation are quantised twice, in two orientations.</figcaption>
+</figure>
+<p>Block scales must run along the reduction dimension, because a scale is applied to the partial sum over the elements it covers: a block of 32 consecutive elements of one row along <span class="math inline">\(K\)</span> contributes <span class="math inline">\(s_b\sum_{k\in b}\tilde a_k\tilde b_k\)</span>, while a block laid along the other dimension would give every term of one dot product its own scale, and the scales could no longer be factored out of the sum that the tensor core computes. For per-tensor scales the orientation is irrelevant, and FP8 libraries cast <span class="math inline">\(W\)</span> and <span class="math inline">\(X\)</span> once and keep the cast and its transpose. For block scales <span class="math inline">\(W\)</span> is blocked along <span class="math inline">\(d_{\text{in}}\)</span> in the forward pass and along <span class="math inline">\(d_{\text{out}}\)</span> in the backward pass: the backward pass multiplies <em>different numbers</em> from the forward pass, and the weight gradient is, strictly, the gradient of a slightly different function. This is a real property of MX training, not an artefact of emulation; Rouhani et al. (2023) re-quantise transposed operands, and the NVFP4 training recipe uses <span class="math inline">\(16\times16\)</span> two-dimensional weight blocks precisely so that the forward and backward quantisations of <span class="math inline">\(W\)</span> coincide (NVIDIA, 2025).</p>
+<div id="lst:proj11:qlinear" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 7.3: </span></span>The emulated linear layer (from <code>emulate.QLinearFn</code>): five quantisers, three GEMMs, storage casts.
+</div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> QLinearFn(torch.autograd.Function):</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> forward(ctx, x, w, b, pol):</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        y <span class="op">=</span> pol.mm(pol.q[<span class="st">&quot;x&quot;</span>](x, <span class="op">-</span><span class="dv">1</span>), pol.q[<span class="st">&quot;w&quot;</span>](w, <span class="op">-</span><span class="dv">1</span>).t())        <span class="co"># reduce over d_in</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> b <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span>:</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>            y <span class="op">=</span> y <span class="op">+</span> b</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        ctx.pol, ctx.has_bias <span class="op">=</span> pol, b <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        ctx.save_for_backward(x, w)</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> pol.store(y)                                         <span class="co"># e.g. bf16 activations</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">@staticmethod</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> backward(ctx, gy):</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>        pol <span class="op">=</span> ctx.pol</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>        x, w <span class="op">=</span> ctx.saved_tensors</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>        qg <span class="op">=</span> pol.q[<span class="st">&quot;g&quot;</span>]</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>        g_dx <span class="op">=</span> qg(gy, <span class="op">-</span><span class="dv">1</span>)                                           <span class="co"># blocks along d_out</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>        g_dw <span class="op">=</span> qg(gy, <span class="dv">0</span>) <span class="cf">if</span> qg.spec.blocked <span class="cf">else</span> g_dx               <span class="co"># blocks along tokens</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>        gx <span class="op">=</span> pol.store(pol.mm(g_dx, pol.q[<span class="st">&quot;wb&quot;</span>](w, <span class="dv">0</span>)))             <span class="co"># reduce over d_out</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>        gw <span class="op">=</span> pol.store(pol.mm(g_dw.t().contiguous(), pol.q[<span class="st">&quot;xb&quot;</span>](x, <span class="dv">0</span>)))   <span class="co"># over tokens</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>        gb <span class="op">=</span> pol.store(gy.<span class="bu">sum</span>(<span class="dv">0</span>)) <span class="cf">if</span> ctx.has_bias <span class="cf">else</span> <span class="va">None</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> gx, gw, gb, <span class="va">None</span></span></code></pre></div>
+</div>
+<p>The test <code>test_qlinear_three_gemms_follow_the_recipe</code> rebuilds all three products by hand with <code>numerics.fake_quantize</code> for the block-FP8 recipe and requires bit equality, which is the only way to be sure the orientation of each block is right: a transposed block silently produces a plausible but wrong gradient.</p>
+</section>
+<section id="sec:proj11:acc" class="level3">
+<h3><span class="xn"><span class="num">7.2.4&nbsp;&nbsp;</span></span>The accumulator</h3>
+<p>The A100’s tensor cores accumulate BF16 products in FP32, and FP16 products in FP32 too unless a library asks for an FP16 accumulator, so a plain FP32 matmul of the quantised operands is a faithful model of the standard recipes. To study narrower accumulators (BF16, or the roughly 14-bit accumulator DeepSeek-V3 reports for Hopper FP8 GEMMs, <code>numerics.ACC_E8M13</code>), <code>emulate.qmm</code> splits <span class="math inline">\(K\)</span> into chunks of <span class="math inline">\(c\)</span> elements, computes all chunk products in one batched GEMM, and adds them into a running sum rounded to the accumulator’s format after every chunk; with a promotion interval <span class="math inline">\(P\)</span> the running sum is added into an FP32 total every <span class="math inline">\(P\)</span> elements and reset. A BF16 running sum of <span class="math inline">\(K/c\)</span> chunk products, each rounded with unit roundoff <span class="math inline">\(u=2^{-8}\)</span>, has an error that grows like <span class="xn" id="eq:proj11:accerr"></span><span class="math display">\[\frac{|\delta|}{|\textstyle\sum|} \lesssim u\,\sqrt{K/c}\quad\text{(random signs)},\qquad
+\lesssim u\,K/c\quad\text{(worst case)},
+\tag{7.4}\]</span> and promotion caps <span class="math inline">\(K/c\)</span> at <span class="math inline">\(P/c\)</span> (Section&nbsp;<a href="ch04_numerics.html#sec:numerics:accum">4.6</a>). The weight-gradient GEMM is the one exposed: its <span class="math inline">\(K\)</span> is the number of tokens in the batch, 2,048 in our smoke configuration, against 32 (the vocabulary, for the output head’s input gradient) to 256 for the other two. <code>qmm</code> equals <code>numerics.matmul_sim</code> bit for bit on float64 inputs (an acceptance test), so the emulation inherits the simulator’s verification.</p>
+</section>
+<section id="storage-and-the-sensitive-operations" class="level3">
+<h3><span class="xn"><span class="num">7.2.5&nbsp;&nbsp;</span></span>Storage and the sensitive operations</h3>
+<p>Between GEMMs, a BF16 recipe keeps activations and their gradients in BF16. <code>emulate.store</code> is an autograd function that rounds its input on the way forward <em>and its gradient on the way back</em>; we apply it after every GEMM, activation function, residual addition and attention product. The “sensitive” operations, LayerNorm, softmax and the loss, run in FP32 in the standard recipe. To ask what that buys (research question 5), <code>models.py</code> also implements each of them with every intermediate rounded to a chosen format:</p>
+<div id="lst:proj11:ln" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 7.4: </span></span>LayerNorm with every intermediate (and its gradient) rounded to <code>fmt</code> (from <code>models.layer_norm</code>).
+</div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> layer_norm(x, weight, bias, fmt, eps<span class="op">=</span><span class="fl">1e-5</span>):</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> fmt <span class="op">==</span> <span class="st">&quot;fp32&quot;</span>:</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> F.layer_norm(x, x.shape[<span class="op">-</span><span class="dv">1</span>:], weight, bias, eps)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    r <span class="op">=</span> <span class="kw">lambda</span> t: store(t, fmt)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    mu <span class="op">=</span> r(x.mean(<span class="op">-</span><span class="dv">1</span>, keepdim<span class="op">=</span><span class="va">True</span>))</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    d <span class="op">=</span> r(x <span class="op">-</span> mu)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    var <span class="op">=</span> r(r(d <span class="op">*</span> d).mean(<span class="op">-</span><span class="dv">1</span>, keepdim<span class="op">=</span><span class="va">True</span>))       <span class="co"># d*d is where fp16 overflows (|d| &gt; 256)</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    inv <span class="op">=</span> r(torch.rsqrt(r(var <span class="op">+</span> eps)))</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> r(r(d <span class="op">*</span> inv) <span class="op">*</span> weight <span class="op">+</span> bias)</span></code></pre></div>
+</div>
+<p>This is a model of a kernel that computes in its storage format, which is pessimistic: PyTorch’s own FP16 LayerNorm and softmax kernels accumulate in FP32 internally, and <code>torch.autocast</code> runs them in FP32 outright (Section&nbsp;<a href="ch05_quant.html#sec:quant:mixed">5.6</a>). The ablation therefore bounds what the FP32 safeguard is worth rather than reproducing any particular library.</p>
+<div class="pitfall box">
+<p><strong>Pitfall: The FP32 baseline that is not FP32</strong></p>
+<p>On Ampere and later GPUs PyTorch may run FP32 matmuls on the tensor cores in TF32, with 10 fraction bits instead of 23, depending on <code>torch.backends.cuda.matmul.allow_tf32</code> and <code>torch.set_float32_matmul_precision</code>. An “FP32” baseline that silently runs in TF32 has FP16’s precision with FP32’s range, and makes every other recipe look better than it is. <code>study.run</code> turns TF32 off before the first run and records the setting with the versions in the results file.</p>
+</div>
+</section>
+</section>
+<section id="sec:proj11:instrument" class="level2">
+<h2><span class="xn"><span class="num">7.3&nbsp;&nbsp;</span></span>Milestone 2: instruments</h2>
+<p>A verdict without a mechanism is an anecdote. The instruments of this milestone are chosen so that every failure mode of Section&nbsp;<a href="#sec:proj11:glance">7.1</a> has a counter that moves before the loss does.</p>
+<section id="cast-counters" class="level3">
+<h3><span class="xn"><span class="num">7.3.1&nbsp;&nbsp;</span></span>Cast counters</h3>
+<p>Every quantiser keeps device-side counts, read only at logging steps, so the counters add no synchronisation of their own (delayed scaling does synchronise: <code>numerics.AmaxHistory</code> reads each tensor’s amax back to the host, once per cast). For an input <span class="math inline">\(x\)</span>, its scaled value <span class="math inline">\(y=x/s\)</span> and the rounded <span class="math inline">\(q\)</span>: <span class="xn" id="eq:proj11:counters"></span><span class="math display">\[\text{overflow: } |y| \ge F_{\max} + \tfrac12\operatorname{ulp}(F_{\max}),\qquad
+\text{underflow: } x\ne0,\ q=0,\qquad
+\text{subnormal: } 0&lt;|q|&lt;F_{\min,\text{normal}}.
+\tag{7.5}\]</span> The overflow threshold is the IEEE one: below it a value rounds to <span class="math inline">\(F_{\max}\)</span> with an ordinary rounding error, at or above it the value becomes infinite or, in a saturating cast, is clipped by more than half an ulp. Counting <span class="math inline">\(|y|&gt;F_{\max}\)</span> instead would report every block maximum of a block-scaled tensor whose scale happened to round down by one FP32 ulp as an overflow, which is how our first version of the counter reported 0.5% overflow for a recipe that cannot overflow. The underflow fraction is reported per nonzero input, overflow and subnormal fractions per element. A fourth number turned out to matter more than the three of the definition: the <em>underflow mass</em>, the share of <span class="math inline">\(\sum_i|x_i|\)</span> carried by the elements flushed to zero. A count says how often a format rounds a value to zero; the mass says whether the values it rounds to zero were worth keeping (Section&nbsp;<a href="#sec:proj11:fp16">7.6.1</a> shows runs that flush a large share of their gradient elements and train normally). The acceptance tests check all four on a crafted FP16 tensor and the first three against <code>numerics.classify</code> on random ones.</p>
+</section>
+<section id="update-to-weight-ratios-and-the-half-ulp-rule" class="level3">
+<h3><span class="xn"><span class="num">7.3.2&nbsp;&nbsp;</span></span>Update-to-weight ratios and the half-ulp rule</h3>
+<p>The optimiser wrapper <code>LowPrecisionAdamW</code> runs AdamW in FP32 and then stores the weights in the recipe’s parameter format. At each logging step it snapshots the weights, computes the <em>intended</em> update <span class="math inline">\(\delta\)</span> (the FP32 result minus the old weight) and the <em>applied</em> one (after rounding to the storage format), and records the update-to-weight ratio <span class="math inline">\(|\delta_i|/|w_i|\)</span> and the fraction of nonzero intended updates that left the weight unchanged.</p>
+<p>The half-ulp rule of Section&nbsp;<a href="ch04_numerics.html#sec:numerics:rounding">4.5</a> predicts that fraction. Let <span class="math inline">\(w\)</span> be representable and <span class="math inline">\(g_\pm(w)\)</span> the gap to its upper and lower neighbours. Round-to-nearest discards the update exactly when <span class="xn" id="eq:proj11:halfulp"></span><span class="math display">\[|\delta| &lt; \tfrac12\, g_{\operatorname{sign}\delta}(w)
+\tag{7.6}\]</span> (ties go to the even neighbour, which happens with probability zero for continuous updates). For a format with <span class="math inline">\(m\)</span> fraction bits and <span class="math inline">\(w\)</span> in the binade <span class="math inline">\([2^e,2^{e+1})\)</span>, <span class="math inline">\(g_+ = 2^{e-m}\)</span>, and <span class="math inline">\(g_-\)</span> is the same except at <span class="math inline">\(w=2^e\)</span>, where the step down enters the finer binade and <span class="math inline">\(g_-=2^{e-m-1}\)</span>. Dividing by <span class="math inline">\(|w|\in[2^e,2^{e+1})\)</span> turns the rule into a band of <em>relative</em> updates: <span class="xn" id="eq:proj11:band"></span><span class="math display">\[\frac{|\delta|}{|w|} \le 2^{-(m+2)} \;\Rightarrow\; \text{always lost},\qquad
+\frac{|\delta|}{|w|} &gt; 2^{-(m+1)} \;\Rightarrow\; \text{never lost}.
+\tag{7.7}\]</span> For BF16 (<span class="math inline">\(m=7\)</span>) the band is <span class="math inline">\((2^{-9}, 2^{-8}] \approx (0.0020, 0.0039]\)</span>; for FP16 (<span class="math inline">\(m=10\)</span>) it is <span class="math inline">\((2.4\times10^{-4}, 4.9\times10^{-4}]\)</span>. <code>optim.predicted_lost</code> evaluates (<a href="#eq:proj11:halfulp">7.6</a>) with <code>numerics.next_after</code>, and <code>update_stats</code> reports the prediction for BF16 and FP16 storage at every logging step of <em>every</em> run, including FP32 runs, where it answers the counterfactual “how many of these updates would BF16 weights have dropped?”</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: The textbook update ratio is below BF16’s half-ulp</strong></p>
+<p>Adam normalises each gradient coordinate by its running RMS, so in steady state the update is <span class="math inline">\(|\delta_i|\approx\eta\,|m_i|/\sqrt{v_i}\lesssim\eta\)</span>: its size is set by the learning rate <span class="math inline">\(\eta\)</span>, not by the gradient. A weight of magnitude <span class="math inline">\(|w|\)</span> therefore sees a ratio of about <span class="math inline">\(\eta/|w|\)</span>. The folklore healthy ratio is <span class="math inline">\(10^{-3}\)</span>. BF16’s band (<a href="#eq:proj11:band">7.7</a>) starts at <span class="math inline">\(2^{-9}=0.00195\)</span>: at a ratio of <span class="math inline">\(10^{-3}\)</span> <em>every</em> update to a BF16 weight is lost. With <span class="math inline">\(\eta=10^{-3}\)</span>, weights below <span class="math inline">\(\eta\cdot2^{8}\approx0.26\)</span> always move and weights above <span class="math inline">\(\eta\cdot2^{9}\approx0.51\)</span> never do; at the end of a cosine schedule that decays to <span class="math inline">\(\eta=10^{-4}\)</span> the two thresholds are 0.026 and 0.051. GPT-style initialisation puts most weights near 0.02, so a BF16 run without a master copy freezes its LayerNorm gains (which sit at 1.0) from the first step at this learning rate, and its ordinary weights one by one as the learning rate decays. FP32 master weights cost 4 bytes per parameter to prevent this; stochastic rounding costs nothing in memory and replaces the bias by noise.</p>
+</div>
+</section>
+<section id="gradient-histograms-and-loss-floors" class="level3">
+<h3><span class="xn"><span class="num">7.3.3&nbsp;&nbsp;</span></span>Gradient histograms and loss floors</h3>
+<p>At chosen steps the gradient quantisers also record a histogram of <span class="math inline">\(\log_2|g|\)</span> of every gradient entering a GEMM, before any cast (<code>emulate.Log2Histogram</code>); this is the measurement behind Micikevicius et al.’s argument for loss scaling, and our reproduction of it (Section&nbsp;<a href="#sec:proj11:reproduce">7.7</a>).</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: How small are the gradients?</strong></p>
+<p>For a cross-entropy averaged over <span class="math inline">\(N\)</span> scored tokens, the gradient with respect to logit <span class="math inline">\(j\)</span> of token <span class="math inline">\(t\)</span> is <span class="math inline">\((p_{t,j}-y_{t,j})/N\)</span>. Our smoke transformer scores <span class="math inline">\(N\approx64\times31\approx2{,}000\)</span> tokens per step. A plausible successor with <span class="math inline">\(p=0.05\)</span> gives <span class="math inline">\(2.5\times10^{-5}\approx2^{-15.3}\)</span>: below FP16’s smallest normal (<span class="math inline">\(2^{-14}\)</span>), so stored as a subnormal with 8 or 9 significant bits instead of 11, and just above E5M2’s smallest subnormal (<span class="math inline">\(2^{-16}\)</span>), so stored with one or two significant bits. An impossible token to which the model still gives <span class="math inline">\(p=10^{-4}\)</span> contributes <span class="math inline">\(5.0\times10^{-8}\approx2^{-24.3}\)</span>, which FP16 rounds up to its smallest subnormal <span class="math inline">\(2^{-24}=5.96\times10^{-8}\)</span>, a 19% error; with <span class="math inline">\(p\lesssim5\times10^{-5}\)</span> the gradient is below <span class="math inline">\(2^{-25}\approx2.98\times10^{-8}\)</span> and FP16 flushes it to zero, as E5M2 and E4M3 already do for every value this small. Each layer of backpropagation multiplies by weights of size about 0.02 to 0.1 and sums over a few hundred terms, so the gradients deeper in the network sit within a few binades of these. Doubling the batch halves every one of them, which is why large-batch FP16 training depends on loss scaling and why FP8 gradients need a scale per tensor at least.</p>
+</div>
+<p>The last instrument is the task itself. A training curve that flattens could be a stall or could be the end of what the model can learn; to tell the two apart we use tasks whose best achievable loss is known in closed form, and measure every run by its <em>excess</em> loss above that floor (Section&nbsp;<a href="#sec:proj11:tasks">7.4</a>). The validation loss is always evaluated exactly, in FP32 with all emulation switched off (<code>Precision.exact()</code>), so it measures what the weights learned, not the noise of the format they are evaluated in.</p>
+</section>
+</section>
+<section id="sec:proj11:tasks" class="level2">
+<h2><span class="xn"><span class="num">7.4&nbsp;&nbsp;</span></span>The models and the tasks</h2>
+<p><strong>The tiny GPT.</strong> <code>models.TinyGPT</code> is a pre-norm decoder-only transformer: token and learned position embeddings, <span class="math inline">\(L\)</span> blocks of causal multi-head attention and a GELU MLP with LayerNorm before each, a final LayerNorm and a linear output head. The smoke configuration has two layers of width 64, four heads, context 32 and vocabulary 32 (106,240 parameters); the full one four layers of width 128 on a 64-token vocabulary. Every linear layer is a <code>QLinear</code> running Listing&nbsp;<a href="#lst:proj11:qlinear">7.3</a> under the policy its name selects, so a recipe can keep, for example, only the output head in BF16. The two attention products (<span class="math inline">\(QK^\top\)</span> and <span class="math inline">\(PV\)</span>) stay in the storage format, as in production FP8 recipes. Chapter&nbsp;<span class="xref-unpub" title="Not published yet">10</span> builds the same architecture properly; here it is 60 lines whose only job is to put a cast in every place a real run has one.</p>
+<p><strong>The Markov language.</strong> The transformer learns an order-2 Markov source over <span class="math inline">\(V\)</span> tokens: every pair of previous tokens selects <span class="math inline">\(k=8\)</span> possible successors, chosen at random, with Zipf probabilities <span class="math inline">\(p_j\propto 1/j\)</span>. Every context has the same next-token distribution up to relabelling, so the cross-entropy floor is its entropy, <span class="xn" id="eq:proj11:floor"></span><span class="math display">\[H = \ln H_k + \frac{1}{H_k}\sum_{j=1}^{k}\frac{\ln j}{j},\qquad H_k=\sum_{j=1}^k \frac1j,
+\tag{7.8}\]</span> which is 1.816 nats for <span class="math inline">\(k=8\)</span>. The first <code>order</code> tokens of each sequence are uniform and the loss is scored from the first position whose target has a full context. Predicting the source requires attending to the previous token, which the model learns in a visible phase transition a few hundred steps in, so the curve has an easy part (unigram and bigram statistics), a hard part (the attention circuit) and a long tail (the successor tables of all 1,024 contexts), each of which a broken format can disrupt differently.</p>
+<p><strong>The teacher regression.</strong> <code>models.MLP</code> (three hidden layers of 256, GELU) regresses the outputs of a fixed random teacher, a one-hidden-layer tanh network of width 32, from Gaussian inputs. The floor is zero, and the student keeps improving over several decades of mean squared error, so effects that appear only when gradients and updates become small, the two that loss scaling and master weights exist for, show up clearly.</p>
+</section>
+<section id="sec:proj11:matrix" class="level2">
+<h2><span class="xn"><span class="num">7.5&nbsp;&nbsp;</span></span>Milestone 3: the run matrix</h2>
+<p>A recipe is a small dataclass (<code>recipes.Recipe</code>) with one field per role, and the run matrix is data too: a config lists models, recipes, seeds and sweeps, and <code>study.expand</code> turns it into runs. Table&nbsp;<a href="#tab:proj11:recipes">7.3</a> lists the recipes of the smoke matrix, grouped by the research question they probe; <code>recipes.FIXES</code> records which recipe is meant to repair which failure, and the analysis prints the pairs side by side.</p>
+<div id="tab:proj11:recipes" class="table-float">
+<table style="width:99%;">
+<caption><span class="xn"><span class="num">Table 7.3: </span></span>The recipes of the smoke matrix. The full matrix adds the FP8 block recipe with a 14-bit round-toward-zero accumulator with and without promotion (<code>fp8_block_acc14</code>, <code>_promote</code>); the registry also holds two diagnostic recipes that change only the output head’s gradient operand (<code>fp8_tensor_head_g_sr</code>, <code>fp8_tensor_head_g_bf16</code>, Section&nbsp;<a href="#sec:proj11:fp8">7.6.3</a>).</caption>
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Question</th>
+<th style="text-align: left;">Recipe</th>
+<th style="text-align: left;">GEMM inputs x / w / g</th>
+<th style="text-align: left;">Storage</th>
+<th style="text-align: left;">Weights</th>
+<th style="text-align: left;">Other</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">baselines</td>
+<td style="text-align: left;"><code>fp32</code></td>
+<td style="text-align: left;">fp32</td>
+<td style="text-align: left;">fp32</td>
+<td style="text-align: left;">fp32</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>bf16</code></td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp16_dynamic</code></td>
+<td style="text-align: left;">fp16</td>
+<td style="text-align: left;">fp16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;">dynamic loss scaling</td>
+</tr>
+<tr>
+<td style="text-align: left;">1 FP16</td>
+<td style="text-align: left;"><code>fp16_noscale</code></td>
+<td style="text-align: left;">fp16</td>
+<td style="text-align: left;">fp16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;">no loss scaling</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp16_static</code></td>
+<td style="text-align: left;">fp16</td>
+<td style="text-align: left;">fp16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;">static scale <span class="math inline">\(2^{10}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">2 BF16</td>
+<td style="text-align: left;"><code>bf16_pure</code></td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">bf16, RNE</td>
+<td style="text-align: left;">no master copy</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>bf16_pure_sr</code></td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">bf16, stochastic</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">3 FP8</td>
+<td style="text-align: left;"><code>fp8_noscale</code></td>
+<td style="text-align: left;">E4M3 / E4M3 / E5M2, no scale</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp8_delayed</code></td>
+<td style="text-align: left;">same, delayed per tensor (<span class="math inline">\(L=16\)</span>)</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp8_tensor</code></td>
+<td style="text-align: left;">same, current per tensor</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp8_tensor_hp</code></td>
+<td style="text-align: left;"><code>fp8_tensor</code> with the output head in bf16</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp8_tensor_sr</code></td>
+<td style="text-align: left;"><code>fp8_tensor</code> with stochastic rounding of g</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp8_e4m3_tensor</code></td>
+<td style="text-align: left;">E4M3 for all three, current per tensor</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>fp8_block</code></td>
+<td style="text-align: left;">E4M3 for all three, <span class="math inline">\(1\times128\)</span> blocks</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">4 FP4</td>
+<td style="text-align: left;"><code>mxfp4</code>, <code>nvfp4</code></td>
+<td style="text-align: left;">E2M1, MX or NVFP4 blocks</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>mxfp4_sr</code>, <code>nvfp4_sr</code></td>
+<td style="text-align: left;">same, stochastic rounding of g</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>mxfp4_sr_ceil</code></td>
+<td style="text-align: left;"><code>mxfp4_sr</code> with a scale rounded up (no saturation) for g</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>mxfp4_fwd</code></td>
+<td style="text-align: left;">MXFP4 forward, bf16 backward</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"><code>nvfp4_sr_hp</code></td>
+<td style="text-align: left;"><code>nvfp4_sr</code> with the output head in bf16</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">5 accumulation</td>
+<td style="text-align: left;"><code>bf16_acc</code>, <code>bf16_acc_promote</code></td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">bf16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;">bf16 accumulator, chunk 32; promotion every 128</td>
+</tr>
+<tr>
+<td style="text-align: left;">5 sensitive ops</td>
+<td style="text-align: left;"><code>bf16_lowsens</code>, <code>fp16_lowsens</code></td>
+<td style="text-align: left;">bf16 / fp16</td>
+<td style="text-align: left;">bf16 / fp16</td>
+<td style="text-align: left;">fp32 master</td>
+<td style="text-align: left;">LayerNorm, softmax, loss in bf16 / fp16</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two sweeps locate break points rather than just detecting breaks. The <strong>learning-rate sweep</strong> runs <code>fp32</code>, <code>bf16_pure</code> and <code>bf16_pure_sr</code> on the MLP at three peak learning rates, because the half-ulp rule says the BF16 failure is a function of <span class="math inline">\(\eta/|w|\)</span>. The <strong>loss-weight sweep</strong> multiplies the loss by <span class="math inline">\(w\in\{1, 10^{-2}, 10^{-3}, 10^{-4}\}\)</span> and, to keep training mathematically unchanged, multiplies Adam’s <span class="math inline">\(\epsilon\)</span> and the gradient-clipping threshold by the same <span class="math inline">\(w\)</span>: <span class="xn" id="eq:proj11:lossweight"></span><span class="math display">\[\delta = -\eta\,\frac{\hat m}{\sqrt{\hat v}+\epsilon}
+\quad\xrightarrow{\;g\to wg,\ \epsilon\to w\epsilon\;}\quad
+-\eta\,\frac{w\hat m}{w\sqrt{\hat v}+w\epsilon} = \delta .
+\tag{7.9}\]</span> In exact arithmetic the FP32 runs at every <span class="math inline">\(w\)</span> are therefore identical (in our runs their final losses agree to eight significant digits, the residue of floating-point reassociation); any difference in an FP16 run is caused by FP16 alone, acting on gradients <span class="math inline">\(w\)</span> times smaller. Small loss weights are not an artificial device: auxiliary losses such as the load-balancing loss of a mixture-of-experts model are routinely weighted by <span class="math inline">\(10^{-2}\)</span> to <span class="math inline">\(10^{-3}\)</span>.</p>
+<div class="keyidea box">
+<p><strong>Key Idea: Remove one safeguard, change one thing</strong></p>
+<p>Every recipe of the matrix differs from a working baseline by exactly one safeguard, and every sweep varies one quantity that the mechanism under test depends on, with the rest of training made invariant to it. That is what turns “FP8 training was worse” into “E5M2 without a scale flushed 88% of the gradients entering the GEMMs, a per-tensor scale removed nearly all of it, and the run was still broken until the output head’s logit gradient alone was rounded stochastically or kept in BF16”.</p>
+</div>
+</section>
+<section id="sec:proj11:results" class="level2">
+<h2><span class="xn"><span class="num">7.6&nbsp;&nbsp;</span></span>Milestone 4: what breaks, and what fixes it</h2>
+<p>The smoke configuration runs every recipe of Table&nbsp;<a href="#tab:proj11:recipes">7.3</a> once (seed 0) on both models, plus the two sweeps: 59 runs in 53 minutes on one A100 (GPU 1 of our box). Everything in this section is measured, at smoke scale, on 2x A100-40GB (PCIe), and comes from <code>results/smoke_a100_pcie.json</code>; it is one seed, so the gap between two runs that differ only in noise is not zero. The <code>bf16</code> baseline, which should match FP32, lands at -0.02 on the transformer: gaps within about <span class="math inline">\(\pm0.1\)</span> are inside single-seed noise, which is why the verdict threshold for “ok” sits there. Table&nbsp;<a href="#tab:proj11:results">7.4</a> and Figure&nbsp;<a href="#fig:proj11:gaps">7.3</a> give the overview.</p>
+<div id="tab:proj11:results" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 7.4: </span></span>Smoke-scale results, one seed, measured on 2x A100-40GB (PCIe). Final validation loss (exact, FP32 evaluation; floor 1.816 nats for the transformer, 0 for the MLP), gap to FP32 (<a href="#eq:proj11:gap">7.10</a>), verdict, mean share of GEMM gradient inputs flushed to zero by count and by magnitude (both means over the logged intervals), fraction of weight updates lost (mean over the second half of training; the text quotes means over all logged steps), and emulated step time.</caption>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">run</th>
+<th style="text-align: right;">final val</th>
+<th style="text-align: right;">gap</th>
+<th style="text-align: left;">verdict</th>
+<th style="text-align: right;">g flushed (count)</th>
+<th style="text-align: right;">g flushed (mass)</th>
+<th style="text-align: right;">lost updates</th>
+<th style="text-align: right;">ms/step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>gpt/fp32</code></td>
+<td style="text-align: right;">2.0237</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: left;">baseline</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">14</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/bf16</code></td>
+<td style="text-align: right;">2.0195</td>
+<td style="text-align: right;">-0.02</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">6.6e-07</td>
+<td style="text-align: right;">8.5e-44</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">44</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/bf16_pure</code></td>
+<td style="text-align: right;">2.0472</td>
+<td style="text-align: right;">+0.11</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">6.6e-07</td>
+<td style="text-align: right;">1.7e-43</td>
+<td style="text-align: right;">0.49</td>
+<td style="text-align: right;">44</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/bf16_pure_sr</code></td>
+<td style="text-align: right;">2.0320</td>
+<td style="text-align: right;">+0.04</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">5.7e-06</td>
+<td style="text-align: right;">1.1e-42</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">46</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/bf16_lowsens</code></td>
+<td style="text-align: right;">2.0213</td>
+<td style="text-align: right;">-0.01</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">3.7e-06</td>
+<td style="text-align: right;">7.4e-43</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp16_noscale</code></td>
+<td style="text-align: right;">2.0317</td>
+<td style="text-align: right;">+0.04</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">1.1e-01</td>
+<td style="text-align: right;">5.6e-05</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">44</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp16_dynamic</code></td>
+<td style="text-align: right;">2.0345</td>
+<td style="text-align: right;">+0.05</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">1.7e-02</td>
+<td style="text-align: right;">3.8e-11</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">46</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp16_lowsens</code></td>
+<td style="text-align: right;">2.0636</td>
+<td style="text-align: right;">+0.18</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">2.6e-02</td>
+<td style="text-align: right;">1.4e-10</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">49</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/bf16_acc</code></td>
+<td style="text-align: right;">2.0228</td>
+<td style="text-align: right;">-0.00</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">7.0e-06</td>
+<td style="text-align: right;">1.4e-42</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">63</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/bf16_acc_promote</code></td>
+<td style="text-align: right;">2.0334</td>
+<td style="text-align: right;">+0.05</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">3.5e-07</td>
+<td style="text-align: right;">1.0e-43</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">67</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp8_noscale</code></td>
+<td style="text-align: right;">3.4587</td>
+<td style="text-align: right;">+2.07</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">8.8e-01</td>
+<td style="text-align: right;">1.5e-01</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">45</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp8_tensor</code></td>
+<td style="text-align: right;">2.3899</td>
+<td style="text-align: right;">+1.02</td>
+<td style="text-align: left;">broken</td>
+<td style="text-align: right;">2.1e-03</td>
+<td style="text-align: right;">1.2e-12</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp8_tensor_hp</code></td>
+<td style="text-align: right;">2.0468</td>
+<td style="text-align: right;">+0.11</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">1.5e-02</td>
+<td style="text-align: right;">5.0e-12</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp8_tensor_sr</code></td>
+<td style="text-align: right;">2.0519</td>
+<td style="text-align: right;">+0.13</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">1.5e-02</td>
+<td style="text-align: right;">5.0e-12</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">51</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp8_delayed</code></td>
+<td style="text-align: right;">2.4119</td>
+<td style="text-align: right;">+1.05</td>
+<td style="text-align: left;">broken</td>
+<td style="text-align: right;">2.4e-03</td>
+<td style="text-align: right;">2.1e-12</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp8_e4m3_tensor</code></td>
+<td style="text-align: right;">2.1000</td>
+<td style="text-align: right;">+0.31</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">8.2e-02</td>
+<td style="text-align: right;">4.5e-07</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/fp8_block</code></td>
+<td style="text-align: right;">2.0544</td>
+<td style="text-align: right;">+0.14</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">4.7e-02</td>
+<td style="text-align: right;">6.3e-08</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">80</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/mxfp4</code></td>
+<td style="text-align: right;">3.4748</td>
+<td style="text-align: right;">+2.08</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">3.3e-01</td>
+<td style="text-align: right;">2.0e-01</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">86</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/mxfp4_sr</code></td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">diverged</td>
+<td style="text-align: left;">diverged</td>
+<td style="text-align: right;">2.8e-01</td>
+<td style="text-align: right;">1.1e-01</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">87</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/mxfp4_sr_ceil</code></td>
+<td style="text-align: right;">2.2316</td>
+<td style="text-align: right;">+0.69</td>
+<td style="text-align: left;">broken</td>
+<td style="text-align: right;">3.9e-01</td>
+<td style="text-align: right;">4.0e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">84</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/mxfp4_fwd</code></td>
+<td style="text-align: right;">2.2319</td>
+<td style="text-align: right;">+0.69</td>
+<td style="text-align: left;">broken</td>
+<td style="text-align: right;">6.9e-04</td>
+<td style="text-align: right;">1.7e-40</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">55</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/nvfp4</code></td>
+<td style="text-align: right;">5.6369</td>
+<td style="text-align: right;">+2.91</td>
+<td style="text-align: left;">broken</td>
+<td style="text-align: right;">3.4e-01</td>
+<td style="text-align: right;">3.9e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">105</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/nvfp4_sr</code></td>
+<td style="text-align: right;">2.1475</td>
+<td style="text-align: right;">+0.47</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">3.0e-01</td>
+<td style="text-align: right;">1.5e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">106</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>gpt/nvfp4_sr_hp</code></td>
+<td style="text-align: right;">2.1566</td>
+<td style="text-align: right;">+0.49</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">2.9e-01</td>
+<td style="text-align: right;">9.2e-03</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">99</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp32</code></td>
+<td style="text-align: right;">0.0051</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: left;">baseline</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">3</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/bf16</code></td>
+<td style="text-align: right;">0.0051</td>
+<td style="text-align: right;">+0.00</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">22</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/bf16_pure</code></td>
+<td style="text-align: right;">0.0125</td>
+<td style="text-align: right;">+0.90</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.82</td>
+<td style="text-align: right;">22</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/bf16_pure_sr</code></td>
+<td style="text-align: right;">0.0052</td>
+<td style="text-align: right;">+0.02</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.74</td>
+<td style="text-align: right;">28</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp16_noscale</code></td>
+<td style="text-align: right;">0.0051</td>
+<td style="text-align: right;">-0.00</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">1.5e-02</td>
+<td style="text-align: right;">3.6e-05</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">23</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp16_static</code></td>
+<td style="text-align: right;">0.0051</td>
+<td style="text-align: right;">+0.00</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">3.1e-05</td>
+<td style="text-align: right;">7.2e-11</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">26</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp16_dynamic</code></td>
+<td style="text-align: right;">0.0051</td>
+<td style="text-align: right;">+0.00</td>
+<td style="text-align: left;">ok</td>
+<td style="text-align: right;">1.4e-06</td>
+<td style="text-align: right;">4.0e-14</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">27</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp8_noscale</code></td>
+<td style="text-align: right;">0.0076</td>
+<td style="text-align: right;">+0.41</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">6.9e-01</td>
+<td style="text-align: right;">2.1e-01</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">23</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp8_tensor</code></td>
+<td style="text-align: right;">0.0058</td>
+<td style="text-align: right;">+0.14</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">9.3e-06</td>
+<td style="text-align: right;">9.6e-15</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">31</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp8_e4m3_tensor</code></td>
+<td style="text-align: right;">0.0057</td>
+<td style="text-align: right;">+0.12</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">2.1e-04</td>
+<td style="text-align: right;">3.3e-09</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">31</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/fp8_block</code></td>
+<td style="text-align: right;">0.0058</td>
+<td style="text-align: right;">+0.13</td>
+<td style="text-align: left;">degraded</td>
+<td style="text-align: right;">8.8e-05</td>
+<td style="text-align: right;">3.8e-10</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/mxfp4</code></td>
+<td style="text-align: right;">0.0362</td>
+<td style="text-align: right;">+1.96</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">3.1e-01</td>
+<td style="text-align: right;">2.5e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">49</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/mxfp4_sr</code></td>
+<td style="text-align: right;">0.0380</td>
+<td style="text-align: right;">+2.01</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">2.8e-01</td>
+<td style="text-align: right;">2.8e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">48</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/mxfp4_sr_ceil</code></td>
+<td style="text-align: right;">0.0371</td>
+<td style="text-align: right;">+1.99</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">3.3e-01</td>
+<td style="text-align: right;">4.2e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">47</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/mxfp4_fwd</code></td>
+<td style="text-align: right;">0.0579</td>
+<td style="text-align: right;">+2.43</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0.0e+00</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">22</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/nvfp4</code></td>
+<td style="text-align: right;">0.0141</td>
+<td style="text-align: right;">+1.02</td>
+<td style="text-align: left;">broken</td>
+<td style="text-align: right;">2.6e-01</td>
+<td style="text-align: right;">1.7e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">55</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/nvfp4_sr</code></td>
+<td style="text-align: right;">0.0150</td>
+<td style="text-align: right;">+1.08</td>
+<td style="text-align: left;">broken, stalled</td>
+<td style="text-align: right;">2.5e-01</td>
+<td style="text-align: right;">1.9e-02</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">56</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The gap is the log-ratio of excess losses, <span class="xn" id="eq:proj11:gap"></span><span class="math display">\[\text{gap} = \ln\frac{L_{\text{run}} - L^\star}{L_{\text{fp32}} - L^\star},
+\tag{7.10}\]</span> with <span class="math inline">\(L^\star\)</span> the floor: 0 when a run is as good as FP32, <span class="math inline">\(\ln2=0.69\)</span> when it leaves twice the reducible loss. A run is “ok” below 0.10, “degraded” up to 0.69 and “broken” above; “stalled” marks a broken run whose excess loss fell by less than 5% over the last quarter of training. These thresholds are parameters of the config, to be calibrated on the three-seed full runs.</p>
+<figure id="fig:proj11:gaps">
+<img style="width: 1434px" src="figures/ch07_proj_lowprec-8.svg" class="fig fig-light" loading="lazy" alt="Gap to FP32 for every recipe of the smoke matrix (one seed), coloured by verdict; the dotted and dashed lines are the “ok” (0.10) and “broken” (0.69) thresholds. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1434px" src="figures/ch07_proj_lowprec-8-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Gap to FP32 for every recipe of the smoke matrix (one seed), coloured by verdict; the dotted and dashed lines are the “ok” (0.10) and “broken” (0.69) thresholds. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.3: </span></span>Gap to FP32 for every recipe of the smoke matrix (one seed), coloured by verdict; the dotted and dashed lines are the “ok” (0.10) and “broken” (0.69) thresholds. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+<section id="sec:proj11:fp16" class="level3">
+<h3><span class="xn"><span class="num">7.6.1&nbsp;&nbsp;</span></span>FP16 and loss scaling</h3>
+<p>At loss weight 1, FP16 without loss scaling is <em>not</em> broken on either model: the transformer’s gap is +0.04 and the MLP’s -0.00, both inside noise, although on average 11.0% of the transformer’s nonzero gradient inputs were flushed to zero and 78% of all of them were stored as subnormals. The gradient histogram (Figure&nbsp;<a href="#fig:proj11:gradhist">7.4</a>) explains why. Early in training the gradients reaching the GEMMs peak near <span class="math inline">\(2^{-20}\)</span>, below FP16’s smallest normal number (<span class="math inline">\(2^{-14}\)</span>) but above its smallest subnormal (<span class="math inline">\(2^{-24}\)</span>), so most are stored with reduced precision rather than lost. As the model becomes confident, the probabilities it assigns to impossible tokens shrink, their logit gradients <span class="math inline">\(p_j/N\)</span> shrink with them, and a tail grows below <span class="math inline">\(2^{-24}\)</span> (14.7% of all values by the end). The tail is large by count and negligible by magnitude: the flushed values carry 0.0056% of the gradient’s <span class="math inline">\(\ell_1\)</span> mass (the sum of absolute values). The count measures how often FP16 rounds a gradient to zero; the mass measures whether it matters.</p>
+<figure id="fig:proj11:gradhist">
+<img style="width: 1045px" src="figures/ch07_proj_lowprec-5.svg" class="fig fig-light" loading="lazy" alt="Histogram of \log_2|g| for all gradients entering the GEMMs of the tiny GPT, trained in FP32, at three steps; arrows mark the representable ranges (smallest subnormal to largest finite) of FP16, E5M2 and E4M3, dotted lines their smallest normal numbers. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1045px" src="figures/ch07_proj_lowprec-5-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Histogram of \log_2|g| for all gradients entering the GEMMs of the tiny GPT, trained in FP32, at three steps; arrows mark the representable ranges (smallest subnormal to largest finite) of FP16, E5M2 and E4M3, dotted lines their smallest normal numbers. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.4: </span></span>Histogram of <span class="math inline">\(\log_2|g|\)</span> for all gradients entering the GEMMs of the tiny GPT, trained in FP32, at three steps; arrows mark the representable ranges (smallest subnormal to largest finite) of FP16, E5M2 and E4M3, dotted lines their smallest normal numbers. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+<p>The loss-weight sweep moves the whole histogram down by <span class="math inline">\(\log_2 w\)</span> binades while leaving exact training unchanged (<a href="#eq:proj11:lossweight">7.9</a>), and locates the break point (Figure&nbsp;<a href="#fig:proj11:fp16sweep">7.5</a>). At <span class="math inline">\(w=10^{-2}\)</span> the unscaled run flushes 35.8% of the gradients by count but only 5.57% by mass, and its gap is +0.06. At <span class="math inline">\(w=10^{-3}\)</span> the flushed mass reaches 13.68% and the gap +0.84; at <span class="math inline">\(w=10^{-4}\)</span>, 26.14% of the mass is gone and the run is broken, stalled (gap +2.69). Dynamic loss scaling is ok at every weight; a static scale of <span class="math inline">\(2^{10}\)</span> is ok at every weight too (gaps within <span class="math inline">\(\pm0.01\)</span>): <span class="math inline">\(2^{10}w\ge0.1\)</span> for every <span class="math inline">\(w\)</span> we tried, so its gradients are never more than ten times smaller than those of the unscaled <span class="math inline">\(w=1\)</span> run, which trained normally. The rule that emerges sharpens the qualitative account of Micikevicius et al. (2018): unscaled FP16 breaks when a substantial share of the gradient’s <em>magnitude</em>, not its element count, falls below <span class="math inline">\(2^{-24}\)</span>, and any power-of-two scale that lifts that share into range without overflowing restores training.</p>
+<figure id="fig:proj11:fp16sweep">
+<img style="width: 1372px" src="figures/ch07_proj_lowprec-6.svg" class="fig fig-light" loading="lazy" alt="Left: share of the GEMM gradient inputs flushed to zero, by count (solid) and by magnitude (dashed), as the loss weight w shrinks every gradient by w. Right: the resulting gap to FP32. FP32 itself is identical at every w. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1372px" src="figures/ch07_proj_lowprec-6-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Left: share of the GEMM gradient inputs flushed to zero, by count (solid) and by magnitude (dashed), as the loss weight w shrinks every gradient by w. Right: the resulting gap to FP32. FP32 itself is identical at every w. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.5: </span></span>Left: share of the GEMM gradient inputs flushed to zero, by count (solid) and by magnitude (dashed), as the loss weight <span class="math inline">\(w\)</span> shrinks every gradient by <span class="math inline">\(w\)</span>. Right: the resulting gap to FP32. FP32 itself is identical at every <span class="math inline">\(w\)</span>. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+</section>
+<section id="sec:proj11:bf16" class="level3">
+<h3><span class="xn"><span class="num">7.6.2&nbsp;&nbsp;</span></span>BF16 without master weights</h3>
+<p>This failure is the clearest of the study. On the MLP, <code>bf16_pure</code> is broken, stalled (gap +0.90): its loss curve separates from FP32’s early and flattens (Figure&nbsp;<a href="#fig:proj11:bf16">7.6</a>), while the update counter shows 67% of all intended updates lost on average, rising to 92% by the end of training as the cosine schedule lowers the learning rate. Stochastic rounding (<code>bf16_pure_sr</code>) recovers FP32 (gap +0.02) with no extra memory. On the transformer, whose learning rate is ten times higher and whose updates are therefore larger relative to the weights, the damage is smaller (+0.11, degraded, though only 0.007 above the “ok” threshold on one seed) but has the same signature: the lost fraction climbs from 4% at the first logged step to 72% at the last, and stochastic rounding brings the gap to +0.04.</p>
+<p>The learning-rate sweep shows the failure is set by <span class="math inline">\(\eta/|w|\)</span>, as the band (<a href="#eq:proj11:band">7.7</a>) says. At <span class="math inline">\(\eta=3\times10^{-3}\)</span> the lost fraction averages 45% and the gap is +0.68 (degraded); at <span class="math inline">\(\eta=3\times10^{-4}\)</span> it averages 86% and the run is broken, stalled (gap +0.77). Stochastic rounding is ok at every learning rate. Note that <code>bf16_pure_sr</code> also reports most of its updates as “lost”: under stochastic rounding a single small update usually leaves the weight unchanged too, but it moves the weight by a full ulp with probability <span class="math inline">\(|\delta|/\operatorname{ulp}\)</span>, so the expected displacement is exact (<a href="ch04_numerics.html#eq:numerics:sr">4.4</a>). The counter that matters for SR is the trajectory, not the per-step count.</p>
+<figure id="fig:proj11:bf16">
+<img style="width: 1371px" src="figures/ch07_proj_lowprec-4.svg" class="fig fig-light" loading="lazy" alt="Left: validation MSE of the MLP with FP32 weights, BF16 weights updated with round-to-nearest, and BF16 weights updated with stochastic rounding, at three peak learning rates (thick: 10^{-3}). Right: fraction of updates lost per logged step, measured (thick) and predicted by the half-ulp rule (dotted). Measured on 2x A100-40GB (PCIe)." /><img style="width: 1371px" src="figures/ch07_proj_lowprec-4-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Left: validation MSE of the MLP with FP32 weights, BF16 weights updated with round-to-nearest, and BF16 weights updated with stochastic rounding, at three peak learning rates (thick: 10^{-3}). Right: fraction of updates lost per logged step, measured (thick) and predicted by the half-ulp rule (dotted). Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.6: </span></span>Left: validation MSE of the MLP with FP32 weights, BF16 weights updated with round-to-nearest, and BF16 weights updated with stochastic rounding, at three peak learning rates (thick: <span class="math inline">\(10^{-3}\)</span>). Right: fraction of updates lost per logged step, measured (thick) and predicted by the half-ulp rule (dotted). Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+</section>
+<section id="sec:proj11:fp8" class="level3">
+<h3><span class="xn"><span class="num">7.6.3&nbsp;&nbsp;</span></span>FP8: what each scaling rule buys</h3>
+<p>Without scales, FP8 does not train the transformer at all: E5M2’s smallest subnormal is <span class="math inline">\(2^{-16}\)</span>, the gradient histogram’s peak sits about four binades below it, and 88% of the gradient inputs (15% of the mass) are flushed. The loss stays at 3.46, the level of a model that ignores its context (<span class="math inline">\(\ln 32 = 3.47\)</span> for our nearly uniform token frequencies). On the MLP the same recipe is degraded (+0.41) rather than broken, because the regression’s gradients are larger.</p>
+<p>A per-tensor scale removes the underflow (0.2% by count), but the transformer is still broken (gap +1.02) with current scaling and +1.05 with delayed scaling. The two scaling rules are indistinguishable here: delayed scaling’s risk, a tensor that outgrows its amax history, did not materialise (the largest activation overflow fraction of any logged interval was 1.7e-06). To find the operand responsible we ran single-seed ablations of <code>fp8_tensor</code> with one or two operand roles returned to BF16 (same configuration and GPU, in separate diagnostic runs that are not part of the results file; validation loss at step 950, where FP32 is at 2.03): with only the forward activations in FP8 the loss was 2.06, with only the weights 2.04, with only the gradients 2.21, and with both forward operands in FP8 and the gradients in BF16, 2.03. The failure lives in the E5M2 gradients. Two recipes of the matrix narrow it further, though neither isolates a single operand: <code>fp8_tensor_hp</code> moves all three operands of the output head to BF16 and brings the gap from +1.02 to +0.11, and <code>fp8_tensor_sr</code> keeps E5M2 but rounds <em>every</em> layer’s gradients stochastically, giving +0.13. On one seed these two numbers are indistinguishable, and both sit just above the “ok” threshold.</p>
+<p>The decisive test changes one operand of one layer. Two more diagnostic runs (single seed, separate from the results file; <code>diagnose_fp8_head.py</code>, output in <code>results/diag_fp8_head_a100_pcie.json</code>) keep all of <code>fp8_tensor</code> and alter only the gradient operand of the output head, the logit gradient <span class="math inline">\(\partial L/\partial z = (p-y)/N\)</span> that feeds both of the head’s backward GEMMs: rounded stochastically instead of to nearest (<code>fp8_tensor_head_g_sr</code>), the gap is +0.07; kept in BF16 (<code>fp8_tensor_head_g_bf16</code>), +0.07. Both are “ok”. Every other gradient in the network is still E5M2 with round-to-nearest, so the failure is in that one tensor.</p>
+<p>We also measured the bias directly (<code>diagnose.rounding_bias</code>, on logit gradients captured from the <code>fp8_tensor</code> run at steps 300, 600 and 900). Under E5M2 with round-to-nearest the mean <em>signed</em> rounding error of the logit gradient is <span class="math inline">\(-1.3\%\)</span>, <span class="math inline">\(-0.50\%\)</span> and <span class="math inline">\(-0.45\%\)</span> of its mean magnitude: the negative entries (the targets, <span class="math inline">\(-(1-p)/N\)</span>) are enlarged by 2.3%, 0.7% and 0.6%, the positive ones shrunk by a few tenths of a percent, so the rows no longer sum to zero. Stochastic rounding of the same tensors leaves <span class="math inline">\(-0.01\%\)</span> to <span class="math inline">\(-0.06\%\)</span>, 8 to 120 times less, and BF16 below <span class="math inline">\(0.003\%\)</span>. The same measurement on an inner layer’s gradient (<code>b1.fc2</code>) gives a mean signed error of at most <span class="math inline">\(0.01\%\)</span> under E5M2 round-to-nearest: its errors cancel. The head’s weight gradient computed from the rounded logit gradient is off by 7.0% at step 300 with round-to-nearest, against 2.1% for a single stochastic rounding and 0.3% for the mean of 64 of them: most of the round-to-nearest error is a systematic component that does not average away. We read the evidence as follows: the transformer’s FP8 failure is consistent with a rounding bias concentrated in the logit gradient (one seed, one model). The values of <span class="math inline">\((p-y)/N\)</span> repeat across contexts, because every context of our language has the same Zipf profile, so E5M2’s two fraction bits round the same values the same way on every step, and the optimiser follows the bias where it would average out noise.</p>
+<p>E4M3 for the gradients (<code>fp8_e4m3_tensor</code>, gap +0.31) is better than E5M2, as its extra fraction bit predicts (its measured mean signed error on the logit gradient is three to seven times smaller), at a price in underflow (8.2% by count) that per-tensor scaling makes affordable; and E4M3 everywhere with 1-D blocks of 128 along the reduction dimension (<code>fp8_block</code>, +0.14) is better still. Our weights use the same <span class="math inline">\(1\times128\)</span> blocks as the activations, where DeepSeek-V3 uses <span class="math inline">\(128\times128\)</span> weight blocks. This is DeepSeek-V3’s “mantissa over exponents” argument (Section&nbsp;<a href="ch05_quant.html#sec:quant:deepseek">5.7</a>) on a model six million times smaller, and the head result is one reason production FP8 recipes keep the output head in BF16.</p>
+<p>On the MLP every scaled FP8 recipe is degraded by about the same amount (gaps +0.14, +0.12, +0.13). The regression drives its error to <span class="math inline">\(5\times10^{-3}\)</span>, and E4M3’s three fraction bits put a floor under the accuracy of the function the network can compute: the MLP measures FP8’s precision, the transformer its bias.</p>
+<figure id="fig:proj11:lowbit">
+<img style="width: 1432px" src="figures/ch07_proj_lowprec-7.svg" class="fig fig-light" loading="lazy" alt="Validation loss of the tiny GPT under the FP8 recipes (left) and the FP4 recipes (right); the dotted line is the entropy floor. Curves that leave the top of the plot are runs whose loss rose or diverged. Measured on 2x A100-40GB (PCIe); the formats are emulated, since the A100 has no FP8 or FP4 tensor cores." /><img style="width: 1432px" src="figures/ch07_proj_lowprec-7-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Validation loss of the tiny GPT under the FP8 recipes (left) and the FP4 recipes (right); the dotted line is the entropy floor. Curves that leave the top of the plot are runs whose loss rose or diverged. Measured on 2x A100-40GB (PCIe); the formats are emulated, since the A100 has no FP8 or FP4 tensor cores." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.7: </span></span>Validation loss of the tiny GPT under the FP8 recipes (left) and the FP4 recipes (right); the dotted line is the entropy floor. Curves that leave the top of the plot are runs whose loss rose or diverged. Measured on 2x A100-40GB (PCIe); the formats are emulated, since the A100 has no FP8 or FP4 tensor cores.</figcaption>
+</figure>
+</section>
+<section id="sec:proj11:fp4" class="level3">
+<h3><span class="xn"><span class="num">7.6.4&nbsp;&nbsp;</span></span>FP4: MXFP4 and NVFP4</h3>
+<p>With all three GEMMs in FP4 and round-to-nearest, neither format trains the transformer. MXFP4 never leaves the context-free plateau (3.47), and NVFP4 does worse: its loss, training and validation alike, <em>rises</em> after the first hundred steps, to a final validation loss of 5.64, a slow divergence that the explosion detector (three times the initial loss) does not catch. About 33% of the gradient inputs are flushed by count in both, because E2M1’s smallest nonzero magnitude is a twelfth of its largest: within a block, anything below about 4% of the block maximum is zero.</p>
+<p>The fixes rank as the FP4 literature predicts. Stochastic rounding of the gradients turns NVFP4 from broken into degraded (+0.47), and keeping the output head in BF16 on top of it changes little (+0.49): with unbiased gradients, the head is no longer special. For MXFP4, stochastic rounding alone made things worse: <code>mxfp4_sr</code> diverged at step 279. The OCP scale rule <span class="math inline">\(2^{\lfloor\log_2\text{amax}\rfloor-2}\)</span> lets the block maximum saturate (E2M1’s largest value is 6, and a block whose maximum is, say, 7.9 times its scale is clipped to 6), and a clipped value is rounded down <em>deterministically</em>, so stochastic rounding of the rest cannot make the block unbiased. Tseng et al. (2025) avoid exactly this by scaling blocks by 3/4 before stochastic rounding; our <code>mxfp4_sr_ceil</code> uses the other standard remedy, rounding the scale up so nothing saturates, and turns the divergence into a run that trains, at a gap of +0.69 (broken), right on the boundary between degraded and broken. Keeping the whole backward pass in BF16 (<code>mxfp4_fwd</code>) lands at the same place, +0.69 (broken): with an unbiased backward pass, the remaining cost is the FP4 forward pass itself, and NVFP4’s smaller blocks with finer E4M3 scales make that cost smaller (<code>nvfp4_sr</code> at +0.47). On the MLP, every FP4 recipe is broken (<code>mxfp4</code> +1.96, <code>mxfp4_sr</code> +2.01, <code>mxfp4_sr_ceil</code> +1.99, <code>mxfp4_fwd</code> +2.43, <code>nvfp4</code> +1.02, <code>nvfp4_sr</code> +1.08), the precision floor of the previous section at a coarser grid.</p>
+</section>
+<section id="sec:proj11:accsens" class="level3">
+<h3><span class="xn"><span class="num">7.6.5&nbsp;&nbsp;</span></span>Accumulation and the sensitive operations</h3>
+<p>A BF16 accumulator with chunks of 32 changes nothing measurable (<code>bf16_acc</code> -0.00, <code>bf16_acc_promote</code> +0.05), although its weight-gradient GEMMs sum 2,048 tokens: the accumulation error, about 1% for these shapes (one of the exercises measures it), is unbiased under round-to-nearest and small next to the minibatch noise. Low-precision normalisation, softmax and loss behave differently in the two 16-bit formats: in BF16 they are harmless (<code>bf16_lowsens</code> -0.01), in FP16 they degrade the transformer (<code>fp16_lowsens</code> +0.18, degraded). BF16 has <em>fewer</em> fraction bits than FP16, which suggests that the FP16 damage is a range effect rather than a precision effect: the softmax’s small probabilities, and the gradients of the loss with respect to them, fall below FP16’s normal range at the very place where the model is learning which tokens are impossible. This is a hypothesis from one seed, not a measurement: the kit has no counter on these operations, and adding one is the natural next step.</p>
+<div class="systemslens box">
+<p><strong>Systems Lens: The cost of an emulated step</strong></p>
+<p>The last column of Table&nbsp;<a href="#tab:proj11:results">7.4</a> is a cost model of emulation, not of the formats. The FP32 transformer step takes 14 ms, the MLP’s 2.8 ms: both launch-bound, a few hundred small kernels. A native BF16 cast adds two kernels per cast and roughly triples the step; block formats, which run through <code>numerics.quantize</code> in float64 with reshapes and padding, cost 80–105 ms. A real FP8 or FP4 GEMM on hardware that has it would be <em>faster</em> than BF16; here every quantised operand is an extra pass over memory and a dozen launches. For the full study the cost is what sets the budget (Section&nbsp;<a href="#sec:proj11:budget">7.10</a>); a fused Triton quantiser (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">A</span>) would remove most of it and is a good extension for a reader who has read Part IV.</p>
+</div>
+</section>
+</section>
+<section id="sec:proj11:reproduce" class="level2">
+<h2><span class="xn"><span class="num">7.7&nbsp;&nbsp;</span></span>Reproducing published findings</h2>
+<section id="the-half-ulp-rule" class="level3">
+<h3><span class="xn"><span class="num">7.7.1&nbsp;&nbsp;</span></span>The half-ulp rule</h3>
+<p>The finding: weights stored in a narrow format and updated with round-to-nearest lose every update smaller than half the local gap (Section&nbsp;<a href="ch04_numerics.html#sec:numerics:rounding">4.5</a>; Micikevicius et al., 2018, for FP16; Zamirai et al., 2020, for BF16), and this is what breaks pure-BF16 training. Our reproduction is quantitative at two levels. At the level of single updates, the half-ulp prediction (<a href="#eq:proj11:halfulp">7.6</a>), evaluated on the intended FP32 update of every weight matrix at every logged step, matches the measured fraction of lost updates to within 2.1e-05 in every <code>bf16_pure</code> run (Table&nbsp;<a href="#tab:proj11:halfulp">7.5</a> and the right panel of Figure&nbsp;<a href="#fig:proj11:bf16">7.6</a>); the residual is the handful of exact ties, which round to even. At the level of the run, the prediction can be made <em>before</em> the failing run exists: the FP32 run’s own updates, pushed through the rule, say that BF16 storage would drop 68% of the MLP’s updates on average; the <code>bf16_pure</code> run then measures 67%.</p>
+<div id="tab:proj11:halfulp" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 7.5: </span></span>Lost updates in the BF16-without-master runs: measured against the half-ulp prediction, mean over logged steps and largest per-step difference. Measured on 2x A100-40GB (PCIe).</caption>
+<thead>
+<tr>
+<th style="text-align: left;">run</th>
+<th style="text-align: right;">measured (mean)</th>
+<th style="text-align: right;">predicted (mean)</th>
+<th style="text-align: right;">largest difference</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>gpt/bf16_pure</code></td>
+<td style="text-align: right;">0.2985</td>
+<td style="text-align: right;">0.2985</td>
+<td style="text-align: right;">1.9e-05</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/bf16_pure</code></td>
+<td style="text-align: right;">0.6741</td>
+<td style="text-align: right;">0.6741</td>
+<td style="text-align: right;">2.1e-05</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/bf16_pure@lr=0.003</code></td>
+<td style="text-align: right;">0.4471</td>
+<td style="text-align: right;">0.4471</td>
+<td style="text-align: right;">7.1e-06</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mlp/bf16_pure@lr=0.0003</code></td>
+<td style="text-align: right;">0.8613</td>
+<td style="text-align: right;">0.8613</td>
+<td style="text-align: right;">7.1e-06</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Figure&nbsp;<a href="#fig:proj11:ratios">7.8</a> shows where the updates sit relative to the band. At 10% of training the transformer’s median ratio is <span class="math inline">\(3.1\times10^{-2}\)</span> (large updates on small weights, near the peak learning rate); at the last step it is <span class="math inline">\(1.3\times10^{-3}\)</span>, below the lower edge of BF16’s band, and the MLP’s is <span class="math inline">\(3.4\times10^{-4}\)</span>, further below. The textbook “healthy” ratio of <span class="math inline">\(10^{-3}\)</span> is in BF16’s lost region, as the napkin estimate of Section&nbsp;<a href="#sec:proj11:instrument">7.3</a> said.</p>
+<figure id="fig:proj11:ratios">
+<img style="width: 1002px" src="figures/ch07_proj_lowprec-3.svg" class="fig fig-light" loading="lazy" alt="Distribution of the per-element update-to-weight ratio of the FP32 runs at 10% of training (dashed) and at the last step (solid), against the relative half-ulp bands of BF16 and FP16: updates to the left of a band are always lost in that format, to the right never. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1002px" src="figures/ch07_proj_lowprec-3-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Distribution of the per-element update-to-weight ratio of the FP32 runs at 10% of training (dashed) and at the last step (solid), against the relative half-ulp bands of BF16 and FP16: updates to the left of a band are always lost in that format, to the right never. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 7.8: </span></span>Distribution of the per-element update-to-weight ratio of the FP32 runs at 10% of training (dashed) and at the last step (solid), against the relative half-ulp bands of BF16 and FP16: updates to the left of a band are always lost in that format, to the right never. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+</section>
+<section id="the-loss-scaling-histogram" class="level3">
+<h3><span class="xn"><span class="num">7.7.2&nbsp;&nbsp;</span></span>The loss-scaling histogram</h3>
+<p>Micikevicius et al. (2018) motivated loss scaling with a histogram of activation gradients from one network, showing most of FP16’s range unused above the gradients and a share of them below it. The transformer’s version (Figure&nbsp;<a href="#fig:proj11:gradhist">7.4</a>) has the same shape: at step 51, 95.2% of the gradient values lie below FP16’s smallest normal, 5.3% below its smallest subnormal, and the largest is about <span class="math inline">\(2^{-10}\)</span> (about <span class="math inline">\(2^{-8}\)</span> by the end of training), so a loss scale up to <span class="math inline">\(2^{23}\)</span> is guaranteed safe throughout (<span class="math inline">\(2^{23}\cdot2^{-8}=2^{15}\)</span>, while <span class="math inline">\(2^{24}\cdot2^{-8}=2^{16}\)</span> could already exceed FP16’s overflow threshold of 65,520); the largest <em>safe</em> scale is what dynamic loss scaling searches for by backing off from <span class="math inline">\(2^{16}\)</span>. Where our reproduction goes beyond the paper is in separating count from mass and in locating the break point, which Section&nbsp;<a href="#sec:proj11:fp16">7.6.1</a> did with the loss-weight sweep.</p>
+<div class="deepdive box">
+<p><strong>Deeper Dive: Reading the research: Micikevicius et al. (2018), “Mixed Precision Training”</strong></p>
+<p><strong>The cost model, in our notation.</strong> The paper’s argument is a byte count and three range arguments. Storing weights, activations and gradients in FP16 halves their bytes, and FP16 tensor cores (then new, on Volta) multiply up to eight times faster than FP32 units. Three things can go wrong, and each gets a fix that costs little. (1) <em>Updates vanish</em>: with FP16 weights an update is lost when the weight is about 2,048 times larger than it, so an FP32 master copy is updated and rounded to FP16 for use, at 4 extra bytes per parameter (6 in total, against 4 for FP32 weights, while activations, which dominate memory in their models, are halved). (2) <em>Gradients underflow</em>: many activation gradients lie below FP16’s smallest subnormal, so the loss is multiplied by a scale <span class="math inline">\(S\)</span> before the backward pass and the weight gradients are divided by it in FP32. The constraint on <span class="math inline">\(S\)</span> is that <span class="math inline">\(S\max|g|\)</span> stays below 65,504; within it, any <span class="math inline">\(S\)</span> works, and a constant (8 was enough for their detector network) or a dynamic scale that backs off on overflow suffices. (3) <em>Arithmetic loses precision</em>: products are accumulated in FP32, and reductions (batch-norm statistics, softmax) run in FP32 and store FP16.</p>
+<p><strong>What our code reproduces.</strong> The 2,048 is the upper edge of our FP16 band (<a href="#eq:proj11:band">7.7</a>): <span class="math inline">\(2^{-(m+1)}=2^{-11}=1/2048\)</span> for <span class="math inline">\(m=10\)</span>. Our derivation sharpens it into a band, below whose lower edge (<span class="math inline">\(1/4096\)</span>) every update is lost, and our measurement in Section&nbsp;<a href="#sec:proj11:reproduce">7.7</a> checks the sharpened rule on every weight of every logged step: measured and predicted lost fractions agree to 2.1e-05. For loss scaling, Figure&nbsp;<a href="#fig:proj11:gradhist">7.4</a> is our version of their activation-gradient histogram, from the tiny GPT instead of a detector: the bulk of the distribution sits around <span class="math inline">\(2^{-20}\)</span>, inside FP16’s subnormal range and four binades above its smallest subnormal, and a tail that grows during training lies below it. Their qualitative finding holds: much of FP16’s range above the gradients is unused, a power-of-two scale moves the tail into range, and with <span class="math inline">\(w=1\)</span> our models did not need it (their detector diverged without scaling; our language model lost +0.04 in gap, inside seed noise). The loss-weight sweep supplies what their paper asserts but does not plot: the point at which unscaled FP16 breaks, between <span class="math inline">\(w=10^{-2}\)</span> and <span class="math inline">\(w=10^{-3}\)</span> on the MLP, where the flushed share of the gradient’s magnitude grows from 5.57% to 13.68%.</p>
+<p><strong>What the evaluation leaves out.</strong> The study reports final accuracy of single runs per network, so it cannot separate a small degradation from seed noise, and it never locates where a recipe starts to fail. It predates BF16, whose exponent range makes loss scaling unnecessary but whose 7-bit fraction makes the master copy more necessary (its band starts at <span class="math inline">\(2^{-9}\)</span>, eight times higher than FP16’s), and it does not consider the optimiser’s state, whose bytes now dominate the training state (Section&nbsp;<a href="ch05_quant.html#sec:quant:mixed">5.6</a>). And it treats underflow by count, as a histogram; our runs show that the count can be large while the flushed gradients carry a negligible share of the gradient’s mass, which may be why a scale as small as 8 was enough for them, and the mass is the instrument that predicts when a scale is needed.</p>
+</div>
+</section>
+</section>
+<section id="sec:proj11:m5" class="level2">
+<h2><span class="xn"><span class="num">7.8&nbsp;&nbsp;</span></span>Milestone 5: the write-up</h2>
+<section id="sec:proj11:writeup" class="level3">
+<h3><span class="xn"><span class="num">7.8.1&nbsp;&nbsp;</span></span>The write-up and its rubric</h3>
+<p>The write-up is a short paper. Its introduction states the five research questions; its method section describes the emulation precisely enough that a reader could rebuild it (which operands are quantised, in which orientation, with which scale and rounding, where storage casts happen, which operations stay in FP32) and says plainly that FP8 and FP4 are emulated; one results section per question gives the failing recipe, its counter, the fix and its counter, and the break point from a sweep; a reproduction section compares the half-ulp prediction with the measurement; a limitations section says what emulation and scale cannot show. Every number comes from a results JSON written by <code>run.py</code>, every figure from <code>figures.py</code>.</p>
+<div id="tab:proj11:rubric" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 7.6: </span></span>Rubric for the Project 11 write-up.</caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Criterion</th>
+<th style="text-align: right;">Weight</th>
+<th style="text-align: left;">Full marks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Emulation correctness</td>
+<td style="text-align: right;">15%</td>
+<td style="text-align: left;">casts bit-exact against PyTorch; all three GEMMs quantised in the right orientation; TF32 off; evidence from tests, not assertion</td>
+</tr>
+<tr>
+<td style="text-align: left;">Mechanisms</td>
+<td style="text-align: right;">25%</td>
+<td style="text-align: left;">each failure explained by a mechanism <em>and</em> a counter that moved (underflow fraction, lost-update fraction, overflow count), with a prediction made before the run where possible</td>
+</tr>
+<tr>
+<td style="text-align: left;">Fixes</td>
+<td style="text-align: right;">15%</td>
+<td style="text-align: left;">every failure paired with the recipe meant to fix it; whether it recovers FP32’s excess loss, at what cost in bytes or time</td>
+</tr>
+<tr>
+<td style="text-align: left;">Break points</td>
+<td style="text-align: right;">15%</td>
+<td style="text-align: left;">at least two sweeps that locate where a recipe starts to break (loss weight, learning rate, scale, block size), with seeds and error bars</td>
+</tr>
+<tr>
+<td style="text-align: left;">Reproduction</td>
+<td style="text-align: right;">15%</td>
+<td style="text-align: left;">the half-ulp rule (or another published number) reproduced quantitatively; the gap to the paper explained</td>
+</tr>
+<tr>
+<td style="text-align: left;">Writing and limits</td>
+<td style="text-align: right;">15%</td>
+<td style="text-align: left;">claims proportional to evidence; small-scale and emulation limits stated; surprises reported rather than smoothed over</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="sec:proj11:baselines" class="level2">
+<h2><span class="xn"><span class="num">7.9&nbsp;&nbsp;</span></span>Baselines</h2>
+<p>Three baselines anchor every comparison, and the analysis code knows about all three.</p>
+<ul>
+<li><strong>The floor.</strong> The task’s optimal loss, known in closed form. It turns “the curve flattened” into “the excess loss stopped shrinking”, which is the difference between a stall and convergence.</li>
+<li><strong>FP32 with TF32 off</strong>, same model, seed, data order and sweep point. Every gap of Table&nbsp;<a href="#tab:proj11:results">7.4</a> is measured against it.</li>
+<li><strong>The production recipes</strong>: <code>bf16</code> (BF16 GEMMs and storage, FP32 master weights) and <code>fp16_dynamic</code> (PyTorch’s <code>GradScaler</code> behaviour). A low-precision recipe that matches these is as good as what practitioners run; one that matches FP32 but not them would point to a bug.</li>
+</ul>
+<p>An external baseline is worth adding for the full study: PyTorch’s own <code>torch.autocast</code> with BF16 and with FP16 plus <code>torch.amp.GradScaler</code>, on the same tiny GPT. Autocast’s operator policy differs from our recipe in details (it keeps some reductions in FP32 that we round), so the comparison checks that our <code>bf16</code> recipe is not optimistic.</p>
+</section>
+<section id="sec:proj11:budget" class="level2">
+<h2><span class="xn"><span class="num">7.10&nbsp;&nbsp;</span></span>Compute budget</h2>
+<div id="tab:proj11:budget" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 7.7: </span></span>Compute budget on 2x A100-40GB (PCIe). Only the smoke row has been measured; the full rows take the smoke step times of Table&nbsp;<a href="#tab:proj11:results">7.4</a>, doubled for the transformer’s extra layers and launches, times the step counts.</caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Item</th>
+<th style="text-align: right;">GPU time</th>
+<th style="text-align: left;">Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">smoke configuration: 59 runs, one seed</td>
+<td style="text-align: right;">53 min</td>
+<td style="text-align: left;">measured (<code>results/smoke_a100_pcie.json</code>), GPU 1</td>
+</tr>
+<tr>
+<td style="text-align: left;">full transformer matrix: 27 recipes <span class="math inline">\(\times\)</span> 3 seeds at 2,000 steps (width 128, 4 layers, context 64), plus a learning-rate sweep: 87 runs</td>
+<td style="text-align: right;">about 5.6 h</td>
+<td style="text-align: left;">estimate</td>
+</tr>
+<tr>
+<td style="text-align: left;">full MLP matrix: 20 recipes <span class="math inline">\(\times\)</span> 3 seeds at 3,000 steps, plus the learning-rate and loss-weight sweeps with 2 seeds: 138 runs</td>
+<td style="text-align: right;">about 4 h</td>
+<td style="text-align: left;">estimate</td>
+</tr>
+<tr>
+<td style="text-align: left;">extensions, debugging and reruns</td>
+<td style="text-align: right;">about 0.5 h</td>
+<td style="text-align: left;">estimate</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>total</strong></td>
+<td style="text-align: right;"><strong>about 10 GPU-h</strong></td>
+<td style="text-align: left;">estimate, to calibrate</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The two GPUs are used as two independent workers (<code>make full</code> puts the transformer runs on one and the MLP runs on the other); nothing here communicates over PCIe. Emulation is launch-bound at these sizes, so a CPU with many cores runs the MLP matrix at a usable speed too: <code>make dry</code> exercises every code path in seconds.</p>
+</section>
+<section id="sec:proj11:extensions" class="level2">
+<h2><span class="xn"><span class="num">7.11&nbsp;&nbsp;</span></span>Extensions</h2>
+<ol type="1">
+<li><strong>Random Hadamard transforms.</strong> Multiply both operands of the weight-gradient GEMM by the same random orthogonal Hadamard matrix before FP4 quantisation (it cancels in the product) and measure how much of the gap of <code>mxfp4_sr</code> it closes, as Tseng et al. (2025) and the NVFP4 recipe do.</li>
+<li><strong>Two-dimensional weight blocks.</strong> Quantise weights in <span class="math inline">\(16\times16\)</span> NVFP4 blocks so that the forward and backward quantisations of <span class="math inline">\(W\)</span> coincide (Section&nbsp;<a href="#sec:proj11:emulate">7.2</a>); does the gradient become more accurate, and does the loss notice?</li>
+<li><strong>The 14-bit accumulator.</strong> Run <code>fp8_block_acc14</code> and <code>fp8_block_acc14_promote</code> (in the full config) and compare the loss gap with the GEMM error measured for the same accumulator model (Sections&nbsp;<a href="ch04_numerics.html#sec:numerics:accum">4.6</a> and <a href="ch05_quant.html#sec:quant:deepseek">5.7</a>).</li>
+<li><strong>Low-precision optimiser state.</strong> Store Adam’s moments in BF16 or block-quantised 8-bit (Dettmers et al., 2022) and find which of the two moments breaks first; the second moment holds squared gradients and needs range. Needs the optimiser material of Chapter&nbsp;<span class="xref-unpub" title="Not published yet">19</span> (Part III).</li>
+<li><strong>Kahan-compensated BF16 weights.</strong> Keep a BF16 compensation buffer next to BF16 weights (Zamirai et al., 2020): 2 bytes per parameter instead of the master copy’s 4. Does it match <code>bf16</code> where <code>bf16_pure_sr</code> does not?</li>
+<li><strong>Instability at scale.</strong> Wortsman et al. (2024) reproduce large-model instabilities (attention logit growth, output-logit divergence) in small models by raising the learning rate. Repeat their learning-rate sweep under <code>bf16</code>, <code>fp8_tensor</code> and <code>nvfp4_sr</code>: does low precision move the instability threshold? Needs the transformer of Chapter&nbsp;<span class="xref-unpub" title="Not published yet">10</span> (Part II) with QK-norm.</li>
+<li><strong>Real FP8.</strong> On a Hopper GPU, replace the emulated FP8 GEMMs by <code>torch._scaled_mm</code> and check that the loss curves match the emulation within seed noise; then measure the speedup the emulation could not (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">23</span>, Part III).</li>
+</ol>
+</section>
+<section id="sec:proj11:frontier" class="level2">
+<h2><span class="xn"><span class="num">7.12&nbsp;&nbsp;</span></span>Research frontier</h2>
+<section id="open-problems" class="level3">
+<h3><span class="xn"><span class="num">7.12.1&nbsp;&nbsp;</span></span>Open problems</h3>
+<p>Low-precision training has moved from “does it converge” to “does it converge <em>as well</em> at scale”, and the second question is open in three ways. First, failures appear late: FP8 recipes that match BF16 for hundreds of billions of tokens can diverge after a trillion, because rare activation outliers grow during training (Fishman et al., 2025); a small-scale study like ours cannot see such effects, and nobody yet knows how to predict them from short runs. Second, the gradient formats are the bottleneck: 4-bit forward passes now train well, but 4-bit backward passes still need stochastic rounding, Hadamard transforms and higher-precision layers, and the theory of <em>which</em> bias a deterministic rounding of gradients introduces, and how much of it SGD tolerates, is incomplete. Third, the optimiser is the last FP32 holdout: master weights and Adam moments cost 12 bytes per parameter in a recipe whose GEMMs use one, and stochastic rounding, compensated summation and 8-bit states each remove part of that cost with partially understood effects on the final loss.</p>
+</section>
+<section id="the-works-that-define-the-area" class="level3">
+<h3><span class="xn"><span class="num">7.12.2&nbsp;&nbsp;</span></span>The works that define the area</h3>
+<ul>
+<li><strong>Micikevicius et al. (2018)</strong>, mixed-precision training: FP16 GEMMs, FP32 master weights and loss scaling, the recipe every framework still implements.</li>
+<li><strong>Gupta et al. (2015)</strong>: training with 16-bit fixed point works if updates are rounded stochastically; the first demonstration that the rounding mode, not the bit count, decides.</li>
+<li><strong>Kalamkar et al. (2019)</strong>: BF16 as a drop-in for FP32 across workloads, with FP32 master weights and no loss scaling.</li>
+<li><strong>Zamirai et al. (2020)</strong>: pure BF16 training fails through lost updates, and stochastic rounding or Kahan summation in the weight update repairs it.</li>
+<li><strong>Wang et al. (2018)</strong> and <strong>Sun et al. (2019)</strong>: 8-bit floating-point training, chunk-based accumulation and the hybrid E4M3-forward/E5M2-backward split that FP8 hardware adopted.</li>
+<li><strong>Micikevicius et al. (2022)</strong>: the FP8 formats themselves, with per-tensor scaling, validated on large language models.</li>
+<li><strong>Peng et al. (2023)</strong>, FP8-LM: FP8 extended to gradients, optimiser state and communication. <strong>DeepSeek-AI (2024)</strong>, DeepSeek-V3: fine-grained block scales and promoted accumulation at the scale of a 671B-parameter model, with FP32 master weights and BF16 optimiser moments.</li>
+<li><strong>Rouhani et al. (2023)</strong>: the MX formats, block scaling with power-of-two scales, as a training format.</li>
+<li><strong>Tseng et al. (2025)</strong> and <strong>NVIDIA (2025)</strong>: FP4 training of language models, with stochastic rounding of gradients, random Hadamard transforms and a few layers kept in higher precision; the recipes our <code>mxfp4_sr</code> and <code>nvfp4_sr_hp</code> imitate.</li>
+<li><strong>Fishman et al. (2025)</strong>: FP8 training at trillion-token scale fails through outlier amplification in SwiGLU that short runs do not show.</li>
+</ul>
+</section>
+<section id="assumptions-that-are-likely-to-break" class="level3">
+<h3><span class="xn"><span class="num">7.12.3&nbsp;&nbsp;</span></span>Assumptions that are likely to break</h3>
+<p>Our emulation assumes that a format is defined by its grid and its scale. Hardware adds two things that it does not model: accumulators whose precision and rounding are undocumented and differ between generations (DeepSeek-V3 measured about 14 bits on Hopper; Section&nbsp;<a href="ch04_numerics.html#sec:numerics:accum">4.6</a>), and fused kernels that choose where casts happen, so the same recipe on two libraries performs different roundings. The standard recipe assumes that the sensitive operations are a small fraction of the FLOPs and can stay in FP32; with FP4 GEMMs running four times faster than BF16, the FP32 norms, softmax and optimiser become the bottleneck, and the pressure to lower them will grow. And the whole field assumes that a small-scale study predicts a large-scale one. Our tasks are chosen so that failures are visible in minutes; the failures that matter most in production take weeks to appear.</p>
+</section>
+<section id="how-to-recognise-the-next-variant" class="level3">
+<h3><span class="xn"><span class="num">7.12.4&nbsp;&nbsp;</span></span>How to recognise the next variant</h3>
+<p>New low-precision training papers vary along a few axes. <em>Which tensors</em>: weights, activations, gradients, optimiser state, communication, each in forward and backward. <em>Element format</em>: integer, FP8, FP6, FP4, or a custom grid. <em>Scale granularity and format</em>: per tensor, per row, per block of <span class="math inline">\(k\)</span> (1-D or 2-D), with FP32, E4M3 or power-of-two scales, one or two levels. <em>When the scale is known</em>: delayed, current, or predicted. <em>Rounding</em>: nearest, stochastic, with how many random bits, and where. <em>Accumulation</em>: FP32, limited with promotion, or split. <em>Transforms</em>: Hadamard rotations, smoothing, outlier channels kept apart. <em>What stays high precision</em>: which layers, norms, the loss, master weights. <em>Evidence</em>: model size, tokens, and whether the comparison to BF16 is at equal tokens with seeds. Place a new paper on these axes, and its novelty is usually one coordinate.</p>
+</section>
+</section>
+<section id="sec:proj11:summary" class="level2">
+<h2><span class="xn"><span class="num">7.13&nbsp;&nbsp;</span></span>Summary</h2>
+<ul>
+<li>A low-precision training study needs three things beyond a training loop: an emulation that quantises all three GEMMs of every linear layer (forward, input gradient, weight gradient), each operand blocked along its own reduction dimension; counters that turn each failure mode into a number (overflow, underflow by count <em>and</em> by magnitude, lost updates); and tasks with a known optimal loss, so that a stall is distinguishable from convergence. Emulation reproduces numerics exactly and speed not at all.</li>
+<li>FP16 without loss scaling broke only when a sizeable share of the gradient’s <em>magnitude</em> fell below <span class="math inline">\(2^{-24}\)</span>: at loss weight 1 it was within noise on both models despite flushing 11.0% of the transformer’s gradient elements (but 0.0056% of their magnitude); at <span class="math inline">\(w=10^{-3}\)</span>, with 13.68% of the magnitude flushed, it was broken, while a static scale of <span class="math inline">\(2^{10}\)</span> and dynamic scaling were ok at every weight.</li>
+<li>BF16 without master weights failed through lost updates, exactly as the half-ulp rule predicts: measured and predicted lost fractions agree to 2.1e-05, the prediction can be made from the FP32 run, and the textbook update ratio of <span class="math inline">\(10^{-3}\)</span> lies below BF16’s band <span class="math inline">\((2^{-9}, 2^{-8}]\)</span>. Stochastic rounding recovered FP32 at every learning rate tried.</li>
+<li>FP8 without scales did not train the transformer; per-tensor scaling removed the underflow but left the transformer broken (gap +1.02). Changing only the output head’s logit-gradient operand, to stochastic rounding or to BF16, recovered it (+0.07 either way, single-seed diagnostic runs), and the measured mean signed rounding error of that tensor under E5M2 was 0.5–1.3% of its magnitude, 8 to 120 times that of stochastic rounding: consistent with a rounding bias concentrated in the logit gradient (one seed). E4M3 with block scales did better than the E4M3/E5M2 hybrid: mantissa over exponent.</li>
+<li>FP4 with round-to-nearest gradients did not train the transformer; stochastic rounding is necessary but not sufficient: with the OCP MX scale rule the saturated block maxima kept a bias and the run diverged, while a scale rule without saturation trained, at the edge of broken (gap +0.69); NVFP4 with stochastic rounding did better (+0.47). A BF16 accumulator and BF16 normalisation and softmax were harmless at this scale; FP16 normalisation and softmax were not, a range effect.</li>
+</ul>
+</section>
+<section id="sec:proj11:exercises" class="level2">
+<h2><span class="xn"><span class="num">7.14&nbsp;&nbsp;</span></span>Exercises</h2>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.1</span></span></strong> (<em>The band for every format</em>).</p>
+<p>Derive the relative half-ulp band (<a href="#eq:proj11:band">7.7</a>) for FP32, TF32, FP16, BF16, E4M3 and E5M2. For each, at what learning rate does AdamW stop moving a weight of magnitude 0.02, and one of magnitude 1? Which of these formats could hold weights without a master copy in a run whose final learning rate is <span class="math inline">\(3\times10^{-5}\)</span>?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.2</span></span></strong> (<em>How small are the gradients?</em>).</p>
+<p>For a mean cross-entropy over <span class="math inline">\(N\)</span> tokens and vocabulary <span class="math inline">\(V\)</span>, show that the gradient with respect to logit <span class="math inline">\(z_{t,j}\)</span> is <span class="math inline">\((p_{t,j}-y_{t,j})/N\)</span>. For our smoke transformer near the floor of (<a href="#eq:proj11:floor">7.8</a>), estimate the median magnitude of the logit gradients and say which of FP16, E5M2 and E4M3 represents it as a normal, a subnormal or zero; check against the first histogram of Figure&nbsp;<a href="#fig:proj11:gradhist">7.4</a>. Then repeat the estimate for a GPT-2-sized run: <span class="math inline">\(N=8\times1{,}024\)</span> tokens, <span class="math inline">\(V=50{,}257\)</span>, and a model that spreads its probability over a few hundred plausible tokens.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.3</span></span></strong> (<em>The largest safe loss scale</em>).</p>
+<p>From the last histogram of Figure&nbsp;<a href="#fig:proj11:gradhist">7.4</a>, find the largest power-of-two loss scale <span class="math inline">\(S\)</span> that keeps every gradient below FP16’s maximum, and the fraction of nonzero gradients that would still be flushed at that <span class="math inline">\(S\)</span>. Why does PyTorch’s <code>GradScaler</code> start at <span class="math inline">\(2^{16}\)</span> and back off, instead of computing <span class="math inline">\(S\)</span> from such a histogram?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.4</span></span></strong> (<em>Delayed scaling under a spike</em>).</p>
+<p>A tensor’s amax is 1.0 for 100 steps and then 8.0 at one step. With E4M3, history length <span class="math inline">\(L\)</span> and margin <span class="math inline">\(\mu\)</span>, how many elements saturate at the spike, and by how much is the largest one clipped? How many steps does the history need to recover, and what does a margin of <span class="math inline">\(\mu=1\)</span> cost in precision on the ordinary steps? Verify with <code>emulate.Quantizer</code> and <code>QSpec("e4m3", "delayed")</code>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.5</span></span></strong> (<em>Stochastic rounding’s noise floor</em>).</p>
+<p>Stochastic rounding makes the update to a BF16 weight unbiased, with variance up to <span class="math inline">\(\operatorname{ulp}(w)^2/4\)</span> per step (<a href="ch04_numerics.html#eq:numerics:sr">4.4</a>). For a weight of magnitude 0.02 receiving updates of size <span class="math inline">\(10^{-5}\)</span> over <span class="math inline">\(T\)</span> steps, compare the accumulated signal <span class="math inline">\(T\cdot10^{-5}\)</span> with the accumulated noise. After how many steps does the signal dominate? Relate the answer to the gap that <code>bf16_pure_sr</code> leaves in Table&nbsp;<a href="#tab:proj11:results">7.4</a>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.6</span></span></strong> (<em>Block orientation</em>).</p>
+<p>For the weight-gradient GEMM <span class="math inline">\(\partial L/\partial W = (\partial L/\partial Y)^\top X\)</span> of a linear layer with <span class="math inline">\(n\)</span> tokens, explain why MX blocks must run along the token dimension. Modify a copy of <code>QLinearFn</code> to block <span class="math inline">\(X\)</span> along <span class="math inline">\(d_{\text{in}}\)</span> in the backward pass instead (the wrong orientation) and measure the error of the weight gradient against FP32 on a random layer. Is the error larger or smaller, and why is the wrong version nevertheless not implementable on MX hardware?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.7</span></span></strong> (<em>The accumulator that loses</em>).</p>
+<p>Using (<a href="#eq:proj11:accerr">7.4</a>), estimate the relative error of a BF16-accumulated weight-gradient GEMM with <span class="math inline">\(K=2{,}048\)</span> tokens and chunk 32, with and without promotion every 128 elements. Then measure it with <code>emulate.qmm</code> on random operands and compare with the training result of <code>bf16_acc</code> and <code>bf16_acc_promote</code>. Why can a gradient error of this size leave the loss unaffected?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.8</span></span></strong> (<em>Pricing the fixes</em>).</p>
+<p>For a 7B-parameter model trained with AdamW, compute the bytes per parameter and the total memory of the training state for <code>bf16</code>, <code>bf16_pure</code>, <code>bf16_pure_sr</code>, <code>fp8_tensor</code> (FP8 weights in the GEMMs, FP32 master) and a variant with BF16 Adam moments. Which fix of this chapter is free in memory, which costs 4 bytes per parameter, and which costs time instead?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.9</span></span></strong> (<em>Research: extend the study to the Quartet setting</em>).</p>
+<p>Castro et al. (2025) train language models with all three GEMMs in FP4 and argue that the right comparison is loss at equal <em>compute</em>, not equal steps, since FP4 GEMMs are faster. Using the datasheet speedups of FP8 and FP4 over BF16 on Blackwell (2x and 4x) and the step-count gaps of your smoke runs, recompute the comparison of Table&nbsp;<a href="#tab:proj11:results">7.4</a> at equal compute. Which FP4 recipe wins, and how would you check the claim on real hardware?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.10</span></span></strong> (<em>Research: predict, then measure, the BF16 break point</em>).</p>
+<p>From an FP32 run’s update-ratio histograms alone, predict the learning rate at which <code>bf16_pure</code>’s gap to FP32 crosses 0.10 on the MLP, using the band (<a href="#eq:proj11:band">7.7</a>) and the assumption that a weight whose updates are lost stops learning. Then run the learning-rate sweep of the full config and compare. Where does the prediction fail, and which weights does it get wrong?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 7.11</span></span></strong> (<em>Research: FP8 with Hopper’s accumulator</em>).</p>
+<p>Predict, then measure with <code>fp8_block_acc14</code> and <code>fp8_block_acc14_promote</code>, how the transformer’s gap changes when the FP8 GEMMs accumulate in a 14-bit, round-toward-zero accumulator (the DeepSeek-V3 observation about Hopper). Which of the three GEMMs is most affected, and why does the answer depend on the batch size in tokens?</p>
+</div>
+</section>
+</section>
+
+    </article>
+    <nav class="pager"><a class="prev" href="ch06_proj_machine.html">&larr; Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a> <a class="next" href="appF_references.html">References and Further Reading &rarr;</a></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#sec:proj11:glance" id="toc-sec:proj11:glance"><span class="num">7.1&nbsp;&nbsp;</span>The project at a glance</a>
+<ul>
+<li><a href="#research-questions" id="toc-research-questions"><span class="num">7.1.1&nbsp;&nbsp;</span>Research questions</a></li>
+<li><a href="#prerequisites" id="toc-prerequisites"><span class="num">7.1.2&nbsp;&nbsp;</span>Prerequisites</a></li>
+<li><a href="#milestones-and-acceptance-tests" id="toc-milestones-and-acceptance-tests"><span class="num">7.1.3&nbsp;&nbsp;</span>Milestones and acceptance tests</a></li>
+<li><a href="#the-kit" id="toc-the-kit"><span class="num">7.1.4&nbsp;&nbsp;</span>The kit</a></li>
+</ul></li>
+<li><a href="#sec:proj11:emulate" id="toc-sec:proj11:emulate"><span class="num">7.2&nbsp;&nbsp;</span>Milestone 1: emulating formats we do not have</a>
+<ul>
+<li><a href="#fake-quantisation" id="toc-fake-quantisation"><span class="num">7.2.1&nbsp;&nbsp;</span>Fake quantisation</a></li>
+<li><a href="#scaling-rules" id="toc-scaling-rules"><span class="num">7.2.2&nbsp;&nbsp;</span>Scaling rules</a></li>
+<li><a href="#three-gemms-three-reduction-dimensions" id="toc-three-gemms-three-reduction-dimensions"><span class="num">7.2.3&nbsp;&nbsp;</span>Three GEMMs, three reduction dimensions</a></li>
+<li><a href="#sec:proj11:acc" id="toc-sec:proj11:acc"><span class="num">7.2.4&nbsp;&nbsp;</span>The accumulator</a></li>
+<li><a href="#storage-and-the-sensitive-operations" id="toc-storage-and-the-sensitive-operations"><span class="num">7.2.5&nbsp;&nbsp;</span>Storage and the sensitive operations</a></li>
+</ul></li>
+<li><a href="#sec:proj11:instrument" id="toc-sec:proj11:instrument"><span class="num">7.3&nbsp;&nbsp;</span>Milestone 2: instruments</a>
+<ul>
+<li><a href="#cast-counters" id="toc-cast-counters"><span class="num">7.3.1&nbsp;&nbsp;</span>Cast counters</a></li>
+<li><a href="#update-to-weight-ratios-and-the-half-ulp-rule" id="toc-update-to-weight-ratios-and-the-half-ulp-rule"><span class="num">7.3.2&nbsp;&nbsp;</span>Update-to-weight ratios and the half-ulp rule</a></li>
+<li><a href="#gradient-histograms-and-loss-floors" id="toc-gradient-histograms-and-loss-floors"><span class="num">7.3.3&nbsp;&nbsp;</span>Gradient histograms and loss floors</a></li>
+</ul></li>
+<li><a href="#sec:proj11:tasks" id="toc-sec:proj11:tasks"><span class="num">7.4&nbsp;&nbsp;</span>The models and the tasks</a></li>
+<li><a href="#sec:proj11:matrix" id="toc-sec:proj11:matrix"><span class="num">7.5&nbsp;&nbsp;</span>Milestone 3: the run matrix</a></li>
+<li><a href="#sec:proj11:results" id="toc-sec:proj11:results"><span class="num">7.6&nbsp;&nbsp;</span>Milestone 4: what breaks, and what fixes it</a>
+<ul>
+<li><a href="#sec:proj11:fp16" id="toc-sec:proj11:fp16"><span class="num">7.6.1&nbsp;&nbsp;</span>FP16 and loss scaling</a></li>
+<li><a href="#sec:proj11:bf16" id="toc-sec:proj11:bf16"><span class="num">7.6.2&nbsp;&nbsp;</span>BF16 without master weights</a></li>
+<li><a href="#sec:proj11:fp8" id="toc-sec:proj11:fp8"><span class="num">7.6.3&nbsp;&nbsp;</span>FP8: what each scaling rule buys</a></li>
+<li><a href="#sec:proj11:fp4" id="toc-sec:proj11:fp4"><span class="num">7.6.4&nbsp;&nbsp;</span>FP4: MXFP4 and NVFP4</a></li>
+<li><a href="#sec:proj11:accsens" id="toc-sec:proj11:accsens"><span class="num">7.6.5&nbsp;&nbsp;</span>Accumulation and the sensitive operations</a></li>
+</ul></li>
+<li><a href="#sec:proj11:reproduce" id="toc-sec:proj11:reproduce"><span class="num">7.7&nbsp;&nbsp;</span>Reproducing published findings</a>
+<ul>
+<li><a href="#the-half-ulp-rule" id="toc-the-half-ulp-rule"><span class="num">7.7.1&nbsp;&nbsp;</span>The half-ulp rule</a></li>
+<li><a href="#the-loss-scaling-histogram" id="toc-the-loss-scaling-histogram"><span class="num">7.7.2&nbsp;&nbsp;</span>The loss-scaling histogram</a></li>
+</ul></li>
+<li><a href="#sec:proj11:m5" id="toc-sec:proj11:m5"><span class="num">7.8&nbsp;&nbsp;</span>Milestone 5: the write-up</a>
+<ul>
+<li><a href="#sec:proj11:writeup" id="toc-sec:proj11:writeup"><span class="num">7.8.1&nbsp;&nbsp;</span>The write-up and its rubric</a></li>
+</ul></li>
+<li><a href="#sec:proj11:baselines" id="toc-sec:proj11:baselines"><span class="num">7.9&nbsp;&nbsp;</span>Baselines</a></li>
+<li><a href="#sec:proj11:budget" id="toc-sec:proj11:budget"><span class="num">7.10&nbsp;&nbsp;</span>Compute budget</a></li>
+<li><a href="#sec:proj11:extensions" id="toc-sec:proj11:extensions"><span class="num">7.11&nbsp;&nbsp;</span>Extensions</a></li>
+<li><a href="#sec:proj11:frontier" id="toc-sec:proj11:frontier"><span class="num">7.12&nbsp;&nbsp;</span>Research frontier</a>
+<ul>
+<li><a href="#open-problems" id="toc-open-problems"><span class="num">7.12.1&nbsp;&nbsp;</span>Open problems</a></li>
+<li><a href="#the-works-that-define-the-area" id="toc-the-works-that-define-the-area"><span class="num">7.12.2&nbsp;&nbsp;</span>The works that define the area</a></li>
+<li><a href="#assumptions-that-are-likely-to-break" id="toc-assumptions-that-are-likely-to-break"><span class="num">7.12.3&nbsp;&nbsp;</span>Assumptions that are likely to break</a></li>
+<li><a href="#how-to-recognise-the-next-variant" id="toc-how-to-recognise-the-next-variant"><span class="num">7.12.4&nbsp;&nbsp;</span>How to recognise the next variant</a></li>
+</ul></li>
+<li><a href="#sec:proj11:summary" id="toc-sec:proj11:summary"><span class="num">7.13&nbsp;&nbsp;</span>Summary</a></li>
+<li><a href="#sec:proj11:exercises" id="toc-sec:proj11:exercises"><span class="num">7.14&nbsp;&nbsp;</span>Exercises</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roadmap · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="roadmap" class="level1 unnumbered">
+<h1 class="unnumbered">Roadmap</h1>
+<figure id="fig:roadmap:book">
+<img style="width: 2100px" src="figures/ch01_landscape-12.svg" class="fig fig-light" loading="lazy" alt="How the book fits together. Each band is one of the seven parts, read left to right and top to bottom; boxes are coloured by theme (blue: models and training; amber: systems, hardware and serving; green: data and evaluation; purple: reasoning and post-training; grey: appendices). The dashed boxes are the capstone projects that close every part, each using only the material of its own part and the parts before it. Part IV goes beneath Python to C++, CUDA, compilers and the memory system, and  combines the serving engines of Part VI with the distributed trainers of Part III to run RL at scale." /><img style="width: 2100px" src="figures/ch01_landscape-12-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="How the book fits together. Each band is one of the seven parts, read left to right and top to bottom; boxes are coloured by theme (blue: models and training; amber: systems, hardware and serving; green: data and evaluation; purple: reasoning and post-training; grey: appendices). The dashed boxes are the capstone projects that close every part, each using only the material of its own part and the parts before it. Part IV goes beneath Python to C++, CUDA, compilers and the memory system, and  combines the serving engines of Part VI with the distributed trainers of Part III to run RL at scale." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1: </span></span>How the book fits together. Each band is one of the seven parts, read left to right and top to bottom; boxes are coloured by theme (blue: models and training; amber: systems, hardware and serving; green: data and evaluation; purple: reasoning and post-training; grey: appendices). The dashed boxes are the capstone projects that close every part, each using only the material of its own part and the parts before it. Part IV goes beneath Python to C++, CUDA, compilers and the memory system, and Chapter&nbsp;<span class="xref-unpub" title="Not published yet">65</span> combines the serving engines of Part VI with the distributed trainers of Part III to run RL at scale.</figcaption>
+</figure>
+<p>Every chapter ends with a <em>Research frontier</em> section and works through one landmark paper in a <em>Reading the research</em> box; Section&nbsp;<a href="ch01_landscape.html#sec:landscape:roadmap">1.13</a> describes the parts and gives four reading paths through them, and <span class="xref-missing">??</span> turns the habit of reading papers for their cost models into a method for doing research.</p>
+</section>
+
+    </article>
+    <nav class="pager"><a class="prev" href="preface.html">&larr; Preface</a> <a class="next" href="ch01_landscape.html">The Landscape: LLMs, Reasoning Models, and the Systems View &rarr;</a></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#roadmap" id="toc-roadmap">Roadmap</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solutions to Exercises · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="app:solutions" class="level1">
+<h1><span class="xn"><span class="num">Appendix H&nbsp;&nbsp;</span></span>Solutions to Exercises</h1>
+<p>These are worked solutions to the end-of-chapter exercises. Coding exercises that overlap with a lab point to the reference <code>solution.py</code> in that lab rather than repeating the code. For the measurement exercises, the solution describes the outcome the cost model predicts and how to check it; your own numbers will depend on your hardware.</p>
+<section id="chapter-1-the-landscape" class="level2 unnumbered">
+<h2 class="unnumbered">Chapter 1: The Landscape</h2>
+<section id="exercise-1.1" class="level4">
+<h4>Exercise 1.1</h4>
+<p>By the definition of conditional probability, <span class="math inline">\(p(x_1,\dots,x_T)=p(x_T\mid x_{&lt;T})\,p(x_1,\dots,x_{T-1})\)</span>; applying this recursively down to <span class="math inline">\(p(x_1)\)</span> gives the product. No modelling assumption is involved, so an exact autoregressive model can represent any distribution. With a causal mask, the output at position <span class="math inline">\(t\)</span> depends only on <span class="math inline">\(x_{\le t}\)</span>, so position <span class="math inline">\(t\)</span> is a valid prediction of <span class="math inline">\(x_{t+1}\)</span> for every <span class="math inline">\(t\)</span>: one forward pass over <span class="math inline">\(T\)</span> tokens yields <span class="math inline">\(T\)</span> supervised predictions (the last uses the next token in the stream). A masked LM computes a loss only at the <span class="math inline">\(\approx0.15T\)</span> masked positions, because unmasked positions can see their own answer through bidirectional attention.</p>
+</section>
+<section id="exercise-1.2" class="level4">
+<h4>Exercise 1.2</h4>
+<p>Perplexity is <span class="math inline">\(e^{2.0}\approx7.39\)</span>: the model is, on average, as uncertain as if it were choosing uniformly among about 7.4 tokens. A uniform model has loss <span class="math inline">\(\ln 50{,}257\approx10.82\)</span> nats and perplexity 50,257. This is a useful sanity check: a freshly initialised model should start near 10.8.</p>
+</section>
+<section id="exercise-1.3" class="level4">
+<h4>Exercise 1.3</h4>
+<p>Wikipedia: <span class="math inline">\(0.03\times300\text{B}=9\text{B}\)</span> tokens sampled from a 3B-token source, about 3 epochs. Common Crawl: <span class="math inline">\(0.60\times300\text{B}=180\text{B}\)</span> from 410B, about 0.44 epochs. Repeating small, clean, information-dense sources raises the quality of the effective training distribution. The cost is a risk of memorisation and diminishing returns after a few epochs, so heavy repetition is reserved for the highest-quality data.</p>
+</section>
+<section id="exercise-1.4" class="level4">
+<h4>Exercise 1.4</h4>
+<p><span class="math inline">\(C=64\times30\times86{,}400\,\text{s}\times989\times10^{12}\times0.35\approx5.74\times10^{22}\)</span> FLOPs. With <span class="math inline">\(C=6ND\)</span> and <span class="math inline">\(D=20N\)</span>, <span class="math inline">\(C=120N^2\)</span>, so <span class="math inline">\(N=\sqrt{C/120}\approx2.2\times10^{10}\)</span> (about 22B parameters) and <span class="math inline">\(D\approx4.4\times10^{11}\)</span> tokens. If the model will be served heavily, total cost is training plus <span class="math inline">\(2N\)</span> FLOPs per served token. Shrinking <span class="math inline">\(N\)</span> (say to 7B) and spending the same compute on more tokens (<span class="math inline">\(D=C/(6N)\approx1.4\)</span>T) gives a slightly worse model at equal compute but a <span class="math inline">\(3\times\)</span> cheaper one to serve, which is usually the better trade.</p>
+</section>
+<section id="exercise-1.5" class="level4">
+<h4>Exercise 1.5</h4>
+<p>bf16: weights <span class="math inline">\(4.02\times10^9\times2=8.04\)</span> GB, KV at 4,096 tokens <span class="math inline">\(=147{,}456\times4{,}096=0.60\)</span> GB, total 8.64 GB, giving <span class="math inline">\(8.64/3.35\times10^{12}\approx2.58\)</span> ms, or about 387 tokens/s. int4 weights: 2.01 GB + 0.60 GB = 2.61 GB, about 0.78 ms, or about 1,280 tokens/s. Weights still dominate, but the KV share of traffic rises from 7% to 23%; at longer contexts or larger batches the KV cache becomes the dominant term, which motivates KV-cache quantisation (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>).</p>
+</section>
+<section id="exercise-1.6" class="level4">
+<h4>Exercise 1.6</h4>
+<p>Per step, compute time is <span class="math inline">\(B\cdot2N/F\)</span> and memory time is <span class="math inline">\(Nb/W\)</span> (weights read once, shared by the batch). Equating gives <span class="math inline">\(B^\star=bF/(2W)\)</span>. For an H100 in bf16, <span class="math inline">\(B^\star=2\times989/(2\times3.35)\approx295\)</span>, matching the lab’s 296–320 (the lab includes the LM head and attention FLOPs and embedding bytes, which shift the value slightly). With long contexts each sequence adds its own KV bytes, which are <em>not</em> shared across the batch. Attention over the cache has an operational intensity of <span class="math inline">\(H/G\)</span> FLOP/byte in bf16 (<a href="ch03_machine.html#eq:machine:decodeI">3.6</a>): 2 for Qwen3-0.6B and 1.7B, 4 for Qwen3-4B and 8B, regardless of batch size. That is two orders of magnitude below the ridge, so the step needs a larger batch, or never becomes compute-bound when KV traffic dominates.</p>
+</section>
+<section id="exercise-1.7" class="level4">
+<h4>Exercise 1.7</h4>
+<p>Qwen3-8B uses 147,456 bytes of KV per token. Short answers: <span class="math inline">\(500+300=800\)</span> tokens, 118 MB per request, about 339 concurrent requests in 40 GB. With thinking: about <span class="math inline">\(500+6{,}000=6{,}500\)</span> tokens, 958 MB per request, about 41 concurrent requests. Under memory-bound decoding, throughput scales roughly with batch, so throughput in tokens/s drops by <span class="math inline">\(339/41\approx8.2\times\)</span>. Each request also emits <span class="math inline">\(6{,}000/300=20\times\)</span> more tokens, so requests per second fall by about <span class="math inline">\(8.2\times20\approx165\times\)</span>.</p>
+</section>
+<section id="exercise-1.8" class="level4">
+<h4>Exercise 1.8</h4>
+<p><span class="math inline">\(0.97^{30}\approx0.40\)</span>. If wrong answers are spread over, say, ten distinct values, a simulation of plurality voting (counting ties as failures) gives about 0.57 success at 5 samples, 0.81 at 11, 0.89 at 15 and 0.96 at 21, so 15–17 samples are needed for 0.9. Independence is optimistic because a model’s errors are correlated: the same misconception recurs across samples, concentrating wrong votes on one value and making plurality voting far less effective.</p>
+</section>
+<section id="exercise-1.9" class="level4">
+<h4>Exercise 1.9</h4>
+<p>Example probes: (i) “All squares have five sides. ABCD is a square. How many sides does ABCD have?” (closed-world answer 5; a good reasoner flags the false premise). (ii) A freshly generated puzzle with random names and quantities, for instance a scheduling constraint problem produced by a script with a computed answer. (iii) A question whose answer runs against frequency, for instance “Which is heavier, a kilogram of feathers or 900 g of steel?”. Base models often continue the text without answering; instruction-tuned models answer fluently but fall for (iii) more often; reasoning models do best on (ii). Score automatically with programmatic answers and the verifier of Chapter&nbsp;<span class="xref-unpub" title="Not published yet">56</span>, and for (i) with a rubric for “flags the inconsistency” judged by an LLM (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">56</span>).</p>
+</section>
+<section id="exercise-1.10" class="level4">
+<h4>Exercise 1.10</h4>
+<p>A reasonable ranking is distillation, then RL, then inference-time scaling. Strict latency rules out heavy per-query sampling. One week of compute is enough to fine-tune on traces from a stronger teacher, which is cheap and stable, and the fine-tuned model serves at its normal speed. RL is attractive if a reliable automatic reward exists (for instance, review comments that can be checked against later bug fixes) but is costlier to make work; it can follow distillation as a second stage. A light form of inference-time scaling (one short chain of thought) can still be used if the latency budget allows.</p>
+</section>
+<section id="exercise-1.11" class="level4">
+<h4>Exercise 1.11</h4>
+<ol type="a">
+<li><p>Setting the context term of (<a href="ch01_landscape.html#eq:landscape:kaplan">1.3</a>) equal to <span class="math inline">\(2N\)</span> gives <span class="math inline">\(n_{\text{ctx}}^\star = N/(L\,d_{\text{attn}})\)</span>. With <span class="math inline">\(N\)</span> the block weight matrices (as <code>kaplan_forward_flops</code> counts them): GPT-2 small, <span class="math inline">\(N = 84.9\)</span>M, <span class="math inline">\(L\,d_{\text{attn}} = 12\times768\)</span>, so <span class="math inline">\(n_{\text{ctx}}^\star = 9{,}216 = 12d\)</span>. Qwen3-0.6B, <span class="math inline">\(N=440\)</span>M, <span class="math inline">\(L\,d_{\text{attn}}=28\times2048\)</span>, so <span class="math inline">\(n_{\text{ctx}}^\star=7{,}680\)</span>. Qwen3-8B, <span class="math inline">\(N=6.95\)</span>B, <span class="math inline">\(L\,d_{\text{attn}}=36\times4096\)</span>, so <span class="math inline">\(n_{\text{ctx}}^\star=47{,}104\)</span>. The lab’s <code>kaplan_forward_flops(cfg, 0)</code> and <code>kaplan_forward_flops(cfg, 1)</code> give <span class="math inline">\(2N\)</span> and the per-token slope directly.</p></li>
+<li><p>Per layer, <span class="math inline">\(N/L = d\,(2d_{\text{attn}} + 2d_{\text{kv}}) + 3\,d\,d_{\text{ff}}\)</span> for a SwiGLU model with <span class="math inline">\(d_{\text{kv}} = G d_h\)</span> (GPT-2: <span class="math inline">\(4d^2 + 8d^2\)</span>). So <span class="math inline">\(n_{\text{ctx}}^\star = d\,(2 + 2d_{\text{kv}}/d_{\text{attn}} + 3d_{\text{ff}}/d_{\text{attn}})\)</span>, which is <span class="math inline">\(12d\)</span> only for the GPT shape. Qwen3-0.6B has <span class="math inline">\(d_{\text{attn}}=2d\)</span> (16 heads of 128 on a 1,024-wide stream) and <span class="math inline">\(d_{\text{kv}} = d_{\text{attn}}/2\)</span>, giving <span class="math inline">\(1024\times(2+1+4.5) = 7{,}680\)</span>, 1.6 times below Kaplan’s <span class="math inline">\(12d=12{,}288\)</span>. Note also that the rule marks the point where the context term <em>equals</em> <span class="math inline">\(2N\)</span>, so “relatively small” really means “well inside” it.</p></li>
+<li><p>At <span class="math inline">\(n_{\text{ctx}}=32{,}768\)</span>, <span class="math inline">\(C_{\text{forward}}/2N = 1 + 32{,}768/47{,}104 = 1.70\)</span>; the backward pass of attention costs twice its forward, like every matmul, so training cost is <span class="math inline">\(6N\times1.70\)</span> per token. Against <span class="math inline">\(6ND\)</span> with Kaplan’s <span class="math inline">\(N\)</span> the budget is too small by a factor of 1.70; if the team used the full 8.19B parameters (embeddings and head included) for <span class="math inline">\(N\)</span>, the true cost <span class="math inline">\(6\times(6.95\times1.70 + 0.62)\)</span> GFLOP per token against <span class="math inline">\(6\times8.19\)</span> is still too small, by a factor of about 1.5. Underestimating compute by half is the difference between finishing and not.</p></li>
+<li><p>Kaplan et al.: stage, pretraining; resource, FLOPs (a compute budget); mechanism, allocation of a fixed budget between <span class="math inline">\(N\)</span> and <span class="math inline">\(D\)</span>; exactness, changes the model; hardware ratio, none (FLOPs only, which is exactly its blind spot); evaluation, one dataset, one schedule length, up to 1.5B parameters. Hoffmann et al.: the same first four answers, with schedules matched to each token budget and models up to 16B plus the 70B Chinchilla run, which is why its allocation replaced Kaplan’s.</p></li>
+</ol>
+</section>
+<section id="exercise-1.12" class="level4">
+<h4>Exercise 1.12</h4>
+<p>Prediction (<code>report.py --hw A100-40GB-PCIe</code> or <code>decode_step_roofline</code> directly): at a context of about 160 tokens (the 32-token prompt plus half of 256 new tokens used by the benchmark) a decode step moves 1.21 GB, so the bound is 0.78 ms per token (1,285 tokens/s) on the A100-40GB PCIe and 0.36 ms (2,768 tokens/s) on the H100; at 1,024 tokens of context, 0.84 ms and 0.39 ms. The ratio, 2.15, is the bandwidth ratio <span class="math inline">\(3.35/1.555\)</span>, because both are bandwidth-bound. The critical batch is 201 on the A100 and 296 on the H100, the ratio of the ridge points (1.47), not of the bandwidths.</p>
+<p>Measurement (<code>labs/lab45_inference/bench.py --exp compile --device cuda --size 0.6B</code>, measured on 2x A100-40GB (PCIe), torch 2.14.1): eager decoding runs at 29.8 tokens/s (33.6 ms per token, 43 times the bound) and <code>torch.compile</code> at 162 tokens/s (6.2 ms, 8 times the bound); the <code>reduce-overhead</code> mode reaches 153 tokens/s because Inductor skips CUDA graphs when the KV cache is mutated in place. Eager decoding of a 0.6B model is regime (b) of Figure&nbsp;<a href="ch03_machine.html#fig:machine:async">3.6</a>: several hundred small kernels per token, each paying Python and launch overhead, so the step is bound by the host, not by either roof. That also answers the question about ratios: the predicted ratio of critical batches is a property of the GPUs and would hold once batches are large, but the measured batch-1 speed ratio between an A100 and an H100 would be close to 1 in eager mode (the same host does the same work) and would approach 2.15 only as compilation, CUDA graphs and a lean decode loop remove the overhead.</p>
+</section>
+</section>
+<section id="chapter-2-pytorch-essentials" class="level2 unnumbered">
+<h2 class="unnumbered">Chapter 2: PyTorch Essentials</h2>
+<section id="exercise-2.1" class="level4">
+<h4>Exercise 2.1</h4>
+<p>Contiguous <span class="math inline">\((2,3,4)\)</span> has strides <span class="math inline">\((12,4,1)\)</span>. After <code>transpose(0, 2)</code> the shape is <span class="math inline">\((4,3,2)\)</span> and the strides are <span class="math inline">\((1,4,12)\)</span>, over the same storage. <code>.view(-1)</code> requires that the flattened order equal the storage order, which no longer holds, so it raises an error. <code>.reshape(-1)</code> falls back to a copy: one kernel that reads and writes all 24 elements (in general, <span class="math inline">\(2\times\)</span> the tensor’s bytes of traffic plus a new allocation).</p>
+</section>
+<section id="exercise-2.2" class="level4">
+<h4>Exercise 2.2</h4>
+<p>bf16 has 7 explicit mantissa bits, so the spacing of representable numbers in <span class="math inline">\([1,2)\)</span> is <span class="math inline">\(2^{-7}=0.0078125\)</span>. With round-to-nearest-even, <span class="math inline">\(1+2^{-8}\)</span> rounds back to 1, so any <span class="math inline">\(\delta\)</span> slightly larger than <span class="math inline">\(2^{-8}\approx0.0039\)</span> is needed to change the value. An update of <span class="math inline">\(10^{-4}\)</span> is lost entirely: the weight never moves. fp32 master weights have spacing <span class="math inline">\(2^{-23}\approx1.2\times10^{-7}\)</span> near 1, so the update is applied exactly in fp32 and the bf16 copy is re-derived from the master after each step; small updates accumulate until they cross a bf16 rounding boundary.</p>
+</section>
+<section id="exercise-2.3" class="level4">
+<h4>Exercise 2.3</h4>
+<p>With <span class="math inline">\(a=\sigma(z)\)</span> and <span class="math inline">\(\mathcal{L}=-[y\log a+(1-y)\log(1-a)]\)</span>: <span class="math inline">\(\partial\mathcal{L}/\partial a = -y/a + (1-y)/(1-a) = (a-y)/(a(1-a))\)</span> and <span class="math inline">\(\partial a/\partial z=a(1-a)\)</span>, so <span class="math inline">\(\partial\mathcal{L}/\partial z=a-y\)</span>. For a batch with mean loss, <span class="math inline">\(\nabla_{\boldsymbol{w}}=\frac1N\mathbf{X}^\top(\boldsymbol{a}-\boldsymbol{y})\)</span> and <span class="math inline">\(\partial/\partial b=\frac1N\sum_i(a_i-y_i)\)</span>. This is exactly <code>logistic_regression_grads</code> (Task 3) in the lab solution, which matches autograd to <span class="math inline">\(10^{-6}\)</span>.</p>
+</section>
+<section id="exercise-2.4" class="level4">
+<h4>Exercise 2.4</h4>
+<ol type="a">
+<li>The Jacobian is <span class="math inline">\(m\times n\)</span>. Forward mode builds it one column at a time: each Jacobian–vector product pushes one tangent through every layer, and for the linear layers that costs one matrix product the size of the forward one, so <span class="math inline">\(n\)</span> columns cost about <span class="math inline">\(n\)</span> forward passes plus the primal pass, <span class="math inline">\((1+n)F\)</span>. Reverse mode builds it one row at a time: each vector–Jacobian product with respect to the <em>input</em> needs only <span class="math inline">\(\mathbf{G}\mathbf{W}\)</span> per layer (no weight gradient), again one forward-sized product, so <span class="math inline">\(m\)</span> rows cost about <span class="math inline">\((1+m)F\)</span>, with the primal pass recorded once. (b) With layers <span class="math inline">\(n\to1024\to1024\to m\)</span>, one forward pass is <span class="math inline">\(2(1024n+1024^2+1024m)\)</span> FLOPs, 3.2 MFLOP for <span class="math inline">\((512, 8)\)</span>. Forward mode costs about <span class="math inline">\(513F\approx1.6\)</span> GFLOP and reverse mode about <span class="math inline">\(9F\approx29\)</span> MFLOP, so in FLOPs <code>jacrev</code> should be about 57 times cheaper for <span class="math inline">\((512, 8)\)</span> and <code>jacfwd</code> about 57 times cheaper for <span class="math inline">\((8, 512)\)</span>. (c) Expect the measured ratio on a GPU to be far smaller than 57. Both functions vectorise their passes with <code>vmap</code>, so the 512 tangents (or cotangents) become one matrix product per layer that reads each weight once: the expensive mode is a GEMM with <span class="math inline">\(M=512\)</span>, at a much higher operational intensity than the matrix–vector products of the cheap mode, which are bound by memory and by kernel launches (Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>). The cheap mode cannot go below a fixed cost of a few dozen launches, and the expensive one runs its extra FLOPs at a far better rate, so the time ratio is a small factor. On a CPU, where the GEMMs are compute-bound at much smaller sizes, the ratio moves towards the FLOP ratio. The direction never changes: with few outputs, use reverse mode.</li>
+</ol>
+</section>
+<section id="exercise-2.5" class="level4">
+<h4>Exercise 2.5</h4>
+<ol type="a">
+<li>Per block the saved tensors become the block input (saved by the first <code>nn.Linear</code> for its weight gradient) and <span class="math inline">\(\mathbf{U}\)</span>; <span class="math inline">\(\mathbf{W}_2\)</span> is a parameter and is not counted. With 8,192 tokens, <span class="math inline">\(d=4096\)</span>, hidden 16,384 and bf16, that is <span class="math inline">\(8192\times(4096+16384)\times2 = 335.5\)</span> MB per block and 5.37 GB for 16 blocks, against 9.66 GB without the function and 1.07 GB with full checkpointing. <code>saved_activation_bytes</code> reports exactly <span class="math inline">\(16\times335{,}544{,}320\)</span> bytes, because it counts the tensors the hooks see and deduplicates by data pointer. (b) The backward pass now recomputes one GELU per element of <span class="math inline">\(\mathbf{U}\)</span>, about a dozen FLOPs for each of <span class="math inline">\(8192\times16384\)</span> elements, roughly 1.6 GFLOP per block, against 6.6 TFLOP of GEMM work in the block’s forward and backward: negligible. The bytes matter more: reading <span class="math inline">\(\mathbf{U}\)</span> and writing <span class="math inline">\(\operatorname{GELU}(\mathbf{U})\)</span> moves 537 MB per block, about 0.4 ms at 1,369 GB/s, or about 6 ms for the stack, roughly 1% of the 501 ms step (a kernel that applies GELU while loading the second GEMM’s operand avoids even that write). Full checkpointing instead recomputes both GEMMs, 2.2 TFLOP and about 10 ms per block at 217 TFLOP/s. The lean block saves 4.3 GB for about 1% of the step; full checkpointing saves 8.6 GB for a third more FLOPs. Recomputing cheap, memory-bound operations is the idea of selective recomputation (Korthikanti et al., 2022).</li>
+</ol>
+</section>
+<section id="exercise-2.6" class="level4">
+<h4>Exercise 2.6</h4>
+<ol type="a">
+<li>Write <span class="math inline">\(s\)</span> for a block’s input and <span class="math inline">\(r\)</span> for its residuals: <span class="math inline">\(s=8192\times4096\times2=67.1\)</span> MB and <span class="math inline">\(r=s+2\times268.4=604.0\)</span> MB. <code>checkpoint_sequential</code> with <span class="math inline">\(S=L/k\)</span> segments checkpoints the first <span class="math inline">\(S-1\)</span> segments and runs the last one normally, so after the forward pass it holds <span class="math inline">\((S-1)s+kr\)</span> bytes, which is also about the peak at the start of backward (the last segment’s residuals are already there; each earlier segment, when recomputed, holds at most the same <span class="math inline">\(kr\)</span>). For <span class="math inline">\(L=16\)</span>: <span class="math inline">\(k=1\)</span>: <span class="math inline">\(15s+r=1.61\)</span> GB; <span class="math inline">\(k=2\)</span>: <span class="math inline">\(7s+2r=1.68\)</span> GB; <span class="math inline">\(k=4\)</span>: <span class="math inline">\(3s+4r=2.62\)</span> GB; <span class="math inline">\(k=8\)</span>: <span class="math inline">\(s+8r=4.90\)</span> GB; <span class="math inline">\(k=16\)</span>: <span class="math inline">\(16r=9.66\)</span> GB. (The lab’s <code>saved_activation_bytes</code> checkpoints every block, including the last, which is why it reports <span class="math inline">\(16s=1.07\)</span> GB.) (b) <span class="math inline">\(k^\star=\sqrt{Ls/r}\)</span>. For <span class="math inline">\(L=64\)</span>, <span class="math inline">\(k^\star=\sqrt{64\times67.1/604}\approx2.7\)</span>; among divisors, <span class="math inline">\(k=2\)</span> gives <span class="math inline">\(31s+2r=3.29\)</span> GB, <span class="math inline">\(k=4\)</span> gives <span class="math inline">\(15s+4r=3.42\)</span> GB, and <span class="math inline">\(k=1\)</span> gives <span class="math inline">\(63s+r=4.83\)</span> GB. For blocks with <span class="math inline">\(r=s\)</span> and <span class="math inline">\(L=16\)</span>, <span class="math inline">\(k^\star=4=\sqrt{L}\)</span> and the memory is <span class="math inline">\((L/k-1+k)s=7s\)</span> against <span class="math inline">\(16s\)</span>, the <span class="math inline">\(O(\sqrt{L})\)</span> regime of the paper. (c) The saved bytes match exactly. The measured peak is higher than <span class="math inline">\((S-1)s+kr\)</span> by the backward pass’s own tensors: the gradient flowing between blocks (block-input-sized), the gradients of <span class="math inline">\(\mathbf{U}\)</span> and of the GELU output (268 MB each, transient), the weight gradients if they are not allocated before the measurement starts, cuBLAS workspace, and the allocator’s rounding of every block. With full checkpointing these add about 1 GB to the 1.07 GB of stored inputs in Table&nbsp;<a href="ch02_pytorch.html#tab:pytorch:ckpt">2.1</a>.</li>
+</ol>
+</section>
+<section id="exercise-2.7" class="level4">
+<h4>Exercise 2.7</h4>
+<p>Parameters: <span class="math inline">\((784\cdot512+512)+(512\cdot256+256)+(256\cdot10+10)=401{,}920+131{,}328+2{,}570=535{,}818\)</span>. In fp32: weights 2.14 MB, gradients 2.14 MB, Adam’s two moments 4.29 MB, for a total of 8.57 MB (16 bytes/parameter). Forward FLOPs for a batch of 128: <span class="math inline">\(2\times128\times(784\cdot512+512\cdot256+256\cdot10)\approx1.37\times10^8\)</span> (biases and ReLU add well under 1%).</p>
+</section>
+<section id="exercise-2.8" class="level4">
+<h4>Exercise 2.8</h4>
+<ol type="a">
+<li>The step consumes <span class="math inline">\(32\times2048=65{,}536\)</span> tokens every 0.25 s, 262,144 tokens/s. One worker produces a batch in <span class="math inline">\(65{,}536/400{,}000=164\)</span> ms, faster than the 250 ms step, so one worker keeps up with 1.5<span class="math inline">\(\times\)</span> headroom; two give room for jitter. The loader delivers batches in order, assigning them to workers round-robin, so a stalled worker delays the batch it owes even if the other worker is idle. With two workers each owes every second batch, one per 0.5 s, and a 1 s stall is hidden only if that worker already has two finished batches queued: <code>prefetch_factor</code> of at least 2 (the default), better 3, which is 4 to 6 batches, 1–1.5 s of steps, in flight. (b) Stored as <code>uint16</code>, the loader reads <span class="math inline">\(262{,}144\times2=0.5\)</span> MB/s, nothing for a disk or the page cache. What limits it is per-batch Python work (indexing, building an <code>int64</code> tensor, passing it from the worker through shared memory), on the order of a millisecond per batch, still far below 250 ms. (c) The inputs are <span class="math inline">\(65{,}536\times8=524\)</span> KB of <code>int64</code> (the shifted targets as many again), about 26 μs each at 20 GB/s, negligible next to the step. <code>non_blocking=True</code> matters for another reason: a blocking copy makes the CPU wait until the copy has run, and the copy runs only after every kernel already queued on the stream, so the CPU stops running ahead of the GPU and the GPU then idles while the next step’s kernels are launched (Section&nbsp;<a href="ch03_machine.html#sec:machine:async">3.7</a>).</li>
+</ol>
+</section>
+<section id="exercise-2.9" class="level4">
+<h4>Exercise 2.9</h4>
+<p>Gradients are 14 GB in bf16. A ring all-reduce sends and receives <span class="math inline">\(2(P-1)/P\times14\approx24.5\)</span> GB per GPU for <span class="math inline">\(P=8\)</span>. Over NVLink at 300 GB/s this takes <span class="math inline">\(\approx82\)</span> ms, easily hidden behind a 1.5 s step. Over 100 Gb/s Ethernet (12.5 GB/s) it takes <span class="math inline">\(\approx2.0\)</span> s, longer than the compute, so communication cannot be hidden and the step at least doubles. The model does not fit for DDP anyway: 7B parameters <span class="math inline">\(\times\)</span> 16 bytes <span class="math inline">\(=112\)</span> GB of weights, gradients and Adam state exceeds 80 GB before activations. This requires ZeRO/FSDP sharding (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">24</span>).</p>
+</section>
+<section id="exercise-2.10" class="level4">
+<h4>Exercise 2.10</h4>
+<ol type="a">
+<li>The gradients are <span class="math inline">\(350\times10^6\times2=700\)</span> MB. With <span class="math inline">\(P=2\)</span>, a ring all-reduce sends <span class="math inline">\(2(P-1)/P=1\)</span> times the gradient volume per GPU in each direction, 700 MB, so the transfers alone take <span class="math inline">\(700/20=35\)</span> ms, well under the 120 ms backward pass. With <span class="math inline">\(n=700/B\)</span> buckets of <span class="math inline">\(B\)</span> MB, assume gradients become ready at a uniform rate, one bucket every <span class="math inline">\(120/n\)</span> ms, and that the all-reduces run one after another, each taking <span class="math inline">\(\alpha+B/\beta\)</span>. If each all-reduce is shorter than the interval between buckets, communication keeps up and only the last bucket, which becomes ready when backward ends, is exposed: <span class="math inline">\(\alpha+B/\beta\)</span>. Otherwise a backlog builds and the exposed time is about <span class="math inline">\(n(\alpha+B/\beta)-120\)</span> ms. Taking <span class="math inline">\(\alpha=0.1\)</span> ms as an assumption to be measured: <span class="math inline">\(B=1\)</span> MB gives 700 calls of 0.15 ms against an interval of 0.17 ms, so it barely keeps up and exposes about 0.15 ms, but any <span class="math inline">\(\alpha\)</span> above 0.12 ms tips it into a backlog (at <span class="math inline">\(\alpha=0.2\)</span> ms, <span class="math inline">\(700\times0.25-120=55\)</span> ms exposed); <span class="math inline">\(B=25\)</span> MB exposes about 1.35 ms; <span class="math inline">\(B=100\)</span> MB about 5.1 ms; <span class="math inline">\(B=1{,}000\)</span> MB holds all 700 MB in one bucket that starts only when backward ends, exposing the full 35 ms. The prediction is a broad optimum between a few and a few tens of megabytes, with small buckets punished by <span class="math inline">\(\alpha\)</span> and large ones by lost overlap. (b) Measure the step with <code>torch.cuda.Event</code> timing after a warm-up, for each <code>bucket_cap_mb</code>, and check once that both ranks hold identical weights after a step, since on this box direct peer copies are unreliable while NCCL is correct. (c) The assumptions to check first: gradients are not produced uniformly (DDP orders buckets in reverse parameter order, and its first bucket is small by design); NCCL’s kernels use SMs and slow the backward pass they overlap with; with no peer-to-peer path, NCCL stages through host memory, so <span class="math inline">\(\beta\)</span> may be well below 20 GB/s; and <span class="math inline">\(\alpha\)</span> includes the CPU cost of launching each call, which competes with the backward pass’s own launches.</li>
+</ol>
+</section>
+</section>
+<section id="chapter-3-the-machine-underneath" class="level2 unnumbered">
+<h2 class="unnumbered">Chapter 3: The Machine Underneath: GPUs, Rooflines and Measurement</h2>
+<section id="exercise-3.1" class="level4">
+<h4>Exercise 3.1</h4>
+<p>A100: <span class="math inline">\(I^\star=312/2.04\approx153\)</span> FLOP/byte; a bf16 square GEMM has <span class="math inline">\(I=n/3\)</span>, so it becomes compute-bound at <span class="math inline">\(n\approx460\)</span>. RTX 4090: <span class="math inline">\(I^\star=165/1.008\approx164\)</span>, so <span class="math inline">\(n\approx490\)</span>. The decode critical batch is <span class="math inline">\(B^\star\approx bI^\star/2=I^\star\)</span> in bf16, so the 4090 needs a slightly larger batch (about 164 versus 153). Both need far smaller batches than an H100 (<span class="math inline">\(\approx\)</span><!-- -->295), whose compute has outgrown its bandwidth.</p>
+</section>
+<section id="exercise-3.2" class="level4">
+<h4>Exercise 3.2</h4>
+<p><span class="math inline">\(d=4096\)</span>, hidden <span class="math inline">\(4d=16{,}384\)</span>, bf16. <em><span class="math inline">\(BT=1\)</span></em>: each GEMM does <span class="math inline">\(2\times4096\times16{,}384\approx1.34\times10^8\)</span> FLOPs and moves about <span class="math inline">\(2\times4096\times16{,}384\approx134\)</span> MB (the weight dominates), so <span class="math inline">\(I\approx1\)</span>: memory-bound, about 40 μs each on an H100. GELU touches 16,384 elements, which is negligible but still costs a launch. <em><span class="math inline">\(BT=4096\)</span></em>: GEMM 1 does <span class="math inline">\(5.5\times10^{11}\)</span> FLOPs and moves <span class="math inline">\(2(4096^2+2\cdot4096\cdot16{,}384)\approx302\)</span> MB, so <span class="math inline">\(I\approx1{,}800\)</span>: compute-bound, <span class="math inline">\(\approx0.56\)</span> ms at peak; GEMM 2 is the same. GELU reads and writes <span class="math inline">\(4096\times16{,}384\)</span> bf16 values, 268 MB, <span class="math inline">\(\approx0.08\)</span> ms, memory-bound. Fusing GELU into GEMM 1’s epilogue removes that round trip (the GEMM output is activated in registers before being stored), saving <span class="math inline">\(\approx0.08\)</span> ms of <span class="math inline">\(\approx1.2\)</span> ms, about 7%. Fusion matters far more for chains of elementwise ops without a GEMM to hide behind.</p>
+</section>
+<section id="exercise-3.3" class="level4">
+<h4>Exercise 3.3</h4>
+<p>By Little’s law the H100 needs <span class="math inline">\(3.35\times10^{12}\times500\times10^{-9}\approx1.68\)</span> MB of loads in flight, <span class="math inline">\(1.68\times10^6/132\approx12.7\)</span> KB per SM, about 25 outstanding warp loads of 512 bytes per SM at every moment. The A100 needs 6.3 KB, about a dozen. Per SM the H100 must therefore keep twice as many bytes in flight, while the per-SM resources that hold them grew far less: the register file is the same 256 KB and shared memory went from 164 KB to 228 KB. A kernel whose occupancy and per-warp parallelism were just enough on the A100 keeps roughly half of the bytes in flight that the H100 needs, and reaches roughly half of its bandwidth roof, with no change in its code. This is one reason Hopper added the Tensor Memory Accelerator, which issues large asynchronous bulk copies without occupying a thread per load (<span class="xref-missing">??</span>).</p>
+</section>
+<section id="exercise-3.4" class="level4">
+<h4>Exercise 3.4</h4>
+<ol type="a">
+<li><span class="math inline">\(\lceil1408/128\rceil^2=11^2=121\)</span> output tiles; with one tile per SM at a time, 108 SMs need <span class="math inline">\(\lceil121/108\rceil=2\)</span> waves, and the second wave has 13 tiles, so 12% of its SM-time does useful work. (b) The GEMM occupies <span class="math inline">\(2\times108=216\)</span> tile-slots for 121 tiles of work, so quantisation alone caps it at <span class="math inline">\(121/216=56\%\)</span> of the compute roof (before the fixed costs of Section&nbsp;<a href="ch03_machine.html#sec:machine:hides">3.6</a>). (c) In the sweep’s range the tile count steps with <span class="math inline">\(\lceil n/128\rceil\)</span>: <span class="math inline">\(n\le1{,}280\)</span> gives 100 tiles in one wave (93% of the slots); <span class="math inline">\(1{,}281\le n\le1{,}408\)</span> gives 121 tiles in two waves (56%); <span class="math inline">\(1{,}409\le n\le1{,}536\)</span> gives 144 tiles in two waves (67%). Expect a sawtooth: throughput falls sharply between 1,280 and 1,312, where the work grows by 5% and the time almost doubles, and recovers partly towards 1,536. In practice cuBLAS picks among tile shapes and may split the <span class="math inline">\(K\)</span> dimension across SMs for shapes like these, which smooths the steps; how much of the sawtooth survives tells you how well its heuristics cover the shape.</li>
+</ol>
+</section>
+<section id="exercise-3.5" class="level4">
+<h4>Exercise 3.5</h4>
+<p>For 1,024 elements, both eager and compiled versions are dominated by per-op overhead: eager time is about <span class="math inline">\(100\times\)</span> the per-launch cost (hundreds of μs to milliseconds); this is regime (b) of Figure&nbsp;<a href="ch03_machine.html#fig:machine:async">3.6</a>. For <span class="math inline">\(10^8\)</span> elements, each op is a memory-bound kernel taking <span class="math inline">\(\approx0.24\)</span> ms in fp32 on an H100, so eager time is about 24 ms and overhead is hidden; this is regime (a). <code>torch.compile</code> fuses the chain into one kernel that reads and writes once. The large tensor speeds up by up to <span class="math inline">\(\approx100\times\)</span> in traffic terms, and the small tensor speeds up because 100 launches became one; this is regime (c). With <code>reduce-overhead</code>, CUDA graphs remove the remaining launch cost.</p>
+</section>
+<section id="exercise-3.6" class="level4">
+<h4>Exercise 3.6</h4>
+<p>There are four synchronisation points. (1) <code>x.cuda()</code> and <code>y.cuda()</code> without <code>non_blocking=True</code> are blocking copies: the CPU waits until they have run, which is after all previously queued kernels. (2) <code>if torch.isnan(loss):</code> converts a GPU tensor to a Python <code>bool</code>. (3) <code>.item()</code> on the correct-count. (4) <code>loss.item()</code> in the <code>print</code>. None is needed on every step. The step also runs a second forward pass, on weights already changed by <code>opt.step()</code>, just to count correct predictions; the training forward’s logits serve. A version that waits once every 100 steps:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>loader <span class="op">=</span> DataLoader(ds, batch_size<span class="op">=</span><span class="dv">64</span>, shuffle<span class="op">=</span><span class="va">True</span>, num_workers<span class="op">=</span><span class="dv">2</span>, pin_memory<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>n_correct <span class="op">=</span> torch.zeros((), dtype<span class="op">=</span>torch.<span class="bu">long</span>, device<span class="op">=</span><span class="st">&quot;cuda&quot;</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>loss_sum <span class="op">=</span> torch.zeros((), device<span class="op">=</span><span class="st">&quot;cuda&quot;</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>bad <span class="op">=</span> torch.zeros((), dtype<span class="op">=</span>torch.<span class="bu">bool</span>, device<span class="op">=</span><span class="st">&quot;cuda&quot;</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> step, (x, y) <span class="kw">in</span> <span class="bu">enumerate</span>(loader):</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    x, y <span class="op">=</span> x.cuda(non_blocking<span class="op">=</span><span class="va">True</span>), y.cuda(non_blocking<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    logits <span class="op">=</span> model(x)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    loss <span class="op">=</span> F.cross_entropy(logits, y)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    opt.zero_grad()<span class="op">;</span> loss.backward()<span class="op">;</span> opt.step()</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    bad <span class="op">|=</span> <span class="op">~</span>torch.isfinite(loss.detach())              <span class="co"># device-side flags and sums</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    loss_sum <span class="op">+=</span> loss.detach()</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    n_correct <span class="op">+=</span> (logits.detach().argmax(<span class="op">-</span><span class="dv">1</span>) <span class="op">==</span> y).<span class="bu">sum</span>()</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> step <span class="op">%</span> <span class="dv">100</span> <span class="op">==</span> <span class="dv">99</span>:                               <span class="co"># the only synchronisation</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> bad.item():</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>            <span class="cf">raise</span> <span class="pp">RuntimeError</span>(<span class="st">&quot;diverged&quot;</span>)</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(step, (loss_sum <span class="op">/</span> <span class="dv">100</span>).item())</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        loss_sum.zero_()</span></code></pre></div>
+<p>The price is that a NaN is detected up to 100 steps late, after the optimiser has applied it, so the run must restart from a checkpoint; a guard that skips the update on the device instead (as the gradient scaler of mixed-precision training does with its found-infinity flag, Section&nbsp;<a href="ch05_quant.html#sec:quant:mixed">5.6</a>) keeps the weights clean without a synchronisation.</p>
+</section>
+<section id="exercise-3.7" class="level4">
+<h4>Exercise 3.7</h4>
+<p>At batch 8, the profile is dominated by many small kernels: <code>addmm</code>/<code>mm</code> at low intensity (memory-bound, weight reads dominate), plus optimiser elementwise kernels (<code>add_</code>, <code>mul_</code>, foreach ops) that touch every parameter and are memory-bound. At batch 4096, <code>addmm</code>/<code>mm</code> in forward and backward take the large majority of device time and are compute-bound; elementwise ops shrink to a small fraction. Optimiser cost is independent of batch size, so its share falls as the batch grows.</p>
+</section>
+<section id="exercise-3.8" class="level4">
+<h4>Exercise 3.8</h4>
+<p>Achieved model FLOP/s <span class="math inline">\(=2.1\times10^6\times6\times3\times10^9=3.78\times10^{16}\)</span>; peak <span class="math inline">\(=64\times989\times10^{12}=6.33\times10^{16}\)</span>; MFU <span class="math inline">\(\approx60\%\)</span>. That is at the very top of what well-tuned dense training achieves, so ask: are padding tokens counted as tokens? Is <span class="math inline">\(N\)</span> the total or non-embedding count? Are attention FLOPs or recomputation included (that would make it hardware FLOPs utilisation, HFU, not MFU)? Is the peak taken as the bf16 or the fp8 rate? Is the throughput a steady-state peak or an average including evaluation and checkpoint stalls?</p>
+</section>
+<section id="exercise-3.9" class="level4">
+<h4>Exercise 3.9</h4>
+<ol type="a">
+<li>An L2 probe keeps source and destination inside the 40 MB L2 (for example two 8 MiB buffers) and runs the copy many times inside one timed call (a Python loop of 100 copies, or a CUDA graph of them), dividing the bytes moved by the total time; with the per-call fixed cost of about 14 μs amortised, the probe measures the L2’s bandwidth, several times the 1.37 TB/s HBM roof. Report it with the same median and p10/p90 as <code>time_stats</code>. (b) Only kernels whose working set fits in L2 and is re-read can be limited by it. The streaming kernels of Table&nbsp;<a href="ch03_machine.html#tab:machine:points">3.3</a> (add, row sum, softmax, the GEMV and the decode attention) touch hundreds of megabytes once each, so HBM binds. The tiled GEMMs and the prefill attention re-read their tiles of <span class="math inline">\(\mathbf{A}\)</span>, <span class="math inline">\(\mathbf{B}\)</span> or <span class="math inline">\(\mathbf{K}\)</span>, <span class="math inline">\(\mathbf{V}\)</span> many times, mostly from L2: their L2 intensity is far below their HBM intensity, and for the <span class="math inline">\(M=256\)</span> GEMM, which sits just right of the HBM ridge, the L2 roof is the candidate. (c) Nsight Compute’s <code>dram__bytes_read.sum</code> and <code>dram__bytes_write.sum</code> give <span class="math inline">\(Q_{\text{HBM}}\)</span>, and <code>lts__t_bytes.sum</code> gives the L2 traffic. Divide the kernel’s <span class="math inline">\(F\)</span> by each to get <span class="math inline">\(I_{\text{HBM}}\)</span> and <span class="math inline">\(I_{\text{L2}}\)</span>, and plot the kernel’s achieved FLOP/s at both intensities against both roofs; the roof the kernel is closest to is the one that binds. For a well-tiled GEMM the HBM point lies near <span class="math inline">\(Q_{\min}\)</span> and the L2 point far to the left but still under the much higher L2 roof, so neither memory level binds and the kernel is limited by the tensor cores and the pipeline that feeds them.</li>
+</ol>
+</section>
+<section id="exercise-3.10" class="level4">
+<h4>Exercise 3.10</h4>
+<p>(a, b) Measured on 2x A100-40GB (PCIe), one GPU, 8,192-cubed bf16 GEMMs run for eight seconds each: random normal data, 215 TFLOP/s at an SM clock of 1,035 MHz and 250 W (the limit); random data with the low 4 of the 7 mantissa bits zeroed, 230 TFLOP/s at 1,095 MHz and 249 W; zeros, 290 TFLOP/s at 1,380 MHz and 234 W. Zeroing mantissa bits reduces the number of bits that toggle in the multipliers, so each FLOP costs less energy and the power manager allows a higher clock; the exponent and the upper mantissa bits of random data still toggle, so the gain is partial. Zeros toggle almost nothing and the card is no longer power-limited. (c) Treating the full board power as the cost (the card idles near 35 W, which a more careful study subtracts), the random-data GEMM costs <span class="math inline">\(250/(214.7\times10^{12}) \approx 1.2\)</span> pJ per FLOP, and the 1 GiB copy, which also runs at the 250 W limit at 1,379 GB/s, costs <span class="math inline">\(250/(1.379\times10^{12}) \approx 180\)</span> pJ per byte moved. The two energies are equal at an operational intensity of about <span class="math inline">\(180/1.2 \approx 155\)</span> FLOP/byte, almost exactly the empirical ridge point: on a power-limited card running at its limit, time and energy are proportional and the energy roofline and the time roofline coincide. (d) An H100 SXM has a 700 W limit for 989 TFLOP/s, about the same peak FLOP/s per watt of limit as the A100 PCIe (312 TFLOP/s for 250 W), so it is also expected to be power-limited on dense random-data GEMMs, and reports of data-dependent GEMM throughput on H100s (He, 2024) agree; the size of the effect depends on how much clock headroom the power manager has at the limit and has to be measured.</p>
+</section>
+</section>
+<section id="chapter-4-numbers-on-the-machine-formats-rounding-and-stable-algorithms" class="level2 unnumbered">
+<h2 class="unnumbered">Chapter 4: Numbers on the Machine: Formats, Rounding and Stable Algorithms</h2>
+<section id="exercise-4.1." class="level4">
+<h4>Exercise 4.1.</h4>
+<p><span class="math inline">\(-0.15625=-1.25\cdot2^{-3}\)</span>: sign 1, unbiased exponent <span class="math inline">\(-3\)</span>, fraction <span class="math inline">\(0.25\)</span> (binary <code>01</code>). FP16: <span class="math inline">\(E=-3+15=12=\)</span> <code>01100</code>, fraction <code>0100000000</code>, code <code>0xB100</code>. BF16: <span class="math inline">\(E=124=\)</span> <code>01111100</code>, fraction <code>0100000</code>, code <code>0xBE20</code>. E4M3: <span class="math inline">\(E=4=\)</span> <code>0100</code>, fraction <code>010</code>, code <code>0xA2</code>. E5M2: <span class="math inline">\(E=12\)</span>, fraction <code>01</code>, code <code>0xB1</code>. All four are exact, because 1.25 needs only two significant bits.</p>
+<p><span class="math inline">\(1000=1.953125\cdot2^9\)</span>, fraction <span class="math inline">\(0.953125=\)</span> <code>111101</code> in binary (six bits). FP16 (10 bits): exact, <span class="math inline">\(E=24\)</span>, code <code>0x63D0</code>. BF16 (7 bits): exact, <span class="math inline">\(E=136\)</span>, code <code>0x447A</code>. E5M2 (2 bits): the neighbours are <span class="math inline">\(1.75\cdot512=896\)</span> and <span class="math inline">\(2\cdot512=1024\)</span>; 1000 is nearer 1024, code <code>0x64</code>, stored value 1024 (error 2.4%). E4M3: 1000 exceeds the maximum 448, and the OCP conversion saturates to 448 (code <code>0x7E</code>, <code>S.1111.110</code>); an IEEE-style E4M3 (maximum 240) without saturation overflows to <span class="math inline">\(+\infty\)</span> (code <code>0x78</code>). <code>numerics.encode</code> returns exactly these codes.</p>
+</section>
+<section id="exercise-4.2." class="level4">
+<h4>Exercise 4.2.</h4>
+<p>With IEEE specials and bias <span class="math inline">\(2^{e-1}-1\)</span>, <span class="math inline">\(e_{\max}=2^{e-1}-1\)</span>, <span class="math inline">\(e_{\min}=2-2^{e-1}\)</span> and <span class="math inline">\(m=7-e\)</span>:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;"><span class="math inline">\(e\)</span></th>
+<th style="text-align: right;">max</th>
+<th style="text-align: right;">smallest subnormal</th>
+<th style="text-align: right;">decades</th>
+<th style="text-align: right;"><span class="math inline">\(u\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">3.94</td>
+<td style="text-align: right;"><span class="math inline">\(3.1\times10^{-2}\)</span></td>
+<td style="text-align: right;">2.1</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-6}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">15.5</td>
+<td style="text-align: right;"><span class="math inline">\(1.6\times10^{-2}\)</span></td>
+<td style="text-align: right;">3.0</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-5}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">240</td>
+<td style="text-align: right;"><span class="math inline">\(2.0\times10^{-3}\)</span></td>
+<td style="text-align: right;">5.1</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-4}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">5</td>
+<td style="text-align: right;">57,344</td>
+<td style="text-align: right;"><span class="math inline">\(1.5\times10^{-5}\)</span></td>
+<td style="text-align: right;">9.6</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-3}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;"><span class="math inline">\(3.2\times10^{9}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(4.7\times10^{-10}\)</span></td>
+<td style="text-align: right;">18.8</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-2}\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>A per-tensor-scaled Gaussian weight tensor spans about four decades between its maximum (<span class="math inline">\(\approx5\sigma\)</span>) and the values that matter (<span class="math inline">\(\approx10^{-3}\sigma\)</span>), so <span class="math inline">\(e=4\)</span> suffices and buys the most precision. Gradients spanning ten decades need <span class="math inline">\(e=5\)</span> (or finer scales). The “fn” convention turns the top binade’s seven non-NaN codes into numbers, raising E4M3’s maximum from 240 to 448 (0.9 binades more range), and gives up infinities (overflow must saturate or produce NaN) and all but one NaN code per sign.</p>
+</section>
+<section id="exercise-4.3." class="level4">
+<h4>Exercise 4.3.</h4>
+<p>INT8: <span class="math inline">\(|p|\le128^2=2^{14}\)</span>, so <span class="math inline">\(K\cdot2^{14}\le2^{31}-1\)</span> requires <span class="math inline">\(K&lt;2^{17}=131{,}072\)</span>. INT4 into INT16: <span class="math inline">\(|p|\le8^2=64\)</span>, and <span class="math inline">\(64K\le32{,}767\)</span> gives <span class="math inline">\(K\le511\)</span>, which is why INT4 GEMMs also accumulate in INT32. Integer addition is exact, so an integer GEMM’s result is the exact dot product of the integer codes; its accuracy is limited by the representation (rounding and clipping in the quantiser, Section&nbsp;<a href="ch05_quant.html#sec:quant:quant">5.4</a>) and by the final conversion of the INT32 result times the scales to floating point.</p>
+</section>
+<section id="exercise-4.4." class="level4">
+<h4>Exercise 4.4.</h4>
+<p>For <span class="math inline">\(|w|\in[2^{-6},2^{-5})\ni0.02\)</span>, <span class="math inline">\(\operatorname{ulp}=2^{-6-7}=2^{-13}\)</span> and every update with <span class="math inline">\(|\delta|&lt;2^{-14}=6.1\times10^{-5}\)</span> is lost; for <span class="math inline">\(|w|\)</span> just above 1 the threshold is <span class="math inline">\(2^{-8}=3.9\times10^{-3}\)</span>. So with <span class="math inline">\(\eta&lt;6.1\times10^{-5}\)</span> (for Adam, <span class="math inline">\(|\delta|\approx\eta\)</span>) all updates of the magnitude-0.02 weights vanish. With the cosine schedule <span class="math inline">\(\eta(t)=\eta_{\min}+\tfrac12(\eta_{\max}-\eta_{\min})(1+\cos\pi t/T)\)</span>, <span class="math inline">\(\eta_{\max}=3\times10^{-4}\)</span>, <span class="math inline">\(\eta_{\min}=3\times10^{-5}\)</span>, we solve <span class="math inline">\(\eta(t)=6.1\times10^{-5}\)</span>: <span class="math inline">\(1+\cos(\pi t/T)=0.230\)</span>, <span class="math inline">\(t/T=0.78\)</span>. The last 22% of training would do nothing to those weights (and Adam updates of elements with small <span class="math inline">\(m/\sqrt v\)</span> vanish earlier). An FP32 master copy costs 4 bytes per parameter, 28 GB for 7B; stochastic rounding costs one random number per updated element and no memory (<code>numerics.stochastic_round_bf16</code>).</p>
+</section>
+<section id="exercise-4.5." class="level4">
+<h4>Exercise 4.5.</h4>
+<p>With <span class="math inline">\(U\)</span> uniform on <span class="math inline">\(\{0,2^{-r},\dots,1-2^{-r}\}\)</span>, <span class="math inline">\(\operatorname{SR}(x)=h\)</span> iff <span class="math inline">\(U\ge1-f\)</span>, which happens for <span class="math inline">\(\lfloor2^rf\rfloor\)</span> of the <span class="math inline">\(2^r\)</span> values. So <span class="math inline">\(P(\text{up})=\lfloor2^rf\rfloor/2^r\)</span> and the bias is <span class="math inline">\(-q\,(f-\lfloor2^rf\rfloor2^{-r})\in(-q2^{-r},0]\)</span>: always toward <span class="math inline">\(\ell\)</span>, largest when <span class="math inline">\(f\)</span> is just below a multiple of <span class="math inline">\(2^{-r}\)</span> (for example <span class="math inline">\(f&lt;2^{-r}\)</span> never rounds up). The result is still a two-point random variable with <span class="math inline">\(P=P(\text{up})\)</span>, so its variance <span class="math inline">\(q^2P(1-P)\le q^2/4\)</span>. For a sum of <span class="math inline">\(n=10^4\)</span> addends the bias accumulates linearly, up to <span class="math inline">\(n2^{-r}\)</span> ulp, while round-to-nearest errors of random sign accumulate like <span class="math inline">\(\sqrt{n/12}\approx29\)</span> ulp; <span class="math inline">\(n2^{-r}&lt;29\)</span> needs <span class="math inline">\(r\ge9\)</span> bits. The library’s <code>sr_bits</code> argument and the test with <span class="math inline">\(r=2\)</span> illustrate the effect.</p>
+</section>
+<section id="exercise-4.6." class="level4">
+<h4>Exercise 4.6.</h4>
+<p>Let <span class="math inline">\(|a|\ge|b|\)</span> and <span class="math inline">\(s=\operatorname{fl}(a+b)\)</span>. Sterbenz’s lemma says that <span class="math inline">\(x-y\)</span> is exact when <span class="math inline">\(y/2\le x\le2y\)</span>. If <span class="math inline">\(a\)</span> and <span class="math inline">\(b\)</span> have the same sign, <span class="math inline">\(|a|\le|s|\le2|a|\)</span>, so <span class="math inline">\(s-a\)</span> is exact. If they have opposite signs and <span class="math inline">\(|b|\ge|a|/2\)</span>, then <span class="math inline">\(a+b\)</span> itself is exact by Sterbenz, <span class="math inline">\(s=a+b\)</span> and <span class="math inline">\(s-a=b\)</span>. Otherwise <span class="math inline">\(|a|/2&lt;|a|-|b|\le|s|\le|a|\)</span> and Sterbenz applies to <span class="math inline">\(s-a\)</span> again. So <span class="math inline">\(z=\operatorname{fl}(s-a)=s-a\)</span> exactly, and <span class="math inline">\(b-z=(a+b)-s\)</span> is the rounding error of the sum, which is itself representable for round-to-nearest addition, so <span class="math inline">\(\operatorname{fl}(b-z)\)</span> is exact too. This is Dekker’s Fast2Sum, and Kahan’s <span class="math inline">\(c\)</span> is its negation. Trace for <span class="math inline">\((1,2^{-9},2^{-9},2^{-9},2^{-9})\)</span> in BF16 (exact sum <span class="math inline">\(1+2^{-7}\)</span>, representable): the naive sum stays at 1 because each <span class="math inline">\(2^{-9}\)</span> is a quarter ulp. Kahan: after the first <span class="math inline">\(2^{-9}\)</span>, <span class="math inline">\(s=1\)</span>, <span class="math inline">\(c=-2^{-9}\)</span>; next <span class="math inline">\(y=2^{-8}\)</span>, <span class="math inline">\(s+y\)</span> is a tie and rounds to 1, <span class="math inline">\(c=-2^{-8}\)</span>; next <span class="math inline">\(y=3\cdot2^{-9}\)</span>, <span class="math inline">\(s=\operatorname{fl}(1+3\cdot2^{-9})=1+2^{-7}\)</span>, <span class="math inline">\(c=2^{-7}-3\cdot2^{-9}=2^{-9}\)</span>; last <span class="math inline">\(y=0\)</span>, <span class="math inline">\(s=1+2^{-7}\)</span>. Kahan returns the exact 1.0078125 (<code>numerics.sum_kahan</code> agrees), the naive sum 1.0.</p>
+</section>
+<section id="exercise-4.7." class="level4">
+<h4>Exercise 4.7.</h4>
+<p>Let <span class="math inline">\(m=\max(m_a,m_b)\)</span>, <span class="math inline">\(\alpha=e^{m_a-m}\)</span>, <span class="math inline">\(\beta=e^{m_b-m}\)</span>. Then <span class="math inline">\(\ell=\alpha\ell_a+\beta\ell_b\)</span> and <span class="math inline">\(\mathbf{o}=\alpha\mathbf{o}_a+\beta\mathbf{o}_b\)</span>, with final output <span class="math inline">\(\mathbf{o}/\ell\)</span>. A state <span class="math inline">\((m,\ell,\mathbf{o})\)</span> represents the pair <span class="math inline">\((e^{m}\ell, e^{m}\mathbf{o})=(\sum_ie^{s_i},
+\sum_ie^{s_i}\mathbf{v}_i)\)</span>; the merge adds these pairs in a rescaled representation, so it is associative and commutative (up to rounding), and the identity element is <span class="math inline">\((-\infty,0,\mathbf{0})\)</span> (guard the <span class="math inline">\(e^{-\infty-(-\infty)}\)</span> case as <code>online_softmax_stats</code> does). Check: split the score row of <code>online_softmax_matmul</code> in two, run each half, merge, and compare with the full result to <span class="math inline">\(10^{-12}\)</span> in float64. Split-KV (“flash-decoding”) kernels use this merge: during decoding there is one query per sequence, so the KV cache is split across thread blocks and their partial states are merged.</p>
+</section>
+<section id="exercise-4.8." class="level4">
+<h4>Exercise 4.8.</h4>
+<p>Construct rows whose exact sum falls strictly between two FP32 numbers, with every input exactly representable in FP16 (and BF16): for example <span class="math inline">\(a=(1,3\cdot2^{-14},0,\dots)\)</span>, <span class="math inline">\(b=(1,2^{-11},0,\dots)\)</span> gives <span class="math inline">\(1+0.75\)</span> ulp; fifteen products of <span class="math inline">\(2^{-24}\)</span> after a 1 give <span class="math inline">\(1+7.5\)</span> ulp; and <span class="math inline">\(a=(-1,3\cdot
+2^{-14})\)</span> gives a negative exact tie. Round-to-nearest returns <span class="math inline">\(1+\)</span>ulp, <span class="math inline">\(1+8\)</span> ulp (or less if the additions are sequential) and the even neighbour; round-toward-zero returns <span class="math inline">\(1\)</span>, <span class="math inline">\(1+7\)</span> ulp and the neighbour of smaller magnitude; round-toward-<span class="math inline">\(-\infty\)</span> returns <span class="math inline">\(1\)</span>, <span class="math inline">\(1+7\)</span> ulp and the neighbour of <em>larger</em> magnitude. Moving the large term to different positions along <span class="math inline">\(K\)</span> (and padding <span class="math inline">\(K\)</span> with zeros) reveals how many products are summed before each rounding. <code>bench.py --only tcprobe</code> implements the three probes. On the A100 the FP32 SGEMM rounds to nearest, while both the FP16 and the BF16 tensor-core GEMMs return <span class="math inline">\(1\)</span>, <span class="math inline">\(1+7\)</span> ulp and the larger-magnitude neighbour: rounding toward <span class="math inline">\(-\infty\)</span>, the same for both input formats, which is neither RNE nor the round-toward-zero that Fasi et al. (2021) reported for the V100 (and agrees with Valpey et al., 2025). <em>Prediction for random data</em>: directed rounding biases long sums, so one would expect error growing with <span class="math inline">\(K\)</span> above the RNE model. The measurement only partly agrees: the BF16 kernel’s error (<span class="math inline">\(1.3\times10^{-7}\)</span> at <span class="math inline">\(K=4096\)</span>) is <em>below</em> the sequential RNE model because the kernel’s blocking and split-K shorten each chain of additions, while the FP16 kernel’s (<span class="math inline">\(2.4\times10^{-6}\)</span>) is ten times above it and nearly independent of <span class="math inline">\(K\)</span>. On identical BF16-representable data the FP16 kernel is still 3.7 times worse, and the profiler shows different kernels (a CUTLASS kernel for FP16, a cuBLAS one for BF16). So the probe characterises the MMA, but the error on real data depends on the kernel the library selects; repeat both on another GPU generation to see which of the two changed.</p>
+</section>
+<section id="exercise-4.9." class="level4">
+<h4>Exercise 4.9.</h4>
+<p><em>Prediction.</em> Kahan’s buffer <span class="math inline">\(c\)</span> holds the part of the accumulated updates that <span class="math inline">\(w\)</span> could not absorb, so <span class="math inline">\(|c|&lt;\operatorname{ulp}(w)/2\)</span>, and the compensated value <span class="math inline">\(w-c\)</span> tracks the exact trajectory up to the rounding of <span class="math inline">\(c\)</span> itself. That rounding loses at most <span class="math inline">\(2^{-9}|c|\le2^{-10}
+\operatorname{ulp}(w)\)</span> per step, with random sign, so after <span class="math inline">\(T=10^4\)</span> steps the error of <span class="math inline">\(w-c\)</span> is of the order of <span class="math inline">\(\sqrt{T}\cdot2^{-10}\operatorname{ulp}(w)/\sqrt3\)</span>. For <span class="math inline">\(|w|\approx0.02\)</span>, <span class="math inline">\(\operatorname{ulp}(w)=2^{-13}\)</span>, that is about <span class="math inline">\(7\times10^{-6}\)</span> against an accumulated displacement of about <span class="math inline">\(0.05\)</span> (a drift of <span class="math inline">\(0.5\times10^{-5}\)</span> per step), a relative error near <span class="math inline">\(10^{-4}\)</span>. The weight <span class="math inline">\(w\)</span> alone differs from <span class="math inline">\(w-c\)</span> by <span class="math inline">\(|c|&lt;\operatorname{ulp}(w)/2\)</span>, which is exactly the error of rounding an FP32 master copy to BF16 at the end, so <span class="math inline">\(w\)</span> should match the FP32-master result (0.18%) and <span class="math inline">\(w-c\)</span> should be about ten times better.</p>
+<p><em>Measurement</em> (CPU, <code>--n-weights 65536</code>, 10,000 steps, the bench’s update distribution): RNE 91.5%, SR 7.3%, FP32 master 0.18%, Kahan-compensated <span class="math inline">\(w\)</span> 0.18%, and <span class="math inline">\(w-c\)</span> 0.017%. Memory per parameter: BF16 with RNE or SR 2 bytes; Kahan 4 bytes (weight plus compensation); BF16 weights with an FP32 master 6 bytes (4 if the BF16 copy is re-derived from the master before each forward pass). Kahan buys the accuracy of a master copy for two bytes instead of four, and keeps the update deterministic. SR costs nothing in memory but leaves a noise of a few per cent that only averages out over many steps. When optimiser states already fill the GPU, Kahan-compensated BF16 weights are the better trade if two bytes per parameter can be found; otherwise SR is the only option that does not lose the small updates outright.</p>
+</section>
+</section>
+<section id="chapter-5-scaling-quantisation-and-mixed-precision" class="level2 unnumbered">
+<h2 class="unnumbered">Chapter 5: Scaling, Quantisation and Mixed Precision</h2>
+<section id="exercise-5.1." class="level4">
+<h4>Exercise 5.1.</h4>
+<p><span class="math inline">\(n=4096^2=16{,}777{,}216\)</span> elements.</p>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Scheme</th>
+<th style="text-align: right;">elements</th>
+<th style="text-align: right;">metadata</th>
+<th style="text-align: left;">factors out?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">INT8, per output channel, FP32 scale</td>
+<td style="text-align: right;">16 MiB</td>
+<td style="text-align: right;">16 KiB</td>
+<td style="text-align: left;">yes: epilogue multiply by <span class="math inline">\(s^W_n\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">INT4 groups of 128, FP16 scale + INT4 zero</td>
+<td style="text-align: right;">8 MiB</td>
+<td style="text-align: right;">256 + 64 KiB</td>
+<td style="text-align: left;">no: dequantise in registers per group</td>
+</tr>
+<tr>
+<td style="text-align: left;">MXFP4 (32, E8M0)</td>
+<td style="text-align: right;">8 MiB</td>
+<td style="text-align: right;">512 KiB</td>
+<td style="text-align: left;">no: Blackwell MMA applies it; elsewhere dequantise</td>
+</tr>
+<tr>
+<td style="text-align: left;">NVFP4 (16, E4M3, + FP32)</td>
+<td style="text-align: right;">8 MiB</td>
+<td style="text-align: right;">1 MiB + 4 B</td>
+<td style="text-align: left;">no: Blackwell MMA applies it</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP8, <span class="math inline">\(128\times128\)</span> blocks, FP32</td>
+<td style="text-align: right;">16 MiB</td>
+<td style="text-align: right;">4 KiB</td>
+<td style="text-align: left;">no: rescale partial sums every 128 of <span class="math inline">\(K\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>Only the scale that is constant along <span class="math inline">\(K\)</span> (the per-channel one) can be applied once after the full dot product; all others change every 16 to 128 elements of <span class="math inline">\(K\)</span> and must be applied inside the <span class="math inline">\(K\)</span> loop, by the software (dequantise, or rescale and promote partial sums) or by the MMA instruction.</p>
+</section>
+<section id="exercise-5.2." class="level4">
+<h4>Exercise 5.2.</h4>
+<p>With <span class="math inline">\(s=\max|x|/q_{\max}\)</span> the rounding error of each element inside the range is uniform on <span class="math inline">\([-s/2,s/2]\)</span> (<a href="ch05_quant.html#eq:quant:s212">5.4</a>), so the MSE over the elements sharing a scale is <span class="math inline">\(s^2/12=
+\max|x|^2/(12q_{\max}^2)\)</span>, and averaged over blocks it is <span class="math inline">\(\mathbb{E}[\max|x|^2]/(12q_{\max}^2)\)</span>. For <span class="math inline">\(n\)</span> Gaussian values <span class="math inline">\(\max|x|^2\approx2\sigma^2\ln n\)</span>, so the ratio of the MSE with one scale per tensor (<span class="math inline">\(N\)</span> elements) to that with blocks of <span class="math inline">\(B\)</span> is <span class="math inline">\(\ln N/\ln B\)</span>. For <span class="math inline">\(N=4096^2=2^{24}\)</span> (<span class="math inline">\(\ln N=16.6\)</span>): blocks of 128 gain <span class="math inline">\(10\log_{10}(16.6/4.85)=5.3\)</span> dB, blocks of 32 6.8 dB and blocks of 16 7.8 dB. We measure 7.05 dB for blocks of 32; the approximation <span class="math inline">\(\sigma\sqrt{2\ln n}\)</span> is asymptotic and slightly overestimates the maximum of 32 values relative to that of <span class="math inline">\(2^{24}\)</span>.</p>
+<p>On the outlier activations the per-tensor scale is set by an outlier channel: the largest value is about <span class="math inline">\(114\sigma\)</span> (68.7 times the RMS of <span class="math inline">\(1.66\sigma\)</span>), while a block of 32 without an outlier has a maximum near <span class="math inline">\(\sigma\sqrt{2\ln32}=2.6\sigma\)</span>, and the 6% of blocks that contain an outlier channel have a maximum near <span class="math inline">\(30\sigma\)</span>. Then <span class="math inline">\(\mathbb{E}[s^2]\)</span> per block is about <span class="math inline">\((0.94\cdot2.6^2+0.06\cdot30^2)\sigma^2/q_{\max}^2\approx63\sigma^2/q_{\max}^2\)</span> against <span class="math inline">\(114^2\sigma^2/q_{\max}^2\)</span> per tensor: a predicted gain of <span class="math inline">\(10\log_{10}(12{,}996/63)=23\)</span> dB. For INT8 the model works: it predicts a per-tensor activation error of <span class="math inline">\(\sqrt{(114/127)^2/12/2.76}=15.6\%\)</span> and <span class="math inline">\(1.09\%\)</span> with blocks of 32, against the measured 15.6% and 1.06% (a 23.4 dB gain). For INT4 the per-tensor step <span class="math inline">\(114\sigma/7=16\sigma\)</span> is far larger than the bulk of the values, which all round to zero; the uniform-noise model breaks down, the error saturates near the size of the signal (61% measured) and the measured gain (13.9 dB) is much less than predicted. For a floating-point element format the error is relative to each value as long as it stays in the normal range, so the scale matters only through how many values fall into the subnormal or flushed region; E4M3’s error moves only from 2.65% to 1.45% between one scale per tensor and blocks of 32.</p>
+</section>
+<section id="exercise-5.3." class="level4">
+<h4>Exercise 5.3.</h4>
+<p>The normalised Hadamard transform with random signs maps the block <span class="math inline">\(\mathbf{x}\)</span> to <span class="math inline">\(\mathbf{y}=\mathbf{H}_b\mathbf{D}\mathbf{x}/\sqrt b\)</span>; each entry is <span class="math inline">\(\frac1{\sqrt b}\sum_j\pm x_j\)</span>, a sum of independent Gaussians, so every entry of the block is <span class="math inline">\(\mathcal{N}(0,(b-1+a^2)/b)\)</span>. The transform is orthogonal, so the RMS of the tensor is unchanged at <span class="math inline">\(\sqrt{(4088+8\cdot900)/4096}=1.66\)</span>. Before the transform the largest value is the maximum of <span class="math inline">\(2048\cdot8\)</span> samples of <span class="math inline">\(\mathcal{N}(0,30^2)\)</span>; for <span class="math inline">\(b\le128\)</span> we assume the eight outlier channels fall into different blocks (likely for 16 and 32, less so for 128), whose <span class="math inline">\(2048\cdot8b\)</span> entries have standard deviation <span class="math inline">\(\sqrt{(899+b)/b}\)</span>: 7.6, 5.4 and 2.8 for <span class="math inline">\(b=16\)</span>, 32 and 128; for <span class="math inline">\(b=4096\)</span> the whole row is mixed and every entry has standard deviation 1.66. Taking the median of the maximum of <span class="math inline">\(n\)</span> half-normal samples, <span class="math inline">\(\sigma\,\Phi^{-1}\big((1+2^{-1/n})/2\big)\)</span>, the predicted ratios are 74 (no transform), 21.4, 15.7, 8.7 and 5.4, against the measured 68.7, 18.1, 13.3, 7.5 and 5.1. The shape is right; all predictions are about 10–15% high, which is within the fluctuation of the sample maximum (the measured 68.7 corresponds to an outlier of <span class="math inline">\(3.8\sigma\)</span> instead of the median <span class="math inline">\(4.1\sigma\)</span>).</p>
+<p>The transform makes a block’s maximum larger when the block’s values are already flat and line up with a row of <span class="math inline">\(\mathbf{H}_b\mathbf{D}\)</span>: the transform of a constant vector <span class="math inline">\(c\mathbf{1}\)</span> is <span class="math inline">\(\sqrt b\,c\,\mathbf{e}_1\)</span>, a spike <span class="math inline">\(\sqrt b\)</span> times larger than any input. Structured data (a constant offset across channels, a periodic pattern) can align with a fixed Hadamard basis; the random sign diagonal makes such an alignment with any fixed pattern vanishingly unlikely, which is why both QuaRot-style inference and the FP4 training recipes randomise the transform.</p>
+</section>
+<section id="exercise-5.4." class="level4">
+<h4>Exercise 5.4.</h4>
+<p>With <span class="math inline">\(q^A\)</span> asymmetric per token (<span class="math inline">\(z_{A,m}\)</span>) and <span class="math inline">\(q^W\)</span> symmetric per output channel, <span class="math display">\[C_{mn}=s^A_ms^W_n\Big(\sum_kq^A_{mk}q^W_{nk}-z_{A,m}\sum_kq^W_{nk}\Big).\]</span> The integer GEMM computes <span class="math inline">\(P=q^A(q^W)^{\top}\)</span>; the column sums <span class="math inline">\(\sum_kq^W_{nk}\)</span> are constants of the weights, precomputed offline (<span class="math inline">\(N\)</span> integers); the epilogue does one multiply-add per output for the correction and one multiply for the scales. With asymmetric weights (<span class="math inline">\(z_{W,n}\)</span>) two more terms appear: <span class="math inline">\(-z_{W,n}\sum_kq^A_{mk}+Kz_{A,m}z_{W,n}\)</span>. The row sums of the activations are not known offline: they need a reduction over <span class="math inline">\(K\)</span> for every token at run time, either a separate pass over the quantised activations or a reduction fused into the kernel that quantised them. For <span class="math inline">\(M=N=K=4096\)</span> the GEMM is <span class="math inline">\(2MNK=1.4\times10^{11}\)</span> operations; the row sums are <span class="math inline">\(MK=1.7\times10^7\)</span> additions and the epilogue about <span class="math inline">\(3MN=5\times10^7\)</span> operations, together 0.05%. The cost is not arithmetic but structure: an extra reduction over the activations that must be fused somewhere, extra vectors in the epilogue, and for symmetric-looking weight distributions almost no accuracy gain. Weight-only kernels (W4A16) are the exception: there the zero point is subtracted while dequantising each weight in registers, one extra operation per weight, and asymmetric INT4 weights with zero points are common.</p>
+</section>
+<section id="exercise-5.5." class="level4">
+<h4>Exercise 5.5.</h4>
+<p>For <span class="math inline">\(p(x)=\frac1{2\beta}e^{-|x|/\beta}\)</span>, <span class="math inline">\(2\int_c^\infty(x-c)^2p(x)\,dx=\frac1\beta e^{-c/\beta}
+\int_0^\infty t^2e^{-t/\beta}dt=2\beta^2e^{-c/\beta}\)</span>, and <span class="math display">\[\operatorname{MSE}(c)=\frac{c^2}{12q_{\max}^2}\big(1-e^{-c/\beta}\big)+2\beta^2e^{-c/\beta}.\]</span> With <span class="math inline">\(\beta=1/\sqrt2\)</span> (<span class="math inline">\(\sigma=1\)</span>) a grid search gives <span class="math inline">\(c^*=3.39\sigma\)</span> for <span class="math inline">\(b=4\)</span> (<span class="math inline">\(q_{\max}=7\)</span>, MSE 0.0277) and <span class="math inline">\(c^*=6.99\sigma\)</span> for <span class="math inline">\(b=8\)</span> (MSE <span class="math inline">\(3.0\times10^{-4}\)</span>). The empirical sweep of Figure&nbsp;<a href="ch05_quant.html#fig:quant:clip">5.5</a> found <span class="math inline">\(3.43\sigma\)</span> at 4 bits; the small difference comes from the uniform-noise approximation of the rounding term near the clipping point and from sampling.</p>
+</section>
+<section id="exercise-5.6." class="level4">
+<h4>Exercise 5.6.</h4>
+<p>FP16 flushes values below half its smallest subnormal, <span class="math inline">\(2^{-25}\approx2.98\times10^{-8}\)</span>, to zero. With <span class="math inline">\(\log_{10}|g|\sim\mathcal{N}(-7,1.5^2)\)</span>, <span class="math inline">\(P(\log_{10}|g|&lt;-7.526)=\Phi(-0.35)=36\%\)</span> (we measure 36.3% with <code>numerics.classify</code> on <span class="math inline">\(2^{22}\)</span> samples). The largest safe scale satisfies <span class="math inline">\(0.3S\le65{,}504\)</span>, so <span class="math inline">\(S\le218{,}000\)</span> and the largest power of two is <span class="math inline">\(2^{17}\)</span> (<span class="math inline">\(0.3\cdot2^{18}=78{,}643\)</span> would overflow). With <span class="math inline">\(S=2^{17}\)</span> the threshold moves to <span class="math inline">\(2.27\times10^{-13}\)</span>, <span class="math inline">\(z=-3.76\)</span>, and the flushed fraction drops to <span class="math inline">\(8.5\times10^{-5}\)</span> (measured: <span class="math inline">\(8.5\times10^{-5}\)</span>). <code>GradScaler</code> doubles <span class="math inline">\(S\)</span> after every 2,000 overflow-free steps whatever the gradients are, so once <span class="math inline">\(S\)</span> sits at the largest safe value each doubling overflows on its first step: in steady state it skips about one step per 2,000 from its own probing plus one per 10,000 from the true overflows, about 0.06% of steps.</p>
+</section>
+<section id="exercise-5.7." class="level4">
+<h4>Exercise 5.7.</h4>
+<ol type="a">
+<li>Before the spike the history maximum is the largest of about 16 million values with standard deviation near 1.27, about <span class="math inline">\(5.5\cdot1.29\approx7.1\)</span>; the spiked token’s values have standard deviation <span class="math inline">\(1.30\cdot100=130\)</span> and saturate whenever <span class="math inline">\(|x|&gt;7.1\)</span>, that is for <span class="math inline">\(|z|&gt;0.055\)</span>, a fraction <span class="math inline">\(2(1-\Phi(0.055))=95.6\%\)</span>: about 980 of 1,024 values. We measure 996 (the 28 survivors are a small binomial sample; a CPU replay of the same stream gives 984). (b) After the spike the history amax is the spiked token’s maximum, about <span class="math inline">\(130\cdot3.7\approx490\)</span>, so the scale is <span class="math inline">\(448/490\approx0.92\)</span> instead of about 69. A value is flushed when its scaled magnitude is below half the smallest E4M3 subnormal, <span class="math inline">\(2^{-10}\)</span>, so when <span class="math inline">\(|x|&lt;1.07\times10^{-3}\)</span>. Over steps 31 to 46 the standard deviation averages 1.38, so the fraction flushed is <span class="math inline">\(2\cdot0.399\cdot1.07\times10^{-3}/1.38=6.2\times10^{-4}\)</span>, about 650 of the <span class="math inline">\(2^{20}\)</span> values per step (measured: 649 on average). Current scaling uses a scale near <span class="math inline">\(448/6.9=65\)</span> and flushes below <span class="math inline">\(2^{-10}/65=1.5\times10^{-5}\)</span>, about 9 values per step (measured: 10). (c) The spike puts values up to about <span class="math inline">\(490/7.1=69\)</span> times the history amax into the cast, so the margin must satisfy <span class="math inline">\(2^\mu\ge69\)</span>: <span class="math inline">\(\mu=7\)</span>. The cost is paid on every calm step: the scale is 128 times smaller than it needs to be, the top seven of E4M3’s 17.8 binades are never used, and about <span class="math inline">\(128\times9\approx1{,}200\)</span> values per step fall below the flush threshold. Because those values are tiny, the relative error barely moves (compare 2.650% with 2.646% after the spike), which is why a margin looks free in aggregate statistics while it removes most of the format’s range.</li>
+</ol>
+</section>
+<section id="exercise-5.8." class="level4">
+<h4>Exercise 5.8.</h4>
+<p>Quantise <span class="math inline">\(A\)</span> with <code>numerics.mx_quantize(a, "mxfp8_e4m3")</code> and <span class="math inline">\(B\)</span> with <code>numerics.quantize(b, E4M3, block=(32, 1), scale_fmt="e8m0", scale_rule="ocp")</code>, then for each 32-deep slice add <span class="math inline">\((\sum p_ap_b)X_aX_b\)</span> to an <code>ACC_E8M13</code> accumulator with <code>rtz</code>, with no promotion. <em>Prediction</em>: the power-of-two scales are applied exactly, but the accumulator still sees all <span class="math inline">\(K\)</span> additions in one window, so its accumulation error should match the per-tensor, no-promotion case (<span class="math inline">\(\approx3.5\times10^{-3}\)</span> at <span class="math inline">\(K=4096\)</span>), 30 times DeepSeek-V3’s promoted <span class="math inline">\(1.2\times10^{-4}\)</span>; its total error should be worse than DeepSeek’s because of the E8M0 floor rule’s saturation. Measured on the bench’s outlier activations at <span class="math inline">\(K=4096\)</span>: accumulation error <span class="math inline">\(3.5\times10^{-3}\)</span> against <span class="math inline">\(1.2\times10^{-4}\)</span>; total error 4.7% against 3.4%. The design one wants in hardware combines both: scales applied inside the MMA (no software rescaling) <em>and</em> a wide accumulator (or hardware promotion), which is what DeepSeek-AI (2024) asked of future tensor cores.</p>
+</section>
+<section id="exercise-5.9." class="level4">
+<h4>Exercise 5.9.</h4>
+<p><em>Prediction.</em> A <span class="math inline">\(16\times16\)</span> block’s scale is set by the largest of 256 values instead of 16. For Gaussian weights the block maximum grows from about <span class="math inline">\(\sigma\sqrt{2\ln16}=2.4\sigma\)</span> to <span class="math inline">\(\sigma\sqrt{2\ln256}=3.3\sigma\)</span>, so after scaling the bulk of the values sits about 1.4 times lower on the E2M1 grid, where the grid is coarser relative to the values: a modest increase in error, the same for the forward and the backward orientation. For the outlier activations a 2-D block spans 16 tokens of each outlier channel, so 15 ordinary channels share their scale with the largest of 16 outlier values instead of one: a large increase.</p>
+<p><em>Measurement.</em> Gaussian weights (<span class="math inline">\(1024\times4096\)</span>, <span class="math inline">\(\sigma=0.02\)</span>, E2M1 with E4M3 scales): <span class="math inline">\(1\times16\)</span> and <span class="math inline">\(16\times1\)</span> blocks 10.3%, <span class="math inline">\(16\times16\)</span> blocks 11.2%, a <span class="math inline">\(16\times1\)</span> copy re-quantised from the <span class="math inline">\(1\times16\)</span> copy 12.8%. Outlier activations (<code>bench.py --only backward</code>): <span class="math inline">\(1\times16\)</span> 8.6%, <span class="math inline">\(16\times1\)</span> made directly 9.5%, re-quantised 12.7%, <span class="math inline">\(16\times16\)</span> 14.1%. For weights, the 2-D block costs under one point and gives one consistent copy for the forward and data-gradient GEMMs, better than re-quantising (12.8%); for activations it costs 5.5 points, so the recipe quantises activations and gradients separately along each GEMM’s reduction dimension, from the BF16 source, and uses 2-D blocks only for the weights, whose values have no outlier channels.</p>
+</section>
+</section>
+<section id="chapter-6-project-10-know-your-machine" class="level2 unnumbered">
+<h2 class="unnumbered">Chapter 6: Project 10, Know Your Machine</h2>
+<section id="exercise-6.1" class="level4">
+<h4>Exercise 6.1</h4>
+<p>From <span class="math inline">\(\pi = N_{\text{SM}}\,f\,\phi\)</span>, <span class="math inline">\(f = 989\times10^{12}/(132\times4{,}096) = 1.83\)</span> GHz. The datasheet number therefore assumes every SM runs its tensor cores at 1.83 GHz for the whole computation. Compare it with the maximum clock <code>nvidia-smi -q -d CLOCK</code> reports, and then with the clock under a sustained GEMM (the method of Section&nbsp;<a href="ch06_proj_machine.html#sec:proj10:power">6.5.2</a>). On our A100 a large GEMM’s throughput was proportional to the clock, so the burst-to-sustained ratio equals the clock ratio, <span class="math inline">\(1{,}035/1{,}410 = 0.73\)</span>. A card with more tensor throughput per watt of power limit will throttle further; predict the ratio from (peak FLOP/s) / (power limit) relative to the A100’s <span class="math inline">\(312/250\)</span>, then measure it with the sampler, pairing samples by timestamp.</p>
+</section>
+<section id="exercise-6.2" class="level4">
+<h4>Exercise 6.2</h4>
+<p><span class="math inline">\(n_{1/2} = \alpha\beta = 6.3\times10^{-6}\times23.9\times10^{9} = 151\)</span> KB. Since <span class="math inline">\(B(n)/\beta = n/(n+n_{1/2})\)</span>, 90% needs <span class="math inline">\(n = 9\,n_{1/2} \approx 1.36\)</span> MB. A batch of <span class="math inline">\(8\times2048\)</span> int64 ids is 131 KB: <span class="math inline">\(t = 6.3\ \mu\text{s} + 131{,}072/23.9\times10^{9}\ \text{s} =
+11.8\ \mu\)</span>s, an effective 11.1 GB/s (46% of <span class="math inline">\(\beta\)</span>). As int32 it is 65.5 KB and takes 9.0 μs. The 3 μs saved is invisible next to a training step of tens of milliseconds, and with <code>non_blocking</code> the copy overlaps compute anyway; the dtype matters for memory, not for transfer time.</p>
+</section>
+<section id="exercise-6.3" class="level4">
+<h4>Exercise 6.3</h4>
+<p><span class="math inline">\(\beta_{\text{memcpy}} = 1/(1/8.1 - 1/23.5) = 12.4\)</span> GB/s, against <span class="math inline">\(1/(1/10.0 - 1/24.0) = 17.1\)</span> GB/s inferred from the H2D direction. The two-stage model with one host-copy rate does not fit both directions: the D2H pageable path is slower than the model explains (its host copy runs after the DMA into the staging buffer, and the driver may overlap the two stages less in this direction). A direct test: time a 256 MiB <code>pageable.copy_(pinned)</code> on the CPU (one thread, then several, with both buffers on the GPU’s NUMA node) to measure <span class="math inline">\(\beta_{\text{memcpy}}\)</span> in each direction, then predict the pageable transfer from (<a href="ch06_proj_machine.html#eq:proj10:pageable">6.6</a>) with no overlap and with full overlap (<span class="math inline">\(\min(\beta_{\text{pinned}}, \beta_{\text{memcpy}})\)</span>); the measurement should fall between the two.</p>
+</section>
+<section id="exercise-6.4" class="level4">
+<h4>Exercise 6.4</h4>
+<p>With <span class="math inline">\(k = n/c\)</span> chunks, <span class="math inline">\(T(c) = (n/c + 1)(\alpha + c/\beta) = n\alpha/c + n/\beta + \alpha +
+c/\beta\)</span>. Setting <span class="math inline">\(dT/dc = -n\alpha/c^2 + 1/\beta = 0\)</span> gives <span class="math inline">\(c^\star = \sqrt{n\alpha\beta} =
+\sqrt{n\,n_{1/2}}\)</span>. For <span class="math inline">\(n = 256\)</span> MiB: with the H2D stage (<span class="math inline">\(n_{1/2} = 151\)</span> KB) <span class="math inline">\(c^\star = 6.4\)</span> MB; with the D2H stage (<span class="math inline">\(n_{1/2} = 356\)</span> KB) <span class="math inline">\(c^\star = 9.8\)</span> MB. Both are close to the 8 MiB we used, and at the optimum <span class="math inline">\(T^\star = n/\beta + 2\sqrt{n\alpha/\beta} + \alpha \approx 11.2 + 0.5 =
+11.8\)</span> ms, about 23 GB/s. The measured 18.5 GB/s (two-GPU run) is lower because both DMA streams share host memory, one of them necessarily crosses the inter-socket link (the two GPUs are on different nodes, the pinned buffers on one), our measurement did not place the buffers deliberately, and the Python loop issues four operations per chunk at several microseconds each. <code>staged_bandwidth(n, 0, 1, c)</code> for <span class="math inline">\(c\)</span> = 1, 4, 16, 64 MiB gives the measured curve; expect the small chunks to lose most (they pay <span class="math inline">\(\alpha\)</span> and the host’s enqueue cost 256 times).</p>
+</section>
+<section id="exercise-6.5" class="level4">
+<h4>Exercise 6.5</h4>
+<p>For Gaussian samples the median’s standard error is <span class="math inline">\(\sqrt{\pi/2}\,\sigma/\sqrt{n} \approx
+1.2533\,\sigma/\sqrt{n}\)</span>. A 95% interval of half-width 1% with <span class="math inline">\(\sigma = 3\%\)</span> of the median needs <span class="math inline">\(1.96\times1.2533\times0.03/\sqrt{n} \le 0.01\)</span>, so <span class="math inline">\(\sqrt{n} \ge 7.4\)</span> and <span class="math inline">\(n \ge 55\)</span>. The order-statistic rule (<a href="ch06_proj_machine.html#eq:proj10:ci">6.4</a>) with <span class="math inline">\(n = 55\)</span> takes ranks 20 and 36. A bootstrap check: draw 55 log-normal samples with <span class="math inline">\(\sigma_{\log} = 0.03\)</span>, call <code>stats.bootstrap_ci</code>, and repeat a few hundred times; the interval’s half-width averages about 1% and it covers the true median in about 95% of repetitions. For timing distributions with a heavy right tail, the median needs fewer samples than the mean for the same precision, one more reason to report it.</p>
+</section>
+<section id="exercise-6.6" class="level4">
+<h4>Exercise 6.6</h4>
+<p>Eager: the host enqueues 420 kernels at 7.4 μs each, 3.1 ms, while the GPU’s own work (about 0.9 ms of weight streaming) hides underneath: the step is host-bound. Fusing half the kernels gives 1.6 ms, still host-bound. From a CUDA graph the host costs one launch; the device runs 420 kernels with about 1.3 μs of gap each (0.55 ms) and streams the weights in 0.9 ms, so the step takes between <span class="math inline">\(\max(0.9, 0.55) = 0.9\)</span> ms and <span class="math inline">\(0.9 + 0.55 = 1.45\)</span> ms, depending on how much of the gaps overlap with work. Eager decoding stops being overhead-bound when the GPU’s work exceeds 3.1 ms: ignoring the KV cache, the matmul FLOPs are <span class="math inline">\(2\times0.6\times10^9\times B\)</span>, which take 3.1 ms at 217 TFLOP/s for <span class="math inline">\(B \approx 560\)</span>. Reading the KV cache grows with batch and context and lowers that crossover in practice.</p>
+</section>
+<section id="exercise-6.7" class="level4">
+<h4>Exercise 6.7</h4>
+<ol type="a">
+<li>Work division: PyTorch’s elementwise kernels launch a grid sized from the element count; a size that leaves a partly filled last wave of blocks over the 108 SMs wastes a fraction of the final wave, and at a few microseconds per kernel the tail is a visible share. (b) Address mapping: L2 slices and the two partitions are selected by hashing physical addresses; buffers whose sizes are not powers of two can load the slices unevenly or straddle partitions differently. To distinguish them, sweep the size finely (32 points per octave between 2 and 16 MiB): mechanism (a) predicts dips at sizes where the block count crosses multiples of 108 times the resident blocks per SM, and the pattern should also appear in the cold sweep; mechanism (b) predicts a dependence on alignment, so repeat each size with the buffers offset by 1 KiB and by 64 KiB, which leaves (a) unchanged and moves (b). The two mechanisms are not exclusive; report the fraction of the dip each explains.</li>
+</ol>
+</section>
+<section id="exercise-6.8" class="level4">
+<h4>Exercise 6.8</h4>
+<p>With <span class="math inline">\(F = 1.0995\times10^{12}\)</span>: the “burst” time is <span class="math inline">\(F/261\times10^{12} = 4.213\)</span> ms at 1,410 MHz and the sustained time <span class="math inline">\(F/217\times10^{12} = 5.067\)</span> ms at 1,035 MHz. Subtracting, <span class="math inline">\(W_{\text{SM}}(1/1{,}035 - 1/1{,}410) = 0.854\)</span> ms gives <span class="math inline">\(W_{\text{SM}} \approx 3{,}320\)</span> MHz<span class="math inline">\(\cdot\)</span>ms and <span class="math inline">\(W_{\text{mem}} = 4.213 - 3{,}320/1{,}410 = 1.86\)</span> ms, 44% of the burst time apparently independent of the clock. At 765 MHz the fit predicts <span class="math inline">\(3{,}320/765 + 1.86 = 6.2\)</span> ms, 177 TFLOP/s. But the clock-scaled peak at 765 MHz is <span class="math inline">\(312\times765/1{,}410 = 169\)</span> TFLOP/s: the fit predicts a GEMM that completes more FLOPs per clock cycle than the tensor cores can issue, which is impossible. The faulty assumption is that the “burst” sample ran entirely at 1,410 MHz. The clock readings lag the GPU by up to about 100 ms, and the throttle reason “software power cap” was already active at the first sample; the first 10-GEMM group (44 ms) partly ran at a lower clock, so its throughput understates what 1,410 MHz delivers, and the fit invents a clock-independent part to explain the shortfall. The correctly timestamped trace of Figure&nbsp;<a href="ch06_proj_machine.html#fig:proj10:sustained">6.7</a> settles it: throughput divided by the clock at each moment is constant at about 294 TFLOP/s per 1,410 MHz across the steady state, so <span class="math inline">\(W_{\text{mem}} \approx 0\)</span> for this GEMM, and the proportional model predicts <span class="math inline">\(294\times765/1{,}410 = 160\)</span> TFLOP/s at 765 MHz, below the peak as it must be.</p>
+</section>
+<section id="exercise-6.9" class="level4">
+<h4>Exercise 6.9</h4>
+<p>The rule multiplies compute-bound kernel times by <span class="math inline">\(1{,}410/1{,}035 = 1.36\)</span> and leaves memory-bound ones unchanged. For the large GEMMs it should work: Section&nbsp;<a href="ch06_proj_machine.html#sec:proj10:power">6.5.2</a> found their throughput proportional to the clock, so the <span class="math inline">\(4096^3\)</span> GEMM should go from 549 μs to about 750 μs. It under-predicts latency-bound memory kernels (softmax, LayerNorm, small kernels), whose time depends on how fast the SMs issue loads and on fixed costs that scale with the clock, and it may over-predict the slowdown of small GEMMs, whose time includes clock-independent fixed costs. Streaming kernels (copy, add, GEMV) should not move. To measure in the low-clock state without locking clocks, time each kernel immediately after two seconds of back-to-back GEMMs, record the clock with a timestamped sampler, and discard samples whose clock is not near 1,035 MHz. Habitat’s own evaluation compares different GPUs, where SM count, bandwidth and cache size change together; this box isolates the clock, which is the cleanest test of its scaling rule.</p>
+</section>
+<section id="exercise-6.10" class="level4">
+<h4>Exercise 6.10</h4>
+<p>A prediction for an H100 SXM from our fractions: HBM copy <span class="math inline">\(0.85\times3.35 = 2.85\)</span> TB/s; BF16 per clock <span class="math inline">\(0.94\times989 \approx 930\)</span> TFLOP/s at the boost clock, less under the power limit; PCIe 5.0 x16 pinned about <span class="math inline">\(0.76\times63 = 48\)</span> GB/s from the local NUMA node; GPU-to-GPU over NVLink rather than PCIe, hundreds of GB/s, but checked for correctness all the same; fixed costs similar to ours (they are set by the host CPU and the driver, not the GPU). The fractions most likely to transfer are the DRAM and PCIe ones (Table&nbsp;<a href="ch06_proj_machine.html#tab:proj10:repro">6.11</a> already shows them carrying over from V100 to A100) and the fixed costs; the least likely are the burst GEMM fraction (it depends on library maturity for the architecture) and the burst–sustained gap (it depends on the power limit relative to throughput, 700 W on the SXM part). The model of (<a href="ch06_proj_machine.html#eq:proj10:model">6.8</a>) needs an interconnect term for NVLink paths and, for FP8, a compute class whose peak depends on the scaling granularity of Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a>.</p>
+</section>
+<section id="exercise-6.11" class="level4">
+<h4>Exercise 6.11</h4>
+<p>A minimal test, skipped on machines with fewer than two GPUs:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="at">@pytest.mark.parametrize</span>(<span class="st">&quot;n&quot;</span>, [<span class="dv">1024</span>, <span class="dv">16</span> <span class="op">*</span> <span class="dv">2</span><span class="op">**</span><span class="dv">20</span>])</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="at">@pytest.mark.parametrize</span>(<span class="st">&quot;src,dst&quot;</span>, [(<span class="dv">0</span>, <span class="dv">1</span>), (<span class="dv">1</span>, <span class="dv">0</span>)])</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> test_peer_copy_delivers_data(n, src, dst):</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    x <span class="op">=</span> (torch.arange(n, device<span class="op">=</span><span class="ss">f&quot;cuda:</span><span class="sc">{</span>src<span class="sc">}</span><span class="ss">&quot;</span>) <span class="op">%</span> <span class="dv">65521</span>).<span class="bu">float</span>()</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> x.to(<span class="ss">f&quot;cuda:</span><span class="sc">{</span>dst<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    torch.cuda.synchronize(src)<span class="op">;</span> torch.cuda.synchronize(dst)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">assert</span> torch.equal(y.cpu(), x.cpu())      <span class="co"># compare through the host, not the path under test</span></span></code></pre></div>
+<p>Add a non-contiguous case and the framework’s own send/receive path, and record the IOMMU group type next to the result (<code>env.iommu_info</code>): a translating IOMMU (<code>DMA</code>, <code>DMA-FQ</code>) is the configuration NVIDIA does not support for PCIe peer-to-peer. NCCL does not need the test on our box because it does not use peer-to-peer DMA across a <code>SYS</code> path by default: its topology search reads the PCI hierarchy, assigns each pair of GPUs a path type, and enables the P2P transport only up to a configured path distance (<code>NCCL_P2P_LEVEL</code>), falling back to shared host memory (the “via SHM/direct” channels in its log) otherwise. Choosing a transport from the measured topology rather than from the driver’s yes/no answer to “can access peer” is the robust design.</p>
+</section>
+</section>
+<section id="chapter-7-project-11-a-low-precision-training-study" class="level2 unnumbered">
+<h2 class="unnumbered">Chapter 7: Project 11: A Low-Precision Training Study</h2>
+<section id="exercise-7.1." class="level4">
+<h4>Exercise 7.1.</h4>
+<p>The band is <span class="math inline">\((2^{-(m+2)}, 2^{-(m+1)}]\)</span>: below it every update is lost, above it none is.</p>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">format</th>
+<th style="text-align: right;"><span class="math inline">\(m\)</span></th>
+<th style="text-align: left;">band of <span class="math inline">\(\lvert\delta\rvert/\lvert w\rvert\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(\eta\)</span> that freezes <span class="math inline">\(\lvert w\rvert=0.02\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(\eta\)</span> that freezes <span class="math inline">\(\lvert w\rvert=1\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">FP32</td>
+<td style="text-align: right;">23</td>
+<td style="text-align: left;"><span class="math inline">\((3.0\times10^{-8}, 6.0\times10^{-8}]\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(6\times10^{-10}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(3\times10^{-8}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">TF32, FP16</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: left;"><span class="math inline">\((2.4\times10^{-4}, 4.9\times10^{-4}]\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(4.9\times10^{-6}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2.4\times10^{-4}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: left;"><span class="math inline">\((2.0\times10^{-3}, 3.9\times10^{-3}]\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(3.9\times10^{-5}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2.0\times10^{-3}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">E4M3</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: left;"><span class="math inline">\((0.031, 0.063]\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(6.3\times10^{-4}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(0.031\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">E5M2</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: left;"><span class="math inline">\((0.063, 0.125]\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(1.3\times10^{-3}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(0.063\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>“Freezes” uses the lower edge: AdamW’s update is about <span class="math inline">\(\eta\)</span>, so every update is lost once <span class="math inline">\(\eta\le|w|\,2^{-(m+2)}\)</span>. At a final learning rate of <span class="math inline">\(3\times10^{-5}\)</span> only FP32 keeps every weight moving. FP16 freezes weights above <span class="math inline">\(3\times10^{-5}\cdot2^{12}=0.12\)</span> (LayerNorm gains, large output weights), BF16 every weight above <span class="math inline">\(3\times10^{-5}\cdot2^{9}=0.015\)</span>, which is most of a GPT-initialised model. TF32 is a compute mode, not a storage format, so the row is only for comparison.</p>
+</section>
+<section id="exercise-7.2." class="level4">
+<h4>Exercise 7.2.</h4>
+<p>With <span class="math inline">\(p=\operatorname{softmax}(z_t)\)</span> and <span class="math inline">\(L=-\frac1N\sum_t\ln p_{t,y_t}\)</span>, <span class="math inline">\(\partial L/\partial z_{t,j}=\frac1N(p_{t,j}-\mathbb{1}[j=y_t])\)</span>, the usual softmax–cross-entropy gradient divided by the number of scored tokens. Near the floor, a context’s eight possible successors have probabilities 0.37 down to 0.05, so their logit gradients are <span class="math inline">\(0.05/N\)</span> to <span class="math inline">\(0.37/N\)</span> for the non-target successors and up to <span class="math inline">\((1-p)/N\approx0.95/N\)</span> in magnitude for the target, i.e. <span class="math inline">\(2.5\times10^{-5}\)</span> to <span class="math inline">\(4.8\times10^{-4}\)</span> for <span class="math inline">\(N\approx2{,}000\)</span> (<span class="math inline">\(2^{-15.3}\)</span> to <span class="math inline">\(2^{-11}\)</span>): normal in FP16 above <span class="math inline">\(2^{-14}\)</span> and subnormal below; in E5M2 the same split (its smallest normal is also <span class="math inline">\(2^{-14}\)</span>), with only one or two significant bits at the bottom; in E4M3 (smallest subnormal <span class="math inline">\(2^{-9}\)</span>) all zero without a scale. The other 24 tokens of the vocabulary have probabilities that a trained model drives towards zero, <span class="math inline">\(10^{-4}\)</span> and below, giving gradients of <span class="math inline">\(5\times10^{-8}\)</span> and less. FP16 does not flush <span class="math inline">\(5.0\times10^{-8}\)</span>: anything above <span class="math inline">\(2^{-25}\)</span> rounds up to the smallest subnormal <span class="math inline">\(2^{-24}=5.96\times10^{-8}\)</span> (here a 19% error); only below <span class="math inline">\(p\approx5\times10^{-5}\)</span>, i.e. gradients under <span class="math inline">\(2.98\times10^{-8}\)</span>, does FP16 flush to zero. E5M2 and E4M3 flush all of them. The median over all 32 logits is therefore one of these tiny values. The step-51 histogram of Figure&nbsp;<a href="ch07_proj_lowprec.html#fig:proj11:gradhist">7.4</a> (all GEMM inputs, not only logits) peaks at <span class="math inline">\(2^{-20}\)</span>, inside FP16’s subnormal range and below both FP8 ranges, which is why <code>fp8_noscale</code> flushes most gradients and <code>fp16_noscale</code> keeps most of them with reduced precision.</p>
+<p>For the GPT-2-sized run, a plausible token with <span class="math inline">\(p\approx1/300\)</span> gives <span class="math inline">\(3.3\times10^{-3}/8{,}192=4\times10^{-7}\approx2^{-21.2}\)</span>: an FP16 subnormal with about three significant bits, zero in E5M2 and E4M3. The tens of thousands of implausible tokens, with <span class="math inline">\(p\lesssim10^{-6}\)</span>, give <span class="math inline">\(\lesssim1.2\times10^{-10}\)</span>, zero even in FP16; they are the median. Larger vocabularies and larger batches push the whole distribution down, which is why loss scaling, or BF16, is indispensable at scale, and why FP8 gradients need per-tensor or finer scales.</p>
+</section>
+<section id="exercise-7.3." class="level4">
+<h4>Exercise 7.3.</h4>
+<p>The largest gradient in the last histogram is below <span class="math inline">\(2^{-8}\)</span>. That bound guarantees <span class="math inline">\(S\max|g|&lt;2^{16}\)</span> for <span class="math inline">\(S=2^{24}\)</span>, which is not enough: FP16 overflows at <span class="math inline">\(65{,}520&lt;2^{16}\)</span>, so a gradient just under <span class="math inline">\(2^{-8}\)</span> would overflow. The histogram guarantees safety for <span class="math inline">\(S\le2^{23}\)</span> (<span class="math inline">\(S\max|g|&lt;2^{15}\)</span>). At <span class="math inline">\(S=2^{23}\)</span> only values below <span class="math inline">\(2^{-47}\)</span> would still flush, about 1.7% of the nonzero values, all of them far too small to matter. <code>GradScaler</code> does not compute <span class="math inline">\(S\)</span> from a histogram because the histogram costs a pass over every gradient and a host synchronisation per step, the maximum changes during training (it grew by 2 binades between our first and last histograms), and an overflow is cheap to detect after the fact (one <code>isfinite</code> reduction) and cheap to recover from (skip one step, halve <span class="math inline">\(S\)</span>). Starting high and backing off finds the largest safe scale in a few skipped steps and tracks it afterwards.</p>
+</section>
+<section id="exercise-7.4." class="level4">
+<h4>Exercise 7.4.</h4>
+<p>With history amax 1.0 the scale is <span class="math inline">\(448\)</span>. At the spike every element with <span class="math inline">\(|x|\ge(448+16)/448\approx1.036\)</span> saturates to <span class="math inline">\(448/448 = 1\)</span>, so all elements between 1.036 and 8 are clipped and the largest is reduced by a factor of 8 (to 1.0). The spike’s own amax enters the history after the cast, so the next step is scaled correctly (<span class="math inline">\(448/8=56\)</span>). But the history keeps the maximum of the last <span class="math inline">\(L\)</span> amax values, so for the following <span class="math inline">\(L\)</span> steps the ordinary tensors (amax 1) are scaled by 56 instead of 448: they use only the bottom part of E4M3’s range, and every value below <span class="math inline">\(2^{-9}/56\approx3.5\times10^{-5}\)</span> flushes to zero instead of below <span class="math inline">\(4.4\times10^{-6}\)</span>; three binades of range are lost for <span class="math inline">\(L\)</span> steps. A margin <span class="math inline">\(\mu=1\)</span> halves the scale on every step: the top binade of E4M3 is never used, the underflow threshold rises by a factor of 2, and relative precision of normal values is unchanged (it is set by the 3 fraction bits). A spike of <span class="math inline">\(8\times\)</span> still saturates with <span class="math inline">\(\mu=1\)</span>; it takes <span class="math inline">\(\mu=3\)</span> to absorb it. <code>test_delayed_scaling_uses_previous_amax</code> is the <span class="math inline">\(4\times\)</span> version of this experiment.</p>
+</section>
+<section id="exercise-7.5." class="level4">
+<h4>Exercise 7.5.</h4>
+<p>At <span class="math inline">\(|w|=0.02\)</span> the BF16 gap is <span class="math inline">\(q=2^{-13}=1.22\times10^{-4}\)</span> and an update of <span class="math inline">\(10^{-5}\)</span> is the fraction <span class="math inline">\(f=0.082\)</span> of it. Each step, stochastic rounding moves the weight by <span class="math inline">\(q\)</span> with probability <span class="math inline">\(f\)</span> and by 0 otherwise: mean <span class="math inline">\(10^{-5}\)</span> (unbiased), variance <span class="math inline">\(q^2f(1-f)=1.1\times10^{-9}\)</span>, standard deviation <span class="math inline">\(3.3\times10^{-5}\)</span>. After <span class="math inline">\(T\)</span> steps the signal is <span class="math inline">\(T\cdot10^{-5}\)</span> and the noise <span class="math inline">\(\sqrt T\cdot3.3\times
+10^{-5}\)</span>; the signal dominates after <span class="math inline">\(T\approx11\)</span> steps and the relative noise falls as <span class="math inline">\(3.3/\sqrt T\)</span>: 10% after about 1,100 steps. So stochastic rounding behaves like a small extra gradient noise whose size is set by the ulp, and the optimiser is already averaging much larger minibatch noise. In Table&nbsp;<a href="ch07_proj_lowprec.html#tab:proj11:results">7.4</a> <code>bf16_pure_sr</code> sits at +0.04 on the transformer and +0.02 on the MLP, inside single-seed noise; the full study’s three seeds will say whether any residual gap is real.</p>
+</section>
+<section id="exercise-7.6." class="level4">
+<h4>Exercise 7.6.</h4>
+<p>In <span class="math inline">\(\partial L/\partial W = (\partial L/\partial Y)^\top X\)</span> the sum runs over tokens: entry <span class="math inline">\((i,j)\)</span> is <span class="math inline">\(\sum_t g_{t,i}x_{t,j}\)</span>. A block-scaled operand contributes <span class="math inline">\(s_b\,\tilde{x}_{t,j}\)</span>, and the scale can be pulled out of a partial sum only if it is constant over the summation index within the block. So the scales of <span class="math inline">\(X\)</span> must be constant over runs of tokens, i.e. blocks along the token dimension; the same for <span class="math inline">\(\partial L/\partial Y\)</span>. Blocking <span class="math inline">\(X\)</span> along <span class="math inline">\(d_{\text{in}}\)</span> instead gives each <span class="math inline">\((t,j)\)</span> a scale that varies with <span class="math inline">\(t\)</span> inside one dot product, and an MX tensor core, which multiplies codes and applies one scale pair per <span class="math inline">\(K\)</span>-block, cannot compute that product: the fake-quantised version is a computation no hardware performs. Its error is not necessarily larger. With the activations’ outliers concentrated in a few channels, blocks along <span class="math inline">\(d_{\text{in}}\)</span> group the outlier channel with ordinary ones in every token, while blocks along tokens keep each channel’s values together. Measured with MXFP4 on a <span class="math inline">\(512\)</span>-token layer (<span class="math inline">\(d_{\text{in}}=256\)</span>, <span class="math inline">\(d_{\text{out}}=128\)</span>): with Gaussian activations both orientations give a weight-gradient error of 16.2%; with four outlier channels (20 times larger) the token orientation gives 16.0% and the <span class="math inline">\(d_{\text{in}}\)</span> orientation 18.2%. The exercise’s point is that “which orientation is more accurate” is not the question; only one is implementable.</p>
+</section>
+<section id="exercise-7.7." class="level4">
+<h4>Exercise 7.7.</h4>
+<p>With <span class="math inline">\(u=2^{-8}\)</span> and <span class="math inline">\(K/c=2{,}048/32=64\)</span> rounding steps, the random-sign estimate is <span class="math inline">\(u\sqrt{64}=3.1\%\)</span> and the worst case <span class="math inline">\(u\cdot64=25\%\)</span>; with promotion every 128 elements each window has 4 steps, <span class="math inline">\(u\sqrt4=0.8\%\)</span>. Measured with <code>emulate.qmm</code> on Gaussian operands rounded to BF16 (<span class="math inline">\(64\times2048\)</span> by <span class="math inline">\(2048\times64\)</span>): a relative Frobenius error of 0.94% without promotion and 0.26% with it, about a third of the estimates, as expected for rounding errors whose RMS is <span class="math inline">\(u/\sqrt3\)</span> rather than <span class="math inline">\(u\)</span> and partial sums that are smaller than the final one for most of the sum. In training (Table&nbsp;<a href="ch07_proj_lowprec.html#tab:proj11:results">7.4</a>) neither recipe moves the transformer’s loss outside seed noise. A 1% error in a weight gradient is far smaller than the noise of the minibatch gradient itself (whose relative error at batch 64 is tens of percent) and, under round-to-nearest, it is mostly unbiased; Adam then normalises it away. The accumulator matters when its error is a <em>bias</em> (round-toward-zero accumulators, as in Hopper’s FP8 path) or when <span class="math inline">\(K\)</span> is much larger, as in the weight gradients of a large-batch run.</p>
+</section>
+<section id="exercise-7.8." class="level4">
+<h4>Exercise 7.8.</h4>
+<p>Per parameter: <code>bf16</code>: BF16 weights 2 + FP32 master 4 + FP32 gradients 4 + two FP32 moments 8 = 18 bytes (16 with BF16 gradients): 126 GB for 7B. <code>bf16_pure</code> and <code>bf16_pure_sr</code>: 2 + 2 + 8 = 12 bytes, 84 GB. <code>fp8_tensor</code>: the FP8 copy is a transient cast of the master (1 byte if cached for the backward pass) + 4 + 4 + 8 = 16–17 bytes, 112–119 GB: FP8 GEMMs save time and activation memory, not optimiser-state memory. BF16 moments save 4 bytes in any of them (14 for <code>bf16</code>). Stochastic rounding is free in memory and costs random numbers (16 random bits per updated parameter, a fused kernel’s worth of time); the master copy costs 4 bytes per parameter; loss scaling costs nothing in memory and a skipped step each time the scale is too high.</p>
+</section>
+<section id="exercise-7.9." class="level4">
+<h4>Exercise 7.9.</h4>
+<p>At equal steps (our table) the FP4 recipes are behind: the best on the transformer is <code>nvfp4_sr</code> at 2.147 (FP32: 2.024). At equal compute, an FP4 run gets up to four times the steps of a BF16 run (if every FLOP were in FP4 GEMMs) and an FP8 run twice. So a BF16 run with the compute of the 1,000-step FP4 run gets 250 steps. The FP32 curve of the smoke run (BF16 matches it) is at 3.342 after 250 steps and 2.371 after 500, both above <code>nvfp4_sr</code>’s final 2.147: at a quarter of the steps the model has not yet learnt to attend to the previous token. A 250-step run with its own, compressed schedule would do somewhat better than step 250 of a 1,000-step schedule, but reaching 2.15 when the 1,000-step run needed 500 steps to get to 2.37 is very unlikely. So at equal compute and a fixed wall-clock budget the comparison flips in favour of any FP4 recipe that trains at all, which is Castro et al.’s point; but the speedup assumes the GEMMs are the whole step, and in a real run the attention, normalisation and optimiser keep a share of the time in higher precision (Amdahl’s law). Checking the claim needs real FP4 tensor cores (Blackwell), a measured step time per recipe, and loss-versus-wall-clock curves with seeds.</p>
+</section>
+<section id="exercise-7.10." class="level4">
+<h4>Exercise 7.10.</h4>
+<p>The prediction: a weight stops learning when <span class="math inline">\(\eta(t)/|w|\le2^{-9}\)</span>; with AdamW’s update close to <span class="math inline">\(\eta\)</span>, the fraction of frozen weights at step <span class="math inline">\(t\)</span> is the fraction of the FP32 run’s per-element ratios below <span class="math inline">\(2^{-9}\)</span>, which the update-ratio histograms give directly (Figure&nbsp;<a href="ch07_proj_lowprec.html#fig:proj11:ratios">7.8</a>). The gap starts to matter when that fraction is large during the part of training where the loss still improves. In the smoke run the FP32 MLP’s predicted lost fraction (for BF16 storage) averaged 68% at <span class="math inline">\(\eta=10^{-3}\)</span>, and <code>bf16_pure</code> was broken, stalled; at <span class="math inline">\(3\times10^{-3}\)</span> the prediction was 47% and the gap +0.68. Interpolating on the predicted fraction places the crossing of 0.10 above the largest learning rate of the smoke sweep, so the full sweep’s <span class="math inline">\(\eta=10^{-2}\)</span> point is where it should be checked. The prediction is pessimistic in one way (a weight with updates in the band is only partly frozen: some of its updates survive) and optimistic in another (it ignores that frozen weights change the gradients of the others), and it treats all weights alike, while biases and LayerNorm parameters, being few, matter more per weight.</p>
+</section>
+<section id="exercise-7.11." class="level4">
+<h4>Exercise 7.11.</h4>
+<p>Prediction: the 14-bit round-toward-zero accumulator biases every dot product towards zero by about half an ulp of the accumulator per chunk, i.e. a relative bias of order <span class="math inline">\(2^{-14}K/c\)</span> without promotion: 0.4% for the weight-gradient GEMM (<span class="math inline">\(K=2{,}048\)</span>, <span class="math inline">\(c=32\)</span>), 0.03% for the others. That bias shrinks every weight gradient consistently, which Adam’s normalisation largely cancels (it rescales by the running RMS), so the expected effect on the loss is small; promotion every 128 elements reduces it 16-fold. The weight-gradient GEMM is most affected because its <span class="math inline">\(K\)</span> is the number of tokens in the batch, which grows with batch size while the other two GEMMs’ <span class="math inline">\(K\)</span> is fixed by the model width. The measurement belongs to the full configuration (<code>fp8_block_acc14</code>, <code>fp8_block_acc14_promote</code>); a reader with the smoke budget can add the two recipes to the transformer’s list in <code>configs/smoke.json</code> and run <code>run.py --only fp8_block_acc14</code>. They are slow (the 14-bit format has no native dtype, so every chunk is rounded by the simulator).</p>
+</section>
+</section>
+</section>
+
+    </article>
+    <nav class="pager"><a class="prev" href="appF_references.html">&larr; References and Further Reading</a> <span></span></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#chapter-1-the-landscape" id="toc-chapter-1-the-landscape">Chapter 1: The Landscape</a></li>
+<li><a href="#chapter-2-pytorch-essentials" id="toc-chapter-2-pytorch-essentials">Chapter 2: PyTorch Essentials</a></li>
+<li><a href="#chapter-3-the-machine-underneath" id="toc-chapter-3-the-machine-underneath">Chapter 3: The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="#chapter-4-numbers-on-the-machine-formats-rounding-and-stable-algorithms" id="toc-chapter-4-numbers-on-the-machine-formats-rounding-and-stable-algorithms">Chapter 4: Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="#chapter-5-scaling-quantisation-and-mixed-precision" id="toc-chapter-5-scaling-quantisation-and-mixed-precision">Chapter 5: Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="#chapter-6-project-10-know-your-machine" id="toc-chapter-6-project-10-know-your-machine">Chapter 6: Project 10, Know Your Machine</a></li>
+<li><a href="#chapter-7-project-11-a-low-precision-training-study" id="toc-chapter-7-project-11-a-low-precision-training-study">Chapter 7: Project 11: A Low-Precision Training Study</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="796" viewBox="0 0 1000 796">
+<rect x="0" y="0" width="1000" height="796" fill="#ffffff"/>
+<rect x="10" y="14" width="22" height="14" rx="3" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.5"/>
+<text x="38" y="26" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">models, training</text>
+<rect x="172.0" y="14" width="22" height="14" rx="3" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.5"/>
+<text x="200.0" y="26" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">systems, serving</text>
+<rect x="334.0" y="14" width="22" height="14" rx="3" fill="#e2efe2" stroke="#2e6b30" stroke-width="1.5"/>
+<text x="362.0" y="26" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">data, evaluation</text>
+<rect x="496.0" y="14" width="22" height="14" rx="3" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.5"/>
+<text x="524.0" y="26" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">reasoning, post-training</text>
+<rect x="714.0" y="14" width="22" height="14" rx="3" fill="#ffffff" stroke="#9b2c2c" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="742.0" y="26" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">capstone project</text>
+<rect x="876.0" y="14" width="22" height="14" rx="3" fill="#eeeeee" stroke="#555555" stroke-width="1.5"/>
+<text x="904.0" y="26" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">appendix</text>
+<rect x="4" y="52" width="992" height="54" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="75.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part I</text>
+<text x="14" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Foundations</text>
+<rect x="150.0" y="58.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="199.5" y="83.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Landscape</text>
+<rect x="255.0" y="58.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="304.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">PyTorch</text>
+<text x="304.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">essentials</text>
+<rect x="360.0" y="58.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="409.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">The machine</text>
+<text x="409.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">underneath</text>
+<rect x="465.0" y="58.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="514.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Numbers on</text>
+<text x="514.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">the machine</text>
+<rect x="570.0" y="58.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="619.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Scaling and</text>
+<text x="619.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">quantisation</text>
+<rect x="675.0" y="58.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="724.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P10 Know</text>
+<text x="724.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">your machine</text>
+<rect x="780.0" y="58.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="829.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P11 Low-</text>
+<text x="829.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">precision training</text>
+<rect x="4" y="114" width="992" height="102" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="161.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part II</text>
+<text x="14" y="177.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Building an LLM</text>
+<rect x="150.0" y="120.0" width="99" height="42" rx="5" fill="#e2efe2" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="199.5" y="138.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Text and</text>
+<text x="199.5" y="153.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">tokens</text>
+<rect x="255.0" y="120.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="304.5" y="145.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Attention</text>
+<rect x="360.0" y="120.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="409.5" y="145.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">GPT-2</text>
+<rect x="465.0" y="120.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="514.5" y="138.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Qwen3 and</text>
+<text x="514.5" y="153.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">MoE intro</text>
+<rect x="570.0" y="120.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="619.5" y="138.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Design</text>
+<text x="619.5" y="153.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">space</text>
+<rect x="675.0" y="120.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="724.5" y="138.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Beyond</text>
+<text x="724.5" y="153.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">softmax</text>
+<rect x="780.0" y="120.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="829.5" y="145.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Encoders</text>
+<rect x="885.0" y="120.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="934.5" y="138.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">MoE end</text>
+<text x="934.5" y="153.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">to end</text>
+<rect x="150.0" y="168.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="199.5" y="186.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Anatomy of</text>
+<text x="199.5" y="201.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">open models</text>
+<rect x="255.0" y="168.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="304.5" y="186.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P12 Bring up</text>
+<text x="304.5" y="201.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">a new model</text>
+<rect x="360.0" y="168.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="409.5" y="186.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P13 Sequence</text>
+<text x="409.5" y="201.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">mixers</text>
+<rect x="4" y="224" width="992" height="102" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="271.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part III</text>
+<text x="14" y="287.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Pretraining at</text>
+<text x="14" y="301.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">scale</text>
+<rect x="150.0" y="230.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="199.5" y="255.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Optimizers</text>
+<rect x="255.0" y="230.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="304.5" y="255.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Pretraining</text>
+<rect x="360.0" y="230.0" width="99" height="42" rx="5" fill="#e2efe2" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="409.5" y="248.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Pretraining</text>
+<text x="409.5" y="263.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">data</text>
+<rect x="465.0" y="230.0" width="99" height="42" rx="5" fill="#e2efe2" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="514.5" y="248.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Scaling</text>
+<text x="514.5" y="263.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">laws</text>
+<rect x="570.0" y="230.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="619.5" y="248.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">One-GPU</text>
+<text x="619.5" y="263.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">performance</text>
+<rect x="675.0" y="230.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="724.5" y="248.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Distributed</text>
+<text x="724.5" y="263.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">training</text>
+<rect x="780.0" y="230.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="829.5" y="255.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">FSDP</text>
+<rect x="885.0" y="230.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="934.5" y="248.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Sharded</text>
+<text x="934.5" y="263.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">computation</text>
+<rect x="150.0" y="278.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="199.5" y="296.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P1 LM from</text>
+<text x="199.5" y="311.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">scratch</text>
+<rect x="255.0" y="278.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="304.5" y="296.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P2 Training</text>
+<text x="304.5" y="311.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">systems</text>
+<rect x="360.0" y="278.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="409.5" y="296.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P3 Scaling</text>
+<text x="409.5" y="311.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">study</text>
+<rect x="465.0" y="278.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="514.5" y="296.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P4 Web</text>
+<text x="514.5" y="311.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">data</text>
+<rect x="4" y="334" width="992" height="102" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="381.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part IV</text>
+<text x="14" y="397.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Python to</text>
+<text x="14" y="411.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">the metal</text>
+<rect x="150.0" y="340.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="199.5" y="358.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">C++ for</text>
+<text x="199.5" y="373.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">PyTorch</text>
+<rect x="255.0" y="340.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="304.5" y="358.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">GPU</text>
+<text x="304.5" y="373.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">architecture</text>
+<rect x="360.0" y="340.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="409.5" y="358.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">CUDA</text>
+<text x="409.5" y="373.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">kernels</text>
+<rect x="465.0" y="340.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="514.5" y="358.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Attention and</text>
+<text x="514.5" y="373.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">MoE kernels</text>
+<rect x="570.0" y="340.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="619.5" y="365.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Profiling</text>
+<rect x="675.0" y="340.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="724.5" y="365.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Compilers</text>
+<rect x="780.0" y="340.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="829.5" y="358.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Memory and</text>
+<text x="829.5" y="373.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">interconnects</text>
+<rect x="885.0" y="340.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="934.5" y="358.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P8 MoE</text>
+<text x="934.5" y="373.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">systems</text>
+<rect x="150.0" y="388.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="199.5" y="406.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P14 Tensor</text>
+<text x="199.5" y="421.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">compiler</text>
+<rect x="255.0" y="388.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="304.5" y="406.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P15 Kernel</text>
+<text x="304.5" y="421.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">library</text>
+<rect x="4" y="444" width="992" height="54" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="467.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part V</text>
+<text x="14" y="483.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Fine-tuning</text>
+<rect x="150.0" y="450.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="199.5" y="475.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Classification</text>
+<rect x="255.0" y="450.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="304.5" y="468.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Instruction</text>
+<text x="304.5" y="483.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">tuning, LoRA</text>
+<rect x="360.0" y="450.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="409.5" y="468.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P16 PEFT</text>
+<text x="409.5" y="483.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">study</text>
+<rect x="465.0" y="450.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="514.5" y="468.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P17 Domain</text>
+<text x="514.5" y="483.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">specialist</text>
+<rect x="4" y="506" width="992" height="102" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="553.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part VI</text>
+<text x="14" y="569.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Inference and</text>
+<text x="14" y="583.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">serving</text>
+<rect x="150.0" y="512.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="199.5" y="537.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Inference</text>
+<rect x="255.0" y="512.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="304.5" y="530.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Serving</text>
+<text x="304.5" y="545.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">engines</text>
+<rect x="360.0" y="512.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="409.5" y="530.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">KV-cache</text>
+<text x="409.5" y="545.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">management</text>
+<rect x="465.0" y="512.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="514.5" y="530.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Cheaper</text>
+<text x="514.5" y="545.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">inference</text>
+<rect x="570.0" y="512.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="619.5" y="537.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">On-device</text>
+<rect x="675.0" y="512.0" width="99" height="42" rx="5" fill="#e2efe2" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="724.5" y="537.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Retrieval</text>
+<rect x="780.0" y="512.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="829.5" y="530.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Data-movement</text>
+<text x="829.5" y="545.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">study</text>
+<rect x="885.0" y="512.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="934.5" y="530.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P6 Serving</text>
+<text x="934.5" y="545.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">engine</text>
+<rect x="150.0" y="560.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="199.5" y="578.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P7 CPU</text>
+<text x="199.5" y="593.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">runtime</text>
+<rect x="255.0" y="560.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="304.5" y="585.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P9 Profiler</text>
+<rect x="360.0" y="560.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="409.5" y="578.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P18 Long-</text>
+<text x="409.5" y="593.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">context serving</text>
+<rect x="4" y="616" width="992" height="102" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="663.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part VII</text>
+<text x="14" y="679.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Reasoning and</text>
+<text x="14" y="693.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">post-training</text>
+<rect x="150.0" y="622.0" width="99" height="42" rx="5" fill="#e2efe2" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="199.5" y="647.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Evaluation</text>
+<rect x="255.0" y="622.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="304.5" y="640.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Inference-</text>
+<text x="304.5" y="655.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">time scaling</text>
+<rect x="360.0" y="622.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="409.5" y="640.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Self-</text>
+<text x="409.5" y="655.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">refinement</text>
+<rect x="465.0" y="622.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="514.5" y="640.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">The RL</text>
+<text x="514.5" y="655.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">setup</text>
+<rect x="570.0" y="622.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="619.5" y="640.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Policy</text>
+<text x="619.5" y="655.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">gradients</text>
+<rect x="675.0" y="622.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="724.5" y="640.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">RLHF and</text>
+<text x="724.5" y="655.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">PPO</text>
+<rect x="780.0" y="622.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="829.5" y="647.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">DPO</text>
+<rect x="885.0" y="622.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="934.5" y="647.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">GRPO</text>
+<rect x="150.0" y="670.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="199.5" y="688.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Improving</text>
+<text x="199.5" y="703.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">GRPO</text>
+<rect x="255.0" y="670.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="304.5" y="688.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">RL</text>
+<text x="304.5" y="703.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">systems</text>
+<rect x="360.0" y="670.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="409.5" y="695.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Distillation</text>
+<rect x="465.0" y="670.0" width="99" height="42" rx="5" fill="#ece6f4" stroke="#6a4c93" stroke-width="1.2"/>
+<text x="514.5" y="688.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Alignment,</text>
+<text x="514.5" y="703.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">multimodal</text>
+<rect x="570.0" y="670.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="619.5" y="688.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P5 Post-</text>
+<text x="619.5" y="703.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">training</text>
+<rect x="675.0" y="670.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="724.5" y="688.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P19 Agentic</text>
+<text x="724.5" y="703.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">RL</text>
+<rect x="780.0" y="670.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="829.5" y="688.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P20 Reasoning</text>
+<text x="829.5" y="703.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">distillation</text>
+<rect x="4" y="726" width="992" height="54" rx="6" fill="#ffffff" stroke="#bbbbbb" stroke-width="0.8"/>
+<text x="14" y="759.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Appendices</text>
+<rect x="150.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="199.5" y="757.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">A Triton</text>
+<rect x="255.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="304.5" y="757.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">B Accelerators</text>
+<rect x="360.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="409.5" y="750.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">C JAX</text>
+<text x="409.5" y="765.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">and XLA</text>
+<rect x="465.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="514.5" y="750.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">D Lab</text>
+<text x="514.5" y="765.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">setup</text>
+<rect x="570.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="619.5" y="757.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">E Containers</text>
+<rect x="675.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="724.5" y="757.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">F References</text>
+<rect x="780.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="829.5" y="750.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">G Doing</text>
+<text x="829.5" y="765.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">research</text>
+<rect x="885.0" y="732.0" width="99" height="42" rx="5" fill="#eeeeee" stroke="#555555" stroke-width="1.2"/>
+<text x="934.5" y="757.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">H Solutions</text>
+</svg>

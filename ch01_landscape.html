@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Landscape: LLMs, Reasoning Models, and the Systems View · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="ch:landscape" class="level1">
+<h1><span class="xn"><span class="num">Chapter 1&nbsp;&nbsp;</span></span>The Landscape: LLMs, Reasoning Models, and the Systems View</h1>
+<p>Large language models are, at their core, a remarkably small amount of code wrapped around a remarkably large amount of arithmetic. The model definition of a modern open-weight LLM fits on a few printed pages; the computation needed to give those pages meaning (trillions of training tokens, tens of thousands of accelerator-days, petabytes of memory traffic for every day of serving) is what turns an architecture diagram into a product. This book takes both halves seriously. We will write every component of an LLM and of a <em>reasoning</em> model from scratch, and at every step we will ask the questions a systems engineer asks: <em>where do the FLOPs go, where do the bytes go, what is the bottleneck, and what would we change to remove it?</em></p>
+<p>This opening chapter sets up the vocabulary. We define what an LLM is and what it is used for, walk through the stages of building one (pretraining, fine-tuning, preference tuning), introduce the transformer and the GPT family, and then extend the story to reasoning models: models that spend extra tokens on intermediate steps and that are improved with inference-time scaling, reinforcement learning, and distillation. Throughout, we attach a cost model to every stage, so that by the end of the chapter you can estimate, to within a factor of two, what it costs to train, fine-tune, post-train, and serve a model of a given size. We close with a map of the book and a first look at the research frontier of the field as a whole, with a procedure for placing a new paper on that map. Figure&nbsp;<a href="#fig:landscape:roadmap">1.1</a> shows the plan.</p>
+<figure id="fig:landscape:roadmap">
+<img style="width: 721px" src="figures/ch01_landscape-1.svg" class="fig fig-light" loading="lazy" alt="Roadmap of . Stages 1–4 build the conceptual picture of LLMs and reasoning models; stage 5 adds the cost model that the rest of the book refines; stage 6 lays out how the chapters fit together." /><img style="width: 721px" src="figures/ch01_landscape-1-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Roadmap of . Stages 1–4 build the conceptual picture of LLMs and reasoning models; stage 5 adds the cost model that the rest of the book refines; stage 6 lays out how the chapters fit together." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.1: </span></span>Roadmap of Chapter&nbsp;<a href="#ch:landscape">1</a>. Stages 1–4 build the conceptual picture of LLMs and reasoning models; stage 5 adds the cost model that the rest of the book refines; stage 6 lays out how the chapters fit together.</figcaption>
+</figure>
+<section id="sec:landscape:what" class="level2">
+<h2><span class="xn"><span class="num">1.1&nbsp;&nbsp;</span></span>What is a large language model?</h2>
+<p>A <em>language model</em> assigns probabilities to sequences of text. Write a piece of text as a sequence of discrete units <span class="math inline">\(x_1, x_2, \dots, x_T\)</span> called <em>tokens</em> (we will define tokens precisely in Chapter&nbsp;<span class="xref-unpub" title="Not published yet">8</span>; for now think “words or pieces of words”). By the chain rule of probability, any distribution over sequences factorises as <span class="xn" id="eq:landscape:chain"></span><span class="math display">\[\begin{equation}
+p(x_1,\dots,x_T) \;=\; \prod_{t=1}^{T} p(x_t \mid x_1,\dots,x_{t-1}).
+\tag{1.1}
+\end{equation}\]</span> An <em>autoregressive</em> language model learns the right-hand side directly: given a prefix, it outputs a probability distribution over the next token. A <em>large</em> language model (LLM) is such a model implemented as a deep neural network with a very large number of trainable parameters (hundreds of millions to hundreds of billions) and trained on a very large corpus (hundreds of billions to tens of trillions of tokens). Both meanings of “large” matter, and, as we will see in Section&nbsp;<a href="#sec:landscape:cost">1.12</a>, they are tied together by the compute budget.</p>
+<p>The training signal is almost embarrassingly simple: take real text, hide the next token, and penalise the model by the negative log-probability it assigned to the token that actually appeared. Summed over a corpus, this is the cross-entropy loss <span class="xn" id="eq:landscape:nll"></span><span class="math display">\[\begin{equation}
+\mathcal{L}(\theta) \;=\; -\frac{1}{N}\sum_{t} \log p_\theta(x_t \mid x_{&lt;t}),
+\tag{1.2}
+\end{equation}\]</span> which we implement in Chapter&nbsp;<span class="xref-unpub" title="Not published yet">20</span>. That such a plain objective yields systems that translate, summarise, write code and solve competition mathematics is one of the central empirical surprises of the last decade. The explanation usually offered is that predicting the next token <em>well</em> across the whole distribution of human text requires modelling syntax, facts, styles, and (to some degree) the processes that generated the text, including step-by-step problem solving.</p>
+<p>Modern LLMs are built on the <em>transformer</em> architecture (Section&nbsp;<a href="#sec:landscape:transformer">1.4</a>), whose key ingredient, <em>self-attention</em>, lets every position in a sequence draw information from every earlier position with a learned, data-dependent weighting. Because they generate new content, LLMs are also called <em>generative AI</em>. Figure&nbsp;<a href="#fig:landscape:fields">1.2</a> places them in the wider field.</p>
+<figure id="fig:landscape:fields">
+<img style="width: 859px" src="figures/ch01_landscape-2.svg" class="fig fig-light" loading="lazy" alt="LLMs as a nested specialisation. Each ring narrows the previous one: machine learning learns its rules from data, deep learning learns its features too, generative models produce new samples, and LLMs are generative deep networks over text." /><img style="width: 859px" src="figures/ch01_landscape-2-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="LLMs as a nested specialisation. Each ring narrows the previous one: machine learning learns its rules from data, deep learning learns its features too, generative models produce new samples, and LLMs are generative deep networks over text." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.2: </span></span>LLMs as a nested specialisation. Each ring narrows the previous one: machine learning learns its rules from data, deep learning learns its <em>features</em> too, generative models produce new samples, and LLMs are generative deep networks over text.</figcaption>
+</figure>
+<p>The distinction between the inner rings is worth making concrete. Consider building a spam filter. A classical machine-learning pipeline asks a human to engineer features (counts of words like “free” or “winner”, the fraction of upper-case characters, the number of links) and fits, say, a logistic regression on those features. A deep-learning pipeline instead feeds the raw text (as token ids) into a neural network and lets the early layers <em>learn</em> whatever features are useful. Both still need labelled examples of spam and non-spam; what changes is who designs the representation. LLMs push the idea further: during pretraining they need no labels at all, because the next token <em>is</em> the label. We will build exactly this spam filter on top of a pretrained GPT in Chapter&nbsp;<span class="xref-unpub" title="Not published yet">41</span>.</p>
+<div class="systemslens box">
+<p><strong>Systems Lens: “Large” is a statement about bytes</strong></p>
+<p>Parameter count is the number every model card leads with, but for a systems engineer it is a proxy for three more operational quantities: (1) <em>weight bytes</em>, which set the minimum memory footprint and, during decoding, the minimum memory traffic per generated token; (2) <em>FLOPs per token</em>, roughly <span class="math inline">\(2N\)</span> for a forward pass over a model with <span class="math inline">\(N\)</span> parameters; and (3) <em>optimiser state bytes</em> during training, roughly <span class="math inline">\(16N\)</span> with mixed-precision AdamW. A 7B-parameter model is 14 GB of bf16 weights, about 14 GFLOP per generated token, and about 112 GB of training state before a single activation is stored. Most of this book’s systems content is about managing those three numbers.</p>
+</div>
+</section>
+<section id="sec:landscape:apps" class="level2">
+<h2><span class="xn"><span class="num">1.2&nbsp;&nbsp;</span></span>What LLMs are used for</h2>
+<p>Because nearly every knowledge task can be phrased as “read some text, write some text”, LLMs have an unusually wide application surface:</p>
+<ul>
+<li><p><strong>Generation and transformation:</strong> drafting prose and code, translation, rewriting for tone or audience, summarisation of long documents.</p></li>
+<li><p><strong>Understanding and classification:</strong> sentiment analysis, intent detection, spam and abuse filtering, routing tickets (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">41</span> implements this).</p></li>
+<li><p><strong>Assistants and chat:</strong> multi-turn conversational agents that answer questions, follow instructions, and call tools (Chapters&nbsp;<span class="xref-unpub" title="Not published yet">42</span> and <span class="xref-unpub" title="Not published yet">48</span>).</p></li>
+<li><p><strong>Knowledge work in specialised domains:</strong> search and question answering over legal, medical or scientific corpora, often combined with retrieval.</p></li>
+<li><p><strong>Reasoning-heavy tasks:</strong> competition mathematics, program synthesis, planning in agentic systems, where the reasoning methods of Part VII matter most.</p></li>
+</ul>
+<p>Why build or adapt your own model rather than call a hosted API? Four reasons recur. <em>Quality</em>: models specialised for a domain (finance, medicine, code) frequently beat larger general models on in-domain tasks. <em>Privacy and control</em>: sensitive data need not leave the organisation, and the owner decides when the model changes. <em>Cost and latency</em>: a small model on local hardware, or even on a phone or laptop, can be cheaper and faster than a round trip to a large hosted model. <em>Understanding</em>: you cannot debug, optimise, or extend what you do not understand, which is the motivation for building everything from scratch in this book.</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: API vs. self-hosting, first order</strong></p>
+<p>Suppose a workload needs <span class="math inline">\(10^9\)</span> generated tokens per day from an 8B-parameter model. At roughly <span class="math inline">\(2N = 16\)</span> GFLOP per token, that is <span class="math inline">\(1.6\times10^{19}\)</span> FLOP/day. One H100 at a realistic 30–50% of its 989 TFLOP/s bf16 peak delivers <span class="math inline">\(2.6\)</span>–<span class="math inline">\(4.3\times10^{19}\)</span> FLOP/day, so on <em>compute</em> alone a single GPU suffices. But decoding is memory-bound (Section&nbsp;<a href="#sec:landscape:cost">1.12</a>): at batch size 1 each token must stream all 16 GB of weights, capping a single sequence at about <span class="math inline">\(3.35\,\text{TB/s} / 16\,\text{GB}
+\approx 200\)</span> tokens/s. Reaching <span class="math inline">\(10^9/86400 \approx 11{,}600\)</span> tokens/s requires batching on the order of a hundred concurrent sequences. Whether that is achievable depends on KV-cache memory and on the serving engine, the subject of Part VI. The economics of self-hosting are therefore a <em>batching</em> problem more than a FLOPs problem.</p>
+</div>
+</section>
+<section id="sec:landscape:stages" class="level2">
+<h2><span class="xn"><span class="num">1.3&nbsp;&nbsp;</span></span>The stages of building and using an LLM</h2>
+<section id="pretraining-learning-from-raw-text" class="level3">
+<h3><span class="xn"><span class="num">1.3.1&nbsp;&nbsp;</span></span>Pretraining: learning from raw text</h3>
+<p>The first and by far the most expensive stage is <em>pretraining</em>. A randomly initialised network is trained with the next-token objective (<a href="#eq:landscape:nll">1.2</a>) on a huge corpus of raw, unlabelled text (web pages, books, encyclopaedias, code, scientific articles), usually after filtering and deduplication. Because the labels are derived from the data itself, this is called <em>self-supervised</em> learning. The result is a <em>base</em> or <em>foundation</em> model. A base model is a superb text <em>completer</em>: give it the beginning of a paragraph and it continues plausibly. It also shows <em>in-context learning</em>: shown a few input–output examples in the prompt (<em>few-shot</em>), or merely a description of the task (<em>zero-shot</em>), it can often perform a task it was never explicitly trained for. What it does not reliably do is follow instructions or hold a conversation; it continues text, and an instruction is just more text to continue.</p>
+<p>Some pipelines distinguish a <em>mid-training</em> phase (continued pretraining on code, mathematics, long documents, or higher-quality data near the end of pretraining). We fold it into pretraining: the objective is the same and only the data mixture changes.</p>
+</section>
+<section id="post-training-fine-tuning-and-preference-tuning" class="level3">
+<h3><span class="xn"><span class="num">1.3.2&nbsp;&nbsp;</span></span>Post-training: fine-tuning and preference tuning</h3>
+<p><em>Fine-tuning</em> continues training a pretrained model on a smaller, usually labelled, dataset. Two families matter in this book:</p>
+<ul>
+<li><p><strong>Classification fine-tuning</strong>: the data are (text, class label) pairs; the output layer is replaced by a small classification head (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">41</span>).</p></li>
+<li><p><strong>Instruction fine-tuning</strong>, also called supervised fine-tuning (SFT) or instruction tuning: the data are (instruction, desired response) pairs, and the model keeps its language-modelling head but learns to produce responses (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">42</span>).</p></li>
+</ul>
+<p>Production assistants then apply <em>preference tuning</em>: the model is nudged towards responses that humans (or a model trained on human judgements) prefer. The classic recipe is reinforcement learning from human feedback (RLHF), which trains a reward model from human rankings and optimises the LLM against it with PPO; we study it in Chapter&nbsp;<span class="xref-unpub" title="Not published yet">61</span>. Lighter-weight alternatives such as Direct Preference Optimization (DPO, Chapter&nbsp;<span class="xref-unpub" title="Not published yet">62</span>) optimise the same kind of preference data without an explicit RL loop. Pretraining gives the model raw linguistic competence; SFT teaches it the <em>format</em> of being helpful; preference tuning shapes <em>which</em> of many acceptable responses it prefers (tone, safety, concision).</p>
+<p>Even an instruction- and preference-tuned model is not yet a product. A chat application adds a system prompt, conversation-history management, tool calling, safety layers and a serving stack; we build a minimal chat interface in Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>. Figure&nbsp;<a href="#fig:landscape:lifecycle">1.3</a> summarises the life cycle together with its typical compute cost.</p>
+<figure id="fig:landscape:lifecycle">
+<img style="width: 1092px" src="figures/ch01_landscape-3.svg" class="fig fig-light" loading="lazy" alt="The LLM life cycle as used in this book. Pretraining consumes the bulk of training compute; each post-training stage changes behaviour with orders of magnitude less data; serving cost is paid continuously and, for a popular model, eventually dominates everything else." /><img style="width: 1092px" src="figures/ch01_landscape-3-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The LLM life cycle as used in this book. Pretraining consumes the bulk of training compute; each post-training stage changes behaviour with orders of magnitude less data; serving cost is paid continuously and, for a popular model, eventually dominates everything else." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.3: </span></span>The LLM life cycle as used in this book. Pretraining consumes the bulk of training compute; each post-training stage changes behaviour with orders of magnitude less data; serving cost is paid continuously and, for a popular model, eventually dominates everything else.</figcaption>
+</figure>
+<div class="keyidea box">
+<p><strong>Key Idea: Post-training changes behaviour, not knowledge</strong></p>
+<p>A useful mental model: pretraining stores most of what the model <em>knows</em>; post-training mostly selects <em>how</em> that knowledge is expressed. This is why SFT on a few tens of thousands of good examples can turn a completer into an assistant, and why reasoning-focused RL on comparatively few problems can unlock long chains of thought that were latent in the base model.</p>
+</div>
+</section>
+</section>
+<section id="sec:landscape:transformer" class="level2">
+<h2><span class="xn"><span class="num">1.4&nbsp;&nbsp;</span></span>The transformer architecture</h2>
+<p>The transformer was introduced in 2017 by Vaswani et al. (“Attention Is All You Need”) for machine translation. The original model has two halves. An <em>encoder</em> reads the entire source sentence and turns each token into a context-dependent vector; a <em>decoder</em> generates the target sentence one token at a time, attending both to the tokens it has already produced and to the encoder’s vectors. Both halves are stacks of identical layers whose central operation is <em>self-attention</em>: each position computes a weighted average of the representations of other positions, with weights that depend on the content of both. Self-attention is what lets a model resolve that “it” in “the trophy did not fit in the suitcase because it was too big” refers to the trophy, by learning which earlier tokens are relevant to each later one. We derive it carefully in Chapter&nbsp;<span class="xref-unpub" title="Not published yet">9</span>.</p>
+<p>Subsequent work split the architecture into three families (Figure&nbsp;<a href="#fig:landscape:families">1.4</a>):</p>
+<ul>
+<li><p><strong>Encoder-only</strong> models such as BERT are trained to reconstruct masked words using context from <em>both</em> sides. They excel at understanding tasks (classification, retrieval embeddings) but do not naturally generate text.</p></li>
+<li><p><strong>Decoder-only</strong> models such as the GPT family are trained to predict the next token using only the <em>left</em> context, enforced by a causal mask. They generate text naturally and, at scale, turned out to be good at understanding tasks too. Almost every modern LLM, including both models we build (GPT-2 and Qwen3), is decoder-only.</p></li>
+<li><p><strong>Encoder–decoder</strong> models such as T5 keep both halves and remain popular for sequence-to-sequence tasks like translation and speech recognition.</p></li>
+</ul>
+<figure id="fig:landscape:families">
+<img style="width: 840px" src="figures/ch01_landscape-4.svg" class="fig fig-light" loading="lazy" alt="The three transformer families. Encoders see the whole input at once; decoders see only the past, which is exactly what is needed to generate text one token at a time." /><img style="width: 840px" src="figures/ch01_landscape-4-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The three transformer families. Encoders see the whole input at once; decoders see only the past, which is exactly what is needed to generate text one token at a time." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.4: </span></span>The three transformer families. Encoders see the whole input at once; decoders see only the past, which is exactly what is needed to generate text one token at a time.</figcaption>
+</figure>
+<div class="systemslens box">
+<p><strong>Systems Lens: Why decoder-only won, from a systems angle</strong></p>
+<p>Decoder-only models have one stack, one objective and one data format (a stream of tokens), so every token of every document is a training example: a sequence of length <span class="math inline">\(T\)</span> yields <span class="math inline">\(T\)</span> next-token predictions in a single forward pass thanks to the causal mask. The same weights and the same kernels serve pretraining, fine-tuning, and inference, and the causal structure makes the <em>KV cache</em> possible: keys and values of past tokens never change, so they can be stored and reused (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">45</span>). An encoder’s bidirectional attention would invalidate such a cache every time a token is appended. Simplicity of the training pipeline and cacheability at inference time are two underrated reasons for the dominance of the decoder-only design.</p>
+</div>
+<section id="zero-shot-and-few-shot." class="level5">
+<h5>Zero-shot and few-shot.</h5>
+<p>Encoder–decoder and encoder-only models were typically fine-tuned per task. GPT-3 popularised a different mode of use: describe the task in the prompt (zero-shot), or prepend a handful of solved examples (few-shot), and let the model continue. Few-shot prompting costs <em>prefill</em> compute and KV-cache memory proportional to the length of the examples on every request, which is why prefix caching (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">46</span>) is valuable for workloads with shared few-shot prefixes.</p>
+</section>
+</section>
+<section id="sec:landscape:data" class="level2">
+<h2><span class="xn"><span class="num">1.5&nbsp;&nbsp;</span></span>Training data at scale</h2>
+<p>The capabilities of LLMs are inseparable from the scale of their training data. GPT-3, the 175B-parameter model behind early ChatGPT-era products, is a useful historical reference point because its data mixture was published (Table&nbsp;<a href="#tab:landscape:gpt3data">1.1</a>). Two details are instructive. First, the mixture is <em>weighted</em>: high-quality sources such as Wikipedia and books are sampled more often than their raw size would suggest, so the model sees them for several epochs while seeing most of the web data less than once. Second, the model was trained on 300 billion tokens, fewer than the roughly 500 billion available, a choice later work on compute-optimal scaling (Chapters&nbsp;<span class="xref-unpub" title="Not published yet">20</span> and <span class="xref-unpub" title="Not published yet">22</span>) would revisit: the Chinchilla analysis suggests about 20 tokens per parameter, and current open models are trained far beyond that (Qwen3 and Llama-3-class models on tens of trillions of tokens) because extra training compute is repaid by cheaper inference with a smaller model.</p>
+<div id="tab:landscape:gpt3data" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 1.1: </span></span>GPT-3’s published pretraining mixture (Brown et al., 2020). Shares do not track sizes: small high-quality sources are upsampled.</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Source</th>
+<th style="text-align: right;">Tokens (B)</th>
+<th style="text-align: right;">Share of mix</th>
+<th style="text-align: left;">Character</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Common Crawl (filtered)</td>
+<td style="text-align: right;">410</td>
+<td style="text-align: right;">60%</td>
+<td style="text-align: left;">web pages, filtered for quality</td>
+</tr>
+<tr>
+<td style="text-align: left;">WebText2</td>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">22%</td>
+<td style="text-align: left;">pages linked from upvoted posts</td>
+</tr>
+<tr>
+<td style="text-align: left;">Books1</td>
+<td style="text-align: right;">12</td>
+<td style="text-align: right;">8%</td>
+<td style="text-align: left;">long-form prose</td>
+</tr>
+<tr>
+<td style="text-align: left;">Books2</td>
+<td style="text-align: right;">55</td>
+<td style="text-align: right;">8%</td>
+<td style="text-align: left;">long-form prose</td>
+</tr>
+<tr>
+<td style="text-align: left;">Wikipedia</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">3%</td>
+<td style="text-align: left;">encyclopaedic</td>
+</tr>
+<tr>
+<td style="text-align: left;">Total available / trained</td>
+<td style="text-align: right;"><span class="math inline">\(\approx\)</span><!-- -->500 / 300</td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;"></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A token is not a word. With GPT-2’s byte-pair-encoding tokeniser, English prose averages roughly 0.75 words per token, and code or non-English text usually needs more tokens per word. Tokens are the unit in which every cost in this book is measured: training compute scales with tokens processed, context windows are measured in tokens, and serving is priced per token.</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: How big is a pretraining corpus on disk?</strong></p>
+<p>A 15-trillion-token corpus, typical for a 2025-era open model, tokenised with a vocabulary of about 152k (too large for 16-bit ids) and stored as <code>uint32</code> occupies <span class="math inline">\(15\times10^{12}\times 4 =
+60\)</span> TB. GPT-3’s 300B training tokens with a 50,257-entry vocabulary fit in <code>uint16</code>: <span class="math inline">\(600\)</span> GB. At, say, 2 GB/s of aggregate read bandwidth per training node, streaming 60 TB once takes about 8.3 node-hours, negligible compared with the compute, <em>provided</em> the data pipeline is prepared offline (tokenised, sharded and shuffled) rather than tokenised on the fly (Chapters&nbsp;<span class="xref-unpub" title="Not published yet">8</span> and <span class="xref-unpub" title="Not published yet">21</span>).</p>
+</div>
+<p>The cost of the compute itself is dominated by the model and token count. Using the standard estimate (derived in Chapter&nbsp;<span class="xref-unpub" title="Not published yet">20</span>) that training costs about <span class="math inline">\(6ND\)</span> FLOPs for <span class="math inline">\(N\)</span> parameters and <span class="math inline">\(D\)</span> tokens, GPT-3 required <span class="math inline">\(6 \times 175\times10^9 \times 300\times10^9 \approx 3.15\times10^{23}\)</span> FLOPs. Section&nbsp;<a href="#sec:landscape:cost">1.12</a> turns that into GPU-days.</p>
+</section>
+<section id="sec:landscape:gpt" class="level2">
+<h2><span class="xn"><span class="num">1.6&nbsp;&nbsp;</span></span>A closer look at GPT</h2>
+<p>GPT (“generative pretrained transformer”) models are decoder-only transformers trained with next-token prediction. Architecturally, GPT-3 is a scaled-up GPT-2, which is a scaled-up GPT-1: more layers, wider layers, more heads, longer context, more data. The decoder stack takes token ids, maps them to vectors, passes them through <span class="math inline">\(L\)</span> identical transformer blocks, and projects the final vectors back to a score (<em>logit</em>) for every vocabulary entry.</p>
+<p>Generation is <em>autoregressive</em> (Figure&nbsp;<a href="#fig:landscape:autoregressive">1.5</a>): the model predicts a distribution over the next token, one token is chosen (greedily or by sampling), appended to the input, and the process repeats. Every generated token therefore requires a full forward pass through the network, and the <span class="math inline">\(t\)</span>-th token depends on all <span class="math inline">\(t-1\)</span> before it. This sequential dependence is the single most important fact about LLM inference performance: it prevents parallelism across the output sequence and makes the per-token latency floor equal to the time to stream the model’s weights through the chip (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">45</span>).</p>
+<figure id="fig:landscape:autoregressive">
+<img style="width: 700px" src="figures/ch01_landscape-5.svg" class="fig fig-light" loading="lazy" alt="Autoregressive generation. Each step runs the network on the sequence so far and appends one token, which becomes input to the next step. Steps cannot run in parallel; only the work within a step can." /><img style="width: 700px" src="figures/ch01_landscape-5-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Autoregressive generation. Each step runs the network on the sequence so far and appends one token, which becomes input to the next step. Steps cannot run in parallel; only the work within a step can." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.5: </span></span>Autoregressive generation. Each step runs the network on the sequence so far and appends one token, which becomes input to the next step. Steps cannot run in parallel; only the work <em>within</em> a step can.</figcaption>
+</figure>
+<p>Although GPT was trained only to predict the next token, sufficiently large GPT models can translate, answer questions, and summarise without task-specific training. Capabilities that appear only at scale and were not targeted by the objective are often called <em>emergent</em>. The term is debated (some apparent emergence is an artefact of discontinuous metrics), but the practical point stands: a single pretrained model is a general substrate from which many tasks can be elicited, by prompting or by light fine-tuning.</p>
+</section>
+<section id="sec:landscape:reasoning" class="level2">
+<h2><span class="xn"><span class="num">1.7&nbsp;&nbsp;</span></span>From LLMs to reasoning models</h2>
+<p>We use “reasoning” in an engineering sense: an LLM <em>reasons</em> when it generates intermediate steps before committing to a final answer. A <em>reasoning model</em> is an LLM that has been improved, by prompting, decoding procedures or training, to produce such intermediate steps, usually because doing so increases accuracy on multi-step tasks such as mathematics, coding and logic puzzles. The intermediate steps may be visible, as in classic chain-of-thought (CoT) prompting, or wrapped in special delimiters such as <code>&lt;think&gt;</code>…<code>&lt;/think&gt;</code> and hidden from the end user. Either way, the model spends <em>tokens</em> on thinking. Figure&nbsp;<a href="#fig:landscape:cot">1.6</a> contrasts the two behaviours on a small example.</p>
+<figure id="fig:landscape:cot">
+<img style="width: 773px" src="figures/ch01_landscape-6.svg" class="fig fig-light" loading="lazy" alt="Direct answering versus generating intermediate steps. The reasoning trace turns one hard prediction (“final time”) into several easy ones, each conditioned on written-down partial results." /><img style="width: 773px" src="figures/ch01_landscape-6-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Direct answering versus generating intermediate steps. The reasoning trace turns one hard prediction (“final time”) into several easy ones, each conditioned on written-down partial results." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.6: </span></span>Direct answering versus generating intermediate steps. The reasoning trace turns one hard prediction (“final time”) into several easy ones, each conditioned on written-down partial results.</figcaption>
+</figure>
+<p>Why should writing things down help a next-token predictor? A transformer performs a bounded amount of computation per generated token: a fixed number of layers, each with a fixed width. Problems whose answer requires more sequential computation than one forward pass provides cannot be solved “in one go”, but they can be solved if the model is allowed to write intermediate results into its own context and read them back with attention. In this view, the generated tokens act as a scratchpad and a variable-length compute budget. It also tells us the price: <em>reasoning is paid for in generated tokens</em>, the most expensive tokens in the system because they are produced sequentially.</p>
+<div class="pitfall box">
+<p><strong>Pitfall: LLM reasoning is probabilistic</strong></p>
+<p>A theorem prover or a symbolic solver applies fixed rules and returns the same, guaranteed-sound derivation every time. An LLM generates its steps by sampling from learned token distributions. Its traces can look rigorous and still contain an invalid step, and two samples for the same prompt can disagree. Much of Part VII (verifiers, self-consistency, scoring, RL with verifiable rewards) exists to manage this randomness rather than to eliminate it. Whether and how such traces resemble human reasoning remains an open question; we treat “reasoning” and “thinking” purely as operational terms.</p>
+</div>
+</section>
+<section id="sec:landscape:levers" class="level2">
+<h2><span class="xn"><span class="num">1.8&nbsp;&nbsp;</span></span>Three levers for improving reasoning</h2>
+<p>Reasoning models entered the mainstream with OpenAI’s o1 (September 2024), presented as models that “spend more time thinking” before they answer, and became broadly reproducible with DeepSeek-R1 (January 2025), whose open weights and technical report described how to train such a model. The techniques fall into three groups, all applied <em>on top of</em> a model that has already gone through pretraining and usually post-training (Figure&nbsp;<a href="#fig:landscape:levers">1.7</a>):</p>
+<ol type="1">
+<li><p><strong>Inference-time compute scaling</strong> (also called test-time scaling) improves answers <em>without changing weights</em>, by spending more computation per query: chain-of-thought prompting, sampling many answers and voting (self-consistency), scoring and refining answers, search. Chapters&nbsp;<span class="xref-unpub" title="Not published yet">57</span> and <span class="xref-unpub" title="Not published yet">58</span> implement these.</p></li>
+<li><p><strong>Reinforcement learning</strong> updates the weights so that the model is more likely to produce outputs that earn high reward. For reasoning, the reward is usually <em>verifiable</em>, for instance “the final answer matches the reference” or “the code passes the tests” (RL with verifiable rewards, RLVR). <span class="xref-missing">??</span> sets up the problem, Chapter&nbsp;<span class="xref-unpub" title="Not published yet">60</span> derives policy gradients, and Chapters&nbsp;<span class="xref-unpub" title="Not published yet">63</span>, <span class="xref-unpub" title="Not published yet">64</span> and <span class="xref-unpub" title="Not published yet">65</span> implement GRPO and the systems around it.</p></li>
+<li><p><strong>Distillation</strong> transfers reasoning behaviour from a strong <em>teacher</em> model to a smaller <em>student</em>, typically by supervised fine-tuning the student on reasoning traces generated by the teacher. In classical deep learning, distillation also matches the teacher’s output distribution (logits); in LLM practice, “distillation” often means SFT on teacher-generated text. Chapter&nbsp;<span class="xref-unpub" title="Not published yet">66</span> implements both variants.</p></li>
+</ol>
+<figure id="fig:landscape:levers">
+<img style="width: 1104px" src="figures/ch01_landscape-7.svg" class="fig fig-light" loading="lazy" alt="The three families of reasoning techniques and where their cost is paid. Inference-time scaling moves cost to serving; RL and distillation move it to training." /><img style="width: 1104px" src="figures/ch01_landscape-7-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The three families of reasoning techniques and where their cost is paid. Inference-time scaling moves cost to serving; RL and distillation move it to training." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.7: </span></span>The three families of reasoning techniques and where their cost is paid. Inference-time scaling moves cost to serving; RL and distillation move it to training.</figcaption>
+</figure>
+<div class="deepdive box">
+<p><strong>Deeper Dive: RL for reasoning vs. RLHF</strong></p>
+<p>Both RLHF and RL for reasoning use the same machinery: sample responses from the current policy, score them, update the policy towards higher-scoring responses. They differ in where the score comes from. In RLHF, the reward is a learned model of <em>human preferences</em>, which is subjective, can be gamed (“reward hacking”), and must be trained on human comparisons. In RLVR the reward is computed by a <em>program</em>: a math checker, a unit-test runner, a format validator. Programmatic rewards are cheap, objective and hard to fool on their own terms, but they exist only for tasks whose answers can be checked automatically. This is one reason reasoning models are strongest in mathematics and code.</p>
+</div>
+<div class="systemslens box">
+<p><strong>Systems Lens: The three levers have different cost profiles</strong></p>
+<p>Inference-time scaling multiplies serving cost: self-consistency with 16 samples multiplies decode work by 16 (though the prompt’s KV cache can be shared, Chapter&nbsp;<span class="xref-unpub" title="Not published yet">57</span>), and every query pays it. RL moves the cost into training, but the training loop is dominated by <em>generation</em> (rollouts), so an RL trainer is really an inference engine and a trainer glued together (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">65</span>). Distillation is the cheapest at serving time, since a small student serves fast, but requires a teacher and a large offline generation job to produce traces. Choosing among them is a systems trade-off between one-time and per-query cost.</p>
+</div>
+</section>
+<section id="sec:landscape:pattern" class="level2">
+<h2><span class="xn"><span class="num">1.9&nbsp;&nbsp;</span></span>Pattern matching versus logical reasoning</h2>
+<p>Pretraining teaches a model to reproduce the statistical regularities of its corpus. When asked “What is the capital of Germany?”, a model answers “Berlin” not by deduction but because the association is overwhelmingly strong in its training data. We call this <em>pattern matching</em>: completing text according to learned correlations. Much text has premise–conclusion structure, so pattern matching can <em>look like</em> inference.</p>
+<p><em>Logical reasoning</em>, by contrast, derives conclusions from premises by rules, tracks which statements depend on which, and notices contradictions. Consider the prompt:</p>
+<blockquote>
+<p>Every metal is solid at room temperature. Mercury is a metal. Is mercury solid at room temperature?</p>
+</blockquote>
+<p>In a <em>closed-world</em> reading (only the prompt’s premises count), the valid conclusion is “yes”. In an <em>open-world</em> reading that admits background knowledge, the conclusion contradicts the fact that mercury is a liquid at room temperature, so a careful reasoner should flag the inconsistency and reject or weaken the first premise (“<em>most</em> metals are solid…”). Figure&nbsp;<a href="#fig:landscape:logic">1.8</a> draws the dependency structure. A purely statistical model does not maintain such a structure explicitly; it predicts whichever continuation is most probable given its training distribution, which may or may not track the contradiction.</p>
+<figure id="fig:landscape:logic">
+<img style="width: 736px" src="figures/ch01_landscape-8.svg" class="fig fig-light" loading="lazy" alt="Explicit reasoning maintains a dependency graph: conclusions point back to the premises that produced them, so a conflict with background knowledge can be traced to a premise. LLMs carry no such graph; whatever consistency they show must come from patterns in data or from generated intermediate text." /><img style="width: 736px" src="figures/ch01_landscape-8-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Explicit reasoning maintains a dependency graph: conclusions point back to the premises that produced them, so a conflict with background knowledge can be traced to a premise. LLMs carry no such graph; whatever consistency they show must come from patterns in data or from generated intermediate text." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.8: </span></span>Explicit reasoning maintains a dependency graph: conclusions point back to the premises that produced them, so a conflict with background knowledge can be traced to a premise. LLMs carry no such graph; whatever consistency they show must come from patterns in data or from generated intermediate text.</figcaption>
+</figure>
+<p>Rule-based expert systems that did maintain such structure were widely deployed in the 1980s and 1990s and survive in safety-critical niches. They lost ground because the rules must be hand-written and the systems are brittle outside their rule base. Neural models learn their “rules” from data and are flexible, at the price of guarantees.</p>
+</section>
+<section id="sec:landscape:simulate" class="level2">
+<h2><span class="xn"><span class="num">1.10&nbsp;&nbsp;</span></span>Simulating reasoning without explicit rules</h2>
+<p>Ask a strong conventional (non-reasoning) chat model the mercury question and it will very likely answer correctly, explaining that mercury is the exception. Does that mean it performed logical inference? Not necessarily. Text of the form “all X are Y, <em>except</em> …” and specific facts about mercury are abundant in training data, so the correct continuation is also a high-probability continuation. The model <em>simulates</em> reasoning by pattern matching over a vast corpus of reasoning-shaped text. This works remarkably well at scale, and it degrades in predictable situations: when the problem is <em>novel</em> (no close analogue in training data), when it requires <em>many dependent steps</em> (each with some error rate, so errors compound), and when the correct answer runs <em>against</em> a strong surface association.</p>
+<p>Seen this way, LLMs sit on a spectrum. Even before dedicated reasoning models, LLMs could produce intermediate steps when prompted; reasoning models are LLMs in which that behaviour has been made more reliable and more extensive through the levers of Section&nbsp;<a href="#sec:landscape:levers">1.8</a>. None of them executes an internal rule engine. They improve the odds that the generated trace is correct and that the final answer follows from it.</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: Why long chains are fragile</strong></p>
+<p>If each step of a derivation is independently correct with probability <span class="math inline">\(q\)</span>, a <span class="math inline">\(k\)</span>-step chain is fully correct with probability <span class="math inline">\(q^k\)</span>. With <span class="math inline">\(q=0.98\)</span>, a 10-step chain succeeds <span class="math inline">\(0.98^{10}\approx 82\%\)</span> of the time and a 50-step chain only <span class="math inline">\(0.98^{50}\approx 36\%\)</span>. Sampling <span class="math inline">\(n\)</span> independent chains and taking a majority vote (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">57</span>) or training the model to raise <span class="math inline">\(q\)</span> (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">63</span>) are the two complementary remedies, and both cost compute: the first at every query, the second once.</p>
+</div>
+</section>
+<section id="sec:landscape:why" class="level2">
+<h2><span class="xn"><span class="num">1.11&nbsp;&nbsp;</span></span>Why reasoning models, and why from scratch?</h2>
+<p>Since early 2025, improving reasoning has been among the most active areas in LLM research, and the major model providers have converged on models that decide how long to think: short answers for simple requests, extended reasoning for hard ones. That design choice matters because reasoning is not free and not always useful (Table&nbsp;<a href="#tab:landscape:whenreason">1.2</a>). For summarisation, translation, or factual lookup, extended thinking adds latency and cost and can even hurt, as models “overthink” simple problems. For mathematics, coding, planning and multi-step analysis it can be decisive.</p>
+<div id="tab:landscape:whenreason" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 1.2: </span></span>When to pay for reasoning. Production systems increasingly route requests or let the model choose its thinking budget.</caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;"></th>
+<th style="text-align: left;"><strong>Reasoning helps</strong></th>
+<th style="text-align: left;"><strong>Reasoning is wasteful</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Task type</td>
+<td style="text-align: left;">multi-step math, proofs, code generation and debugging, puzzles, planning, tool selection in agents</td>
+<td style="text-align: left;">summarisation, translation, retrieval-style QA, short classification, chit-chat</td>
+</tr>
+<tr>
+<td style="text-align: left;">Cost</td>
+<td style="text-align: left;">10–100<span class="math inline">\(\times\)</span> more output tokens; higher latency; more KV memory per request</td>
+<td style="text-align: left;">n/a</td>
+</tr>
+<tr>
+<td style="text-align: left;">Failure modes</td>
+<td style="text-align: left;">verbose, can overthink easy inputs</td>
+<td style="text-align: left;">errors on multi-step problems</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="napkinmath box">
+<p><strong>Napkin Math: What a thinking budget costs in serving</strong></p>
+<p>Take Qwen3-8B in bf16 on one H100. Its KV cache needs <span class="math inline">\(2\times36\times8\times128\times2 = 147{,}456\)</span> bytes per token (Table&nbsp;<a href="#tab:landscape:qwen3napkin">1.3</a>). A direct 200-token answer to a 300-token prompt occupies about 70 MiB of KV cache; a 4,000-token reasoning trace pushes that to about 600 MiB, reducing the number of concurrent sequences that fit in the GPU’s spare memory by roughly <span class="math inline">\(8.5\times\)</span>. At batch size 1 the memory-bound decode floor is <span class="math inline">\(16.4\,\text{GB}/3.35\,\text{TB/s} \approx 4.9\)</span> ms per token, so the trace alone costs at least 20 seconds of wall-clock time versus 1 second for the direct answer. Reasoning models are a stress test for every serving optimisation in Part VI.</p>
+</div>
+<p>Why build all this from scratch, when production frameworks exist? Because the methods are young and changing quickly, and the only durable understanding comes from implementing them. Reasoning-model training recipes in particular mix ideas from inference (sampling, batching, KV caches), RL (policy gradients, baselines, KL control), and distributed systems (rollout workers, weight synchronisation). Implementing the pieces makes each of these visible, and makes the design space of production systems such as vLLM, SGLang, veRL and OpenRLHF legible.</p>
+</section>
+<section id="sec:landscape:cost" class="level2">
+<h2><span class="xn"><span class="num">1.12&nbsp;&nbsp;</span></span>The systems view: where the FLOPs and bytes go</h2>
+<p>This section is the first installment of a cost model we refine throughout the book. It needs only three facts, each derived properly later.</p>
+<ol type="1">
+<li><p><strong>Forward FLOPs per token</strong> <span class="math inline">\(\approx 2N\)</span> for a dense model with <span class="math inline">\(N\)</span> (non-embedding) parameters: every weight participates in one multiply and one add. Attention adds a term proportional to context length (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">10</span>).</p></li>
+<li><p><strong>Training FLOPs</strong> <span class="math inline">\(\approx 6ND\)</span> for <span class="math inline">\(D\)</span> training tokens: the backward pass costs about twice the forward pass (Chapters&nbsp;<a href="ch02_pytorch.html#ch:pytorch">2</a> and <span class="xref-unpub" title="Not published yet">20</span>).</p></li>
+<li><p><strong>Memory</strong>: weights take <span class="math inline">\(N\times\)</span>(bytes per parameter); mixed-precision AdamW training state takes <span class="math inline">\(\approx 16N\)</span> bytes; the KV cache takes <span class="math inline">\(2\,L\,H_{kv}\,d_h\)</span> values per token of context (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">45</span> and <span class="xref-missing">??</span>).</p></li>
+</ol>
+<div id="tab:landscape:qwen3napkin" class="table-float">
+<table style="width:99%;">
+<caption><span class="xn"><span class="num">Table 1.3: </span></span>Napkin numbers for the dense Qwen3 family, produced by the calculator you build in Lab&nbsp;<a href="#sec:landscape:lab">1</a>. “Decode tok/s” is the roofline upper bound for a single sequence: weight bytes plus KV bytes divided by 3.35 TB/s. Real engines reach a large fraction of it at batch 1; throughput beyond it requires batching.</caption>
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 12%" />
+<col style="width: 18%" />
+<col style="width: 12%" />
+<col style="width: 18%" />
+<col style="width: 23%" />
+</colgroup>
+<tbody>
+<tr>
+<td style="text-align: left;">Model</td>
+<td style="text-align: right;">Params</td>
+<td style="text-align: right;">GFLOP/token</td>
+<td style="text-align: right;">KV/token</td>
+<td style="text-align: right;">KV @ 4k ctx</td>
+<td style="text-align: right;">Decode tok/s, B=1</td>
+</tr>
+<tr>
+<td style="text-align: left;"></td>
+<td style="text-align: right;">(unique)</td>
+<td style="text-align: right;">(fwd, 4k ctx)</td>
+<td style="text-align: right;">(bf16)</td>
+<td style="text-align: right;">(bf16, 1 seq)</td>
+<td style="text-align: right;">(H100 bound)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Qwen3-0.6B</td>
+<td style="text-align: right;">596M</td>
+<td style="text-align: right;">2.1</td>
+<td style="text-align: right;">112 KiB</td>
+<td style="text-align: right;">448 MiB</td>
+<td style="text-align: right;">2,016</td>
+</tr>
+<tr>
+<td style="text-align: left;">Qwen3-1.7B</td>
+<td style="text-align: right;">1.72B</td>
+<td style="text-align: right;">4.4</td>
+<td style="text-align: right;">112 KiB</td>
+<td style="text-align: right;">448 MiB</td>
+<td style="text-align: right;">857</td>
+</tr>
+<tr>
+<td style="text-align: left;">Qwen3-4B</td>
+<td style="text-align: right;">4.02B</td>
+<td style="text-align: right;">10.5</td>
+<td style="text-align: right;">144 KiB</td>
+<td style="text-align: right;">576 MiB</td>
+<td style="text-align: right;">387</td>
+</tr>
+<tr>
+<td style="text-align: left;">Qwen3-8B</td>
+<td style="text-align: right;">8.19B</td>
+<td style="text-align: right;">17.6</td>
+<td style="text-align: right;">144 KiB</td>
+<td style="text-align: right;">576 MiB</td>
+<td style="text-align: right;">197</td>
+</tr>
+<tr>
+<td style="text-align: left;">Qwen3-14B</td>
+<td style="text-align: right;">14.8B</td>
+<td style="text-align: right;">31.3</td>
+<td style="text-align: right;">160 KiB</td>
+<td style="text-align: right;">640 MiB</td>
+<td style="text-align: right;">111</td>
+</tr>
+<tr>
+<td style="text-align: left;">Qwen3-32B</td>
+<td style="text-align: right;">32.8B</td>
+<td style="text-align: right;">72.6</td>
+<td style="text-align: right;">256 KiB</td>
+<td style="text-align: right;">1,024 MiB</td>
+<td style="text-align: right;">50</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Table&nbsp;<a href="#tab:landscape:qwen3napkin">1.3</a> applies these formulas to the model family used in Part VII. Two features stand out. First, KV-cache bytes per token are small and nearly constant across sizes (thanks to grouped-query attention, Chapter&nbsp;<span class="xref-unpub" title="Not published yet">11</span>), so at long contexts the cache, not the weights, limits how many requests fit in memory. Second, single-sequence decoding speed is set by <em>bandwidth</em>: the smallest model streams its 1.2 GB of weights plus 448 MiB of KV cache about 2,000 times per second (the weights alone would allow about 2,800), and nothing short of batching, quantisation (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>) or speculative decoding can beat that bound.</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: GPT-3 in GPU-days</strong></p>
+<p><span class="math inline">\(C = 6ND = 6\times175\times10^9\times300\times10^9 = 3.15\times10^{23}\)</span> FLOPs. One H100 at 40% model FLOPs utilisation (MFU) sustains <span class="math inline">\(0.4\times989\times10^{12} \approx 4\times10^{14}\)</span> FLOP/s, so training takes <span class="math inline">\(3.15\times10^{23}/(3.96\times10^{14}) \approx 8.0\times10^8\)</span> GPU-seconds <span class="math inline">\(\approx 221{,}000\)</span> GPU-hours: nine days on 1,024 H100s. The same job on A100s (312 TFLOP/s) needs about 700,000 GPU-hours. The original 2020 run used V100s, roughly an order of magnitude slower per chip than an H100 for this workload.</p>
+</div>
+<p>To see how cost is distributed across the life cycle, Figure&nbsp;<a href="#fig:landscape:lifecyclecost">1.9</a> applies the same formulas to a hypothetical 8B-parameter model with illustrative but realistic budgets: 15T pretraining tokens; 1B SFT tokens; an RL phase with <span class="math inline">\(10^5\)</span> prompts <span class="math inline">\(\times\)</span> 8 rollouts <span class="math inline">\(\times\)</span> 4,000 tokens, counting generation (<span class="math inline">\(2N\)</span> per token) and training (<span class="math inline">\(6N\)</span> per token); and serving <span class="math inline">\(10^9\)</span> tokens per day for a year.</p>
+<figure id="fig:landscape:lifecyclecost">
+<img style="width: 843px" src="figures/ch01_landscape-9.svg" class="fig fig-light" loading="lazy" alt="Order-of-magnitude compute across the life cycle of an 8B model under the stated assumptions (computed, not measured). Pretraining dominates training compute, but a year of moderate serving already exceeds every post-training stage. FLOPs also understate RL and serving costs, which are bandwidth-bound and run far below peak FLOP/s." /><img style="width: 843px" src="figures/ch01_landscape-9-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Order-of-magnitude compute across the life cycle of an 8B model under the stated assumptions (computed, not measured). Pretraining dominates training compute, but a year of moderate serving already exceeds every post-training stage. FLOPs also understate RL and serving costs, which are bandwidth-bound and run far below peak FLOP/s." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.9: </span></span>Order-of-magnitude compute across the life cycle of an 8B model under the stated assumptions (computed, not measured). Pretraining dominates training compute, but a year of moderate serving already exceeds every post-training stage. FLOPs also understate RL and serving costs, which are bandwidth-bound and run far below peak FLOP/s.</figcaption>
+</figure>
+<div class="systemslens box">
+<p><strong>Systems Lens: FLOPs are not time</strong></p>
+<p>Figure&nbsp;<a href="#fig:landscape:lifecyclecost">1.9</a> counts FLOPs, but stages differ wildly in how efficiently they turn FLOPs into progress. Pretraining runs large dense matrix multiplications and can sustain 40–50% MFU on well-tuned clusters. Decoding (serving, and RL rollouts) is dominated by matrix–vector products whose arithmetic intensity is near 1 FLOP/byte at batch 1, versus the <span class="math inline">\(\sim\)</span><!-- -->295 FLOP/byte an H100 needs to be compute-bound (Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>); without large batches, utilisation can fall to a few percent. That is why RL rollouts often take the majority of wall-clock time in reasoning training despite being a small FLOP fraction, and why serving engines obsess over batching.</p>
+</div>
+<section id="sec:landscape:request" class="level3">
+<h3><span class="xn"><span class="num">1.12.1&nbsp;&nbsp;</span></span>Anatomy of a single request</h3>
+<p>It is worth following one chat request through a serving system now, because the vocabulary returns in every later part of the book (Figure&nbsp;<a href="#fig:landscape:request">1.10</a>). The text is <em>tokenised</em> on the CPU. The prompt’s tokens are then processed in a single parallel forward pass, the <em>prefill</em>, which computes and stores the keys and values of every prompt token in the <em>KV cache</em> and produces the logits for the first output token. Prefill is a sequence of large matrix–matrix products and is compute-bound; its duration sets the <em>time to first token</em> (TTFT). After that, the engine enters the <em>decode</em> loop: each iteration feeds only the newest token, attends to the cached keys and values, samples one token, appends its own key and value to the cache, and streams the token back to the client after detokenisation. Decode iterations are matrix–vector products, memory-bound, and their duration sets the <em>time per output token</em> (TPOT), also called inter-token latency. A reasoning model simply has a very long decode phase, much of it inside <code>&lt;think&gt;</code> tags.</p>
+<figure id="fig:landscape:request">
+<img style="width: 1005px" src="figures/ch01_landscape-10.svg" class="fig fig-light" loading="lazy" alt="Life of one request. Prefill processes the whole prompt in parallel and fills the KV cache; decode then emits one token per forward pass, reading all weights and the growing cache each time. Serving systems () interleave the prefill and decode steps of many requests." /><img style="width: 1005px" src="figures/ch01_landscape-10-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Life of one request. Prefill processes the whole prompt in parallel and fills the KV cache; decode then emits one token per forward pass, reading all weights and the growing cache each time. Serving systems () interleave the prefill and decode steps of many requests." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.10: </span></span>Life of one request. Prefill processes the whole prompt in parallel and fills the KV cache; decode then emits one token per forward pass, reading all weights and the growing cache each time. Serving systems (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">46</span>) interleave the prefill and decode steps of many requests.</figcaption>
+</figure>
+<p>Table&nbsp;<a href="#tab:landscape:bottlenecks">1.4</a> condenses the resulting picture. It is the most important table in this chapter: nearly every optimisation in the book is an attack on one cell.</p>
+<div id="tab:landscape:bottlenecks" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 1.4: </span></span>What limits what. Numbers in the last column are chapter references.</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Workload</th>
+<th style="text-align: left;">Dominant operation</th>
+<th style="text-align: left;">Usual bottleneck</th>
+<th style="text-align: left;">Main remedies (chapter)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Pretraining</td>
+<td style="text-align: left;">large GEMMs, fwd + bwd</td>
+<td style="text-align: left;">compute; then interconnect</td>
+<td style="text-align: left;">mixed precision, kernel fusion, Flash­Attention, parallelism (<span class="xref-unpub" title="Not published yet">20</span>, <span class="xref-unpub" title="Not published yet">24</span>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Fine-tuning</td>
+<td style="text-align: left;">same, smaller scale</td>
+<td style="text-align: left;">memory capacity (optimiser state)</td>
+<td style="text-align: left;">LoRA and QLoRA, ZeRO and FSDP, checkpointing (<span class="xref-unpub" title="Not published yet">42</span>, <span class="xref-unpub" title="Not published yet">24</span>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Prefill</td>
+<td style="text-align: left;">GEMMs over prompt</td>
+<td style="text-align: left;">compute</td>
+<td style="text-align: left;">FlashAttention, chunked prefill, prefix caching (<span class="xref-unpub" title="Not published yet">9</span>, <span class="xref-unpub" title="Not published yet">46</span>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Decode</td>
+<td style="text-align: left;">GEMVs + attention over cache</td>
+<td style="text-align: left;">memory bandwidth; KV capacity</td>
+<td style="text-align: left;">batching, paged KV, GQA, quantisation, speculative decoding (<span class="xref-unpub" title="Not published yet">46</span>, <span class="xref-missing">??</span>, <span class="xref-unpub" title="Not published yet">48</span>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">RL rollouts</td>
+<td style="text-align: left;">decode at scale</td>
+<td style="text-align: left;">bandwidth; long-tail lengths</td>
+<td style="text-align: left;">inference engines inside the trainer, async RL (<span class="xref-unpub" title="Not published yet">65</span>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Evaluation</td>
+<td style="text-align: left;">batched decode + checking</td>
+<td style="text-align: left;">bandwidth; verifier CPU time</td>
+<td style="text-align: left;">batching, caching, sandboxed parallel verifiers (<span class="xref-unpub" title="Not published yet">56</span>)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="deepdive box">
+<p><strong>Deeper Dive: Scaling laws in one paragraph</strong></p>
+<p>Empirically, pretraining loss falls as a smooth power law in parameters, data and compute (Kaplan et al., 2020). Hoffmann et al. (2022, “Chinchilla”) refit these laws and found that, for a fixed compute budget <span class="math inline">\(C\approx6ND\)</span>, loss is minimised when parameters and tokens grow in roughly equal proportion, at about 20 tokens per parameter. A 70B model is then “compute-optimal” at about 1.4T tokens. Production models deliberately overshoot (<span class="math inline">\(D/N\)</span> in the hundreds or thousands) because a smaller model trained longer is cheaper to <em>serve</em>, and lifetime serving cost dominates (Figure&nbsp;<a href="#fig:landscape:lifecyclecost">1.9</a>). Chapter&nbsp;<span class="xref-unpub" title="Not published yet">22</span> derives the compute-optimal allocation and fits these laws to our own runs.</p>
+</div>
+<div class="deepdive box">
+<p><strong>Deeper Dive: Reading the research: Kaplan et al. (2020), “Scaling Laws for Neural Language Models”</strong></p>
+<p><strong>The cost model, in our notation.</strong> The paper’s Table 1 counts, for a decoder with <span class="math inline">\(L\)</span> layers, width <span class="math inline">\(d\)</span>, attention width <span class="math inline">\(d_{\text{attn}}=H d_h\)</span> and MLP width <span class="math inline">\(d_{\text{ff}}\)</span>, the <em>non-embedding</em> parameters <span class="math inline">\(N = 2\,d\,L\,(2d_{\text{attn}} + d_{\text{ff}})\)</span>, which is <span class="math inline">\(12\,L\,d^2\)</span> for the GPT shape <span class="math inline">\(d_{\text{attn}}=d\)</span>, <span class="math inline">\(d_{\text{ff}}=4d\)</span>, and the forward cost per token <span class="xn" id="eq:landscape:kaplan"></span><span class="math display">\[\begin{equation}
+C_{\text{forward}} \;=\; 2N + 2\,L\,n_{\text{ctx}}\,d_{\text{attn}},
+\tag{1.3}
+\end{equation}\]</span> from which training costs <span class="math inline">\(C\approx 6N\)</span> FLOPs per token, <span class="math inline">\(C\approx6ND\)</span> in all. The second term looks like half of what Section&nbsp;<a href="#sec:landscape:cost">1.12</a> charges for attention (<span class="math inline">\(4\,L\,d_{\text{attn}}\)</span> per key attended, for <span class="math inline">\(QK^\top\)</span> and <span class="math inline">\(PV\)</span>). It is not a different count but an average: in a causal sequence of <span class="math inline">\(n_{\text{ctx}}\)</span> tokens a token attends to <span class="math inline">\(n_{\text{ctx}}/2\)</span> keys on average. Embeddings and the output head are left out of <span class="math inline">\(N\)</span>, biases and norm gains too.</p>
+<p><strong>What our code reproduces.</strong> <code>kaplan_forward_flops</code> in Lab&nbsp;<a href="#sec:landscape:lab">1</a> implements (<a href="#eq:landscape:kaplan">1.3</a>) and the lab’s test checks that it equals our own <code>forward_flops_per_token(cfg, n_ctx / 2)</code> minus the LM-head matmul, <em>exactly</em>, for GPT-2 and Qwen3. The paper then argues that the context term is negligible when <span class="math inline">\(d &gt; n_{\text{ctx}}/12\)</span>, which follows from the ratio <span class="math inline">\(L\,n_{\text{ctx}}\,d_{\text{attn}}/N = n_{\text{ctx}}/(12d)\)</span> for the GPT shape. The lab gives the fraction of <span class="math inline">\(C_{\text{forward}}\)</span> in the context term: 10% for GPT-2 small at <span class="math inline">\(n_{\text{ctx}}=1{,}024\)</span>, the regime of the paper; 35% for Qwen3-0.6B at 4,096 tokens (its attention is twice as wide as its residual stream, so the GPT-shape criterion is optimistic) and 81% at 32,768; 8% and 41% for Qwen3-8B at the same two lengths. The “<span class="math inline">\(6N\)</span>” rule is an excellent model of 2020-era pretraining and a poor one of long-context training. We do not reproduce the paper’s loss exponents (<span class="math inline">\(\alpha_N\approx0.076\)</span>, <span class="math inline">\(\alpha_D\approx0.095\)</span>, <span class="math inline">\(\alpha_C\approx0.050\)</span>) or its allocation <span class="math inline">\(N_{\text{opt}}\propto C^{0.73}\)</span> here: that needs training runs, which Chapter&nbsp;<span class="xref-unpub" title="Not published yet">22</span> and Chapter&nbsp;<span class="xref-unpub" title="Not published yet">29</span> make.</p>
+<p><strong>What the evaluation leaves out.</strong> The fits count FLOPs, never time, memory or serving cost, so they cannot see that a smaller model trained longer is cheaper to deploy. Every run used one learning-rate schedule length regardless of its token budget; Hoffmann et al. (2022) showed that this biased the allocation towards large models, and their refit moved the exponent from 0.73 to about 0.5. Excluding embedding parameters changes the fitted exponents at small scale (Pearce and Song, 2024). The data are one distribution (WebText2) seen for at most one epoch, the largest model has about 1.5B parameters, and the context term is dropped. Each omission became a later paper.</p>
+</div>
+</section>
+<section id="the-hardware-zoo" class="level3">
+<h3><span class="xn"><span class="num">1.12.2&nbsp;&nbsp;</span></span>The hardware zoo</h3>
+<p>Most LLM work today runs on NVIDIA GPUs (A100, H100/H200, B200), whose programming model, CUDA, is the one we program in <span class="xref-missing">??</span> and, one level up, in Triton (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">A</span>); <span class="xref-missing">??</span> takes the GPU and its competitors apart. Google’s TPUs organise compute as large systolic matrix units fed by high-bandwidth memory and connect chips in a torus with dedicated inter-chip links. A third family of <em>dataflow</em> or near-memory architectures, including Tenstorrent’s grids of RISC-V-controlled Tensix cores, Cerebras’s wafer-scale engine and Groq’s deterministic LPU, trades the GPU’s cache hierarchy for explicitly scheduled on-chip SRAM and data movement. The vocabulary of this book (FLOPs, bytes, arithmetic intensity, bandwidth, interconnect, overlap) applies unchanged to all of them; only the constants and the knobs differ (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">B</span>). Figure&nbsp;<a href="#fig:landscape:hwzoo">1.11</a> sketches the common abstraction.</p>
+<figure id="fig:landscape:hwzoo">
+<img style="width: 757px" src="figures/ch01_landscape-11.svg" class="fig fig-light" loading="lazy" alt="Three accelerator families, one abstraction. Performance analysis in this book reduces any of them to compute throughput, memory capacity and bandwidth, and interconnect bandwidth and latency." /><img style="width: 757px" src="figures/ch01_landscape-11-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Three accelerator families, one abstraction. Performance analysis in this book reduces any of them to compute throughput, memory capacity and bandwidth, and interconnect bandwidth and latency." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.11: </span></span>Three accelerator families, one abstraction. Performance analysis in this book reduces any of them to compute throughput, memory capacity and bandwidth, and interconnect bandwidth and latency.</figcaption>
+</figure>
+</section>
+</section>
+<section id="sec:landscape:roadmap" class="level2">
+<h2><span class="xn"><span class="num">1.13&nbsp;&nbsp;</span></span>A roadmap for this book</h2>
+<p>The book follows two arcs and wraps them in a systems layer. The first arc builds a GPT-style model and trains it: data and tokenisation, attention, the full architecture, pretraining, and fine-tuning for classification and for following instructions. The second starts from a pretrained (and post-trained) model and turns it into a reasoning model: a text-generation pipeline, an evaluation harness with a math verifier, inference-time techniques (chain of thought, sampling, self-consistency, self-refinement), and training techniques (policy gradients, RLHF, DPO, GRPO and distillation). The systems layer runs through every chapter as Systems Lens and Napkin Math boxes, and one part of it goes all the way down, from a Python program to C++, CUDA, compilers and the memory system. Our goal throughout is not only to explain how today’s systems work but to leave you able to read, reproduce and extend the research that will replace them.</p>
+<figure id="fig:landscape:bookmap">
+<img style="width: 2100px" src="figures/ch01_landscape-12.svg" class="fig fig-light" loading="lazy" alt="How the chapters fit together. Each band is one part of the book, read left to right and top to bottom. Boxes are coloured by theme (blue: models and training; amber: systems, hardware and serving; green: data and evaluation; purple: reasoning and post-training; grey: appendices), and the dashed boxes are the capstone projects that close each part. Every chapter except the project guides ends with a lab." /><img style="width: 2100px" src="figures/ch01_landscape-12-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="How the chapters fit together. Each band is one part of the book, read left to right and top to bottom. Boxes are coloured by theme (blue: models and training; amber: systems, hardware and serving; green: data and evaluation; purple: reasoning and post-training; grey: appendices), and the dashed boxes are the capstone projects that close each part. Every chapter except the project guides ends with a lab." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 1.12: </span></span>How the chapters fit together. Each band is one part of the book, read left to right and top to bottom. Boxes are coloured by theme (blue: models and training; amber: systems, hardware and serving; green: data and evaluation; purple: reasoning and post-training; grey: appendices), and the dashed boxes are the capstone projects that close each part. Every chapter except the project guides ends with a lab.</figcaption>
+</figure>
+<p>Figure&nbsp;<a href="#fig:landscape:bookmap">1.12</a> shows the seven parts. Every part ends with research-grade capstone projects that use only the material of that part and the parts before it; each has a specification framed as research questions, milestones with automated acceptance tests, baselines, a compute budget sized for two A100-40GB GPUs connected over PCIe, and a reference solution.</p>
+<ul>
+<li><p><strong>Part I, Foundations.</strong> This chapter; PyTorch from tensors to multi-GPU training (Chapter&nbsp;<a href="ch02_pytorch.html#ch:pytorch">2</a>); the machine underneath it, with the roofline as the book’s first performance model and the discipline of measuring it (Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>); how numbers are represented, rounded and accumulated on the machine, from fp32 to fp4 and integer formats (Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a>); and how scales, quantisation grids and mixed-precision recipes make the narrow formats usable (Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a>). Capstones: characterising your own machine (Chapter&nbsp;<a href="ch06_proj_machine.html#ch:proj10">6</a>) and a low-precision training study (Chapter&nbsp;<a href="ch07_proj_lowprec.html#ch:proj11">7</a>).</p></li>
+<li><p><strong>Part II, Building an LLM.</strong> Text and tokenisation (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">8</span>), attention (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">9</span>), GPT-2 (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">10</span>), a modern Qwen3-style model (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">11</span>), the architecture design space (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">12</span>), alternatives to softmax attention (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">13</span>), encoders and encoder–decoders (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">14</span>), mixture-of-experts models end to end (<span class="xref-missing">??</span>), and the anatomy of today’s open models down to their checkpoint files (<span class="xref-missing">??</span>). Capstones: bringing up a new open model against reference logits (<span class="xref-missing">??</span>) and sequence mixers at long context (<span class="xref-missing">??</span>).</p></li>
+<li><p><strong>Part III, Pretraining at scale.</strong> Optimisers (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">19</span>), the pretraining loop (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">20</span>), pretraining data (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">21</span>), scaling laws (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">22</span>), single-GPU performance engineering (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">23</span>), distributed training (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">24</span>), sharded data parallelism (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">25</span>) and a calculus for sharded computation (<span class="xref-missing">??</span>). Capstones: a language model from scratch (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">27</span>), training systems on PCIe GPUs (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">28</span>), a budgeted scaling study (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">29</span>) and a web-data pipeline (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">30</span>).</p></li>
+<li><p><strong>Part IV, From Python to the metal.</strong> C++ for PyTorch (<span class="xref-missing">??</span>), GPU and accelerator architecture (<span class="xref-missing">??</span>), CUDA kernels from first principles (<span class="xref-missing">??</span>), attention and mixture-of-experts kernels (<span class="xref-missing">??</span>), the profiling toolchain (<span class="xref-missing">??</span>), ML compilers (<span class="xref-missing">??</span>), and memory, data movement and interconnects (<span class="xref-missing">??</span>). Capstones: mixture-of-experts systems (<span class="xref-missing">??</span>), a tiny tensor compiler (<span class="xref-missing">??</span>) and a kernel library measured against vendor libraries (<span class="xref-missing">??</span>).</p></li>
+<li><p><strong>Part V, Fine-tuning.</strong> Classification (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">41</span>) and instruction tuning with LoRA and its relatives (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">42</span>). Capstones: a parameter-efficient fine-tuning study (<span class="xref-missing">??</span>) and a domain specialist built end to end (<span class="xref-missing">??</span>).</p></li>
+<li><p><strong>Part VI, Inference and serving.</strong> How one request is generated (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">45</span>), how a server batches thousands (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">46</span>), how the KV cache is allocated, shared, evicted and moved (<span class="xref-missing">??</span>), how to make each token cheaper (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>), inference on CPUs and devices (<span class="xref-missing">??</span>), retrieval and compound systems (<span class="xref-missing">??</span>), and a measured study of data movement in a long-running multi-stream reasoning workload (<span class="xref-missing">??</span>). Capstones: a serving engine (<span class="xref-missing">??</span>), a CPU runtime (<span class="xref-missing">??</span>), a profiler (<span class="xref-missing">??</span>) and long-context multi-agent serving (<span class="xref-missing">??</span>).</p></li>
+<li><p><strong>Part VII, Reasoning and post-training.</strong> Evaluation (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">56</span>), inference-time scaling (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">57</span>), self-refinement (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">58</span>), the reinforcement-learning setup for LLMs (<span class="xref-missing">??</span>), policy gradients (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">60</span>), RLHF with PPO (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">61</span>), DPO (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">62</span>), GRPO and its descendants (Chapters&nbsp;<span class="xref-unpub" title="Not published yet">63</span> and <span class="xref-unpub" title="Not published yet">64</span>), RL training systems (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">65</span>), distillation (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">66</span>) and alignment and multimodality (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">67</span>). Capstones: post-training a reasoning model (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">68</span>), agentic RL with tools (<span class="xref-missing">??</span>) and reasoning distillation under a budget (<span class="xref-missing">??</span>).</p></li>
+</ul>
+<p>The appendices cover Triton (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">A</span>), accelerators beyond the GPU (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">B</span>), JAX and XLA (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">C</span>), the lab setup (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">D</span>), containerising an ML project (<span class="xref-missing">??</span>), the references (Appendix&nbsp;<a href="appF_references.html#app:refs">F</a>), how to follow, read, reproduce and do research in LLM systems (<span class="xref-missing">??</span>), and worked solutions to the exercises (Appendix&nbsp;<a href="appH_solutions.html#app:solutions">H</a>).</p>
+<section id="how-to-read-this-book." class="level5">
+<h5>How to read this book.</h5>
+<p>The chapters are written to be read in order, but there are shorter paths. Four of them cover the readers we have in mind; each ends at capstones that test it.</p>
+<ul>
+<li><p><strong>Systems researcher.</strong> Part I, then Chapter&nbsp;<a href="ch06_proj_machine.html#ch:proj10">6</a>; the Systems Lens boxes of Part II; Chapters&nbsp;<span class="xref-unpub" title="Not published yet">23</span>, <span class="xref-unpub" title="Not published yet">24</span> and <span class="xref-unpub" title="Not published yet">25</span> and <span class="xref-missing">??</span>; all of Part IV; Chapters&nbsp;<span class="xref-unpub" title="Not published yet">45</span> and <span class="xref-unpub" title="Not published yet">46</span> and <span class="xref-missing">??</span> and <span class="xref-missing">??</span>; Chapter&nbsp;<span class="xref-unpub" title="Not published yet">65</span>; appendices Appendices&nbsp;<span class="xref-unpub" title="Not published yet">B</span> and <span class="xref-unpub" title="Not published yet">C</span> and <span class="xref-missing">??</span>. Capstones: Chapter&nbsp;<span class="xref-unpub" title="Not published yet">28</span> and <span class="xref-missing">??</span>, <span class="xref-missing">??</span> and <span class="xref-missing">??</span>.</p></li>
+<li><p><strong>Inference engineer.</strong> Chapters&nbsp;<a href="ch02_pytorch.html#ch:pytorch">2</a>, <a href="ch03_machine.html#ch:machine">3</a>, <a href="ch04_numerics.html#ch:numerics">4</a> and <a href="ch05_quant.html#ch:quant">5</a>; Chapters&nbsp;<span class="xref-unpub" title="Not published yet">9</span> and <span class="xref-unpub" title="Not published yet">11</span> and <span class="xref-missing">??</span> and <span class="xref-missing">??</span>; <span class="xref-missing">??</span>, <span class="xref-missing">??</span>, <span class="xref-missing">??</span> and <span class="xref-missing">??</span>; all of Part VI; then Chapter&nbsp;<span class="xref-unpub" title="Not published yet">57</span> for the serving cost of reasoning. Capstones: <span class="xref-missing">??</span>, <span class="xref-missing">??</span> and <span class="xref-missing">??</span>.</p></li>
+<li><p><strong>Training engineer.</strong> Part I; Chapters&nbsp;<span class="xref-unpub" title="Not published yet">10</span> and <span class="xref-unpub" title="Not published yet">11</span> and <span class="xref-missing">??</span>; all of Part III; <span class="xref-missing">??</span> and <span class="xref-missing">??</span>; Chapter&nbsp;<span class="xref-unpub" title="Not published yet">42</span>. Capstones: Chapters&nbsp;<span class="xref-unpub" title="Not published yet">27</span>, <span class="xref-unpub" title="Not published yet">28</span>, <span class="xref-unpub" title="Not published yet">29</span> and <a href="ch07_proj_lowprec.html#ch:proj11">7</a>.</p></li>
+<li><p><strong>Post-training and RL researcher.</strong> Chapters&nbsp;<a href="#ch:landscape">1</a>, <a href="ch02_pytorch.html#ch:pytorch">2</a> and <a href="ch03_machine.html#ch:machine">3</a>; Chapters&nbsp;<span class="xref-unpub" title="Not published yet">10</span> and <span class="xref-unpub" title="Not published yet">11</span>; Chapter&nbsp;<span class="xref-unpub" title="Not published yet">42</span>; Chapters&nbsp;<span class="xref-unpub" title="Not published yet">45</span> and <span class="xref-unpub" title="Not published yet">46</span>; then Part VII in order, starting with Chapter&nbsp;<span class="xref-unpub" title="Not published yet">56</span> and <span class="xref-missing">??</span>. Capstones: Chapter&nbsp;<span class="xref-unpub" title="Not published yet">68</span> and <span class="xref-missing">??</span> and <span class="xref-missing">??</span>.</p></li>
+</ul>
+<p>A reader who learns best by building can start from a capstone: each project guide lists, task by task, the chapters and labs that teach what the project needs.</p>
+</section>
+<section id="labs-and-research-sections." class="level5">
+<h5>Labs and research sections.</h5>
+<p>Each chapter closes with a lab in <code>code/labs/</code>. A lab has a <code>starter.py</code> with <code>TODO</code>s, a reference <code>solution.py</code>, and tests that run on a laptop CPU in seconds using tiny model configurations; most labs also ship a <code>run.py</code> or <code>bench.py</code> meant for a real GPU and real checkpoints. Tests are graded with <code>pytest</code> (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">D</span>). The shared library <code>llmsys</code> contains the reusable pieces (model definitions, KV caches, sampling, training loops) built up over the first chapters. Every measured number in the book is labelled with the machine it was measured on; ours is a workstation with two A100-40GB GPUs connected over PCIe, without NVLink.</p>
+<p>Every chapter also ends, before its summary, with a <em>Research frontier</em> section: the open problems, the handful of papers that define the area and what each changed, the assumptions that new hardware or models are likely to break, and the axes along which new papers vary, so that you can place a new paper in a minute. Each chapter also works through one landmark paper in a <em>Reading the research</em> box: its cost model in our notation, which of its numbers our lab code reproduces and how closely, and what its evaluation leaves out. Section&nbsp;<a href="#sec:landscape:frontier">1.14</a> does this for the field as a whole.</p>
+</section>
+</section>
+<section id="sec:landscape:frontier" class="level2">
+<h2><span class="xn"><span class="num">1.14&nbsp;&nbsp;</span></span>Research frontier</h2>
+<p>Every later chapter closes with the frontier of its own topic. Here we take the field as a whole: where LLM systems research is moving, the works that defined it, the assumptions most likely to fail next, and a procedure for placing a new paper on the map in a minute.</p>
+<section id="where-the-field-is-moving" class="level3">
+<h3><span class="xn"><span class="num">1.14.1&nbsp;&nbsp;</span></span>Where the field is moving</h3>
+<p><strong>Reasoning and test-time compute.</strong> Reasoning models move cost from training into generated tokens (Section&nbsp;<a href="#sec:landscape:levers">1.8</a>). The open problems are allocation (how to split a budget between a larger model and more thinking per query; Snell et al., 2024), verification beyond domains with programmatic checkers, and serving: a 10,000-token trace is a long decode that holds KV cache for seconds to minutes, which turns KV-cache capacity, not FLOPs, into the binding constraint (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">57</span> and <span class="xref-missing">??</span> and <span class="xref-missing">??</span>).</p>
+<p><strong>Hybrid and sparse architectures.</strong> Fine-grained mixture-of-experts models (DeepSeek-AI, 2024, “V3”) decouple parameters from FLOPs per token; state-space and linear-attention layers mixed with a few attention layers (Gu and Dao, 2023; Lieber et al., 2024) bound the per-token state; trained sparse attention (Yuan et al., 2025) skips most of the cache. None has a settled scaling law, and each changes the cost model of Section&nbsp;<a href="#sec:landscape:cost">1.12</a>: active and total parameters differ, KV bytes stop growing linearly with context, and the kernels become irregular (<span class="xref-missing">??</span>, Chapter&nbsp;<span class="xref-unpub" title="Not published yet">13</span> and <span class="xref-missing">??</span>).</p>
+<p><strong>Low precision.</strong> Training moved from fp32 to bf16 and, at the frontier, to fp8 with fine-grained scaling (DeepSeek-AI, 2024, “V3”); block-scaled microscaling formats (Rouhani et al., 2023) push to 6 and 4 bits. Precision is now a scaling-law variable in its own right (Kumar et al., 2024), and the open questions are where each format is safe (weights, activations, gradients, optimiser state, KV cache) and how to know before a long run diverges (Chapters&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a>, <a href="ch05_quant.html#ch:quant">5</a> and <a href="ch07_proj_lowprec.html#ch:proj11">7</a>).</p>
+<p><strong>Disaggregated and memory-centric serving.</strong> Prefill is compute-bound and decode is bandwidth-bound (Table&nbsp;<a href="#tab:landscape:bottlenecks">1.4</a>); running them on the same GPUs makes each slow the other. Splitting them across machines (Patel et al., 2024; Zhong et al., 2024) and treating the KV cache as a distributed store (Qin et al., 2024) trade interference for data movement, so the interconnect becomes the bottleneck to study (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">46</span> and <span class="xref-missing">??</span> and <span class="xref-missing">??</span>).</p>
+<p><strong>RL systems.</strong> An RL step for reasoning is mostly generation: an inference engine and a trainer share the GPUs and exchange weights every step (Sheng et al., 2025). Open problems are the long tail of rollout lengths, how stale (off-policy) rollouts may be before learning suffers, and how to move weights between trainer and generator cheaply (<span class="xref-missing">??</span> and Chapter&nbsp;<span class="xref-unpub" title="Not published yet">65</span>).</p>
+<p><strong>Hardware co-design.</strong> Models are now designed around the hardware they will run on and the reverse: DeepSeek-V3’s latent attention, fp8 recipe and communication-hiding pipeline were chosen around the interconnect limits of its H800 cluster, and its authors spell out what they want from the next chips (Zhao et al., 2025). At the other extreme, training across poorly connected sites (Douillard et al., 2023) asks how little communication training needs (<span class="xref-missing">??</span> and <span class="xref-missing">??</span> and Appendix&nbsp;<span class="xref-unpub" title="Not published yet">B</span>).</p>
+</section>
+<section id="the-works-that-defined-the-field" class="level3">
+<h3><span class="xn"><span class="num">1.14.2&nbsp;&nbsp;</span></span>The works that defined the field</h3>
+<ul>
+<li>Vaswani et al. (2017), “Attention Is All You Need”: the transformer, a model made almost entirely of matrix multiplications, which is why GPUs and TPUs could scale it.</li>
+<li>Kaplan et al. (2020): loss is a smooth power law in <span class="math inline">\(N\)</span>, <span class="math inline">\(D\)</span> and <span class="math inline">\(C\)</span>, and <span class="math inline">\(C\approx6ND\)</span>; scale became something to plan rather than to hope for.</li>
+<li>Hoffmann et al. (2022), “Chinchilla”: the compute-optimal allocation is about 20 tokens per parameter, and most models of the time were undertrained.</li>
+<li>Dao et al. (2022), “FlashAttention”: an exact algorithm restructured around the memory hierarchy is several times faster; IO-awareness became the default way to design a kernel.</li>
+<li>Pope et al. (2023), “Efficiently Scaling Transformer Inference”: inference cost as a function of batch, sharding layout and memory bandwidth, the template for every serving cost model.</li>
+<li>Kwon et al. (2023), “PagedAttention” (vLLM): KV-cache memory managed like virtual memory, which made large-batch serving practical and created the open serving-engine ecosystem.</li>
+<li>Snell et al. (2024): test-time compute can substitute for parameters, and the optimal amount depends on the difficulty of the query.</li>
+<li>DeepSeek-AI (2024), “DeepSeek-V3”: a frontier model co-designed with its cluster (MLA, fine-grained MoE, fp8 training, overlapped expert communication), documented in enough detail to reproduce the systems choices.</li>
+<li>DeepSeek-AI (2025), “DeepSeek-R1”: reinforcement learning with verifiable rewards on a strong base model yields long chain-of-thought reasoning, with open weights and a recipe.</li>
+<li>Zhong et al. (2024), “DistServe”: optimise prefill and decode for their own latency targets on separate hardware, measured as goodput; disaggregation entered production serving.</li>
+</ul>
+</section>
+<section id="assumptions-that-are-likely-to-break" class="level3">
+<h3><span class="xn"><span class="num">1.14.3&nbsp;&nbsp;</span></span>Assumptions that are likely to break</h3>
+<ul>
+<li><em>“Training compute is <span class="math inline">\(6ND\)</span>.”</em> It omits the context term (the box on Kaplan et al. shows it reaching 81% of the forward cost at 32k tokens for a small model), counts total rather than active parameters for MoE, and ignores generation, which dominates RL.</li>
+<li><em>“Pretraining dominates compute.”</em> Serving and RL rollouts already exceed post-training (Figure&nbsp;<a href="#fig:landscape:lifecyclecost">1.9</a>), and reasoning models multiply serving tokens.</li>
+<li><em>“Decode is memory-bound, prefill compute-bound.”</em> Large decode batches, MoE (each expert sees a fraction of the batch) and sparse attention move both operations along the roofline, and the ridge point moves between chip generations: in bf16 from 153 FLOP/byte on an A100-80GB SXM to 295 on an H100, because peak FLOP/s grew <span class="math inline">\(3.2\times\)</span> while bandwidth grew <span class="math inline">\(1.6\times\)</span>, and back down to about 206 on the H200, which kept the H100’s compute and added bandwidth. Counting the lower-precision tensor cores, the ridge climbs steeply: about 562 FLOP/byte in fp8 and 1,125 in fp4 on a B200 (Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>).</li>
+<li><em>“bf16 is the working precision.”</em> fp8 training and 4-bit inference are in production; formats are becoming per-tensor design decisions (Chapters&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> and <a href="ch05_quant.html#ch:quant">5</a>).</li>
+<li><em>“GPUs in a job are connected by a fast fabric.”</em> Boxes like ours (PCIe only), multi-site training and disaggregated serving make the slowest link the design point.</li>
+</ul>
+</section>
+<section id="how-to-recognise-the-next-variant" class="level3">
+<h3><span class="xn"><span class="num">1.14.4&nbsp;&nbsp;</span></span>How to recognise the next variant</h3>
+<p>Most systems papers are a point in a small space. Place a new one by answering six questions, which Table&nbsp;<a href="#tab:landscape:axes">1.5</a> applies to papers from this section and later chapters:</p>
+<ol type="1">
+<li><strong>Stage:</strong> pretraining, post-training, inference or RL (which mixes the last two)?</li>
+<li><strong>Resource attacked:</strong> FLOPs, HBM bandwidth, HBM capacity, interconnect, host CPU, or latency and launch overhead? Our three-line cost model says which one binds.</li>
+<li><strong>Mechanism:</strong> do less work (sparsity, early exit), move fewer bytes (quantisation, compression, fusion), reuse (batching, caching, sharing), overlap (pipelining, asynchrony), re-partition (sharding, disaggregation), or trade one resource for another (recompute versus store)?</li>
+<li><strong>Exactness:</strong> does the output stay bit-identical, equal in distribution, or does the model change and need a quality evaluation?</li>
+<li><strong>Hardware ratio assumed:</strong> which ratio (FLOP/s per byte/s, capacity per bandwidth, interconnect per HBM bandwidth) makes the idea pay off, and does it hold on your machine?</li>
+<li><strong>Evaluation:</strong> what is held fixed (model, quality metric, hardware, baseline), and at what scale?</li>
+</ol>
+<div id="tab:landscape:axes" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 1.5: </span></span>Placing papers on the axes of Section&nbsp;<a href="#sec:landscape:frontier">1.14</a>. Most new papers differ from one of these rows in a single column.</caption>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Work</th>
+<th style="text-align: left;">Stage</th>
+<th style="text-align: left;">Resource attacked</th>
+<th style="text-align: left;">Mechanism</th>
+<th style="text-align: left;">Exactness</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">FlashAttention</td>
+<td style="text-align: left;">training, inference</td>
+<td style="text-align: left;">HBM bytes</td>
+<td style="text-align: left;">fusion, tiling in SRAM</td>
+<td style="text-align: left;">exact</td>
+</tr>
+<tr>
+<td style="text-align: left;">PagedAttention</td>
+<td style="text-align: left;">inference</td>
+<td style="text-align: left;">HBM capacity</td>
+<td style="text-align: left;">paged allocation, sharing</td>
+<td style="text-align: left;">exact</td>
+</tr>
+<tr>
+<td style="text-align: left;">Speculative decoding</td>
+<td style="text-align: left;">inference</td>
+<td style="text-align: left;">sequential decode steps</td>
+<td style="text-align: left;">spend FLOPs to save weight reads</td>
+<td style="text-align: left;">same distribution</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPTQ, AWQ</td>
+<td style="text-align: left;">inference</td>
+<td style="text-align: left;">HBM bytes and capacity</td>
+<td style="text-align: left;">quantisation</td>
+<td style="text-align: left;">approximate</td>
+</tr>
+<tr>
+<td style="text-align: left;">DistServe</td>
+<td style="text-align: left;">inference</td>
+<td style="text-align: left;">prefill–decode interference</td>
+<td style="text-align: left;">disaggregation</td>
+<td style="text-align: left;">exact</td>
+</tr>
+<tr>
+<td style="text-align: left;">ZeRO / FSDP</td>
+<td style="text-align: left;">training</td>
+<td style="text-align: left;">HBM capacity</td>
+<td style="text-align: left;">sharding, communication</td>
+<td style="text-align: left;">exact</td>
+</tr>
+<tr>
+<td style="text-align: left;">GRPO</td>
+<td style="text-align: left;">RL</td>
+<td style="text-align: left;">HBM capacity, compute</td>
+<td style="text-align: left;">no critic: group baseline</td>
+<td style="text-align: left;">different algorithm</td>
+</tr>
+<tr>
+<td style="text-align: left;">DeepSeek-V3 fp8</td>
+<td style="text-align: left;">training</td>
+<td style="text-align: left;">FLOPs, HBM bytes</td>
+<td style="text-align: left;">low precision with fine scaling</td>
+<td style="text-align: left;">approximate</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two questions finish the placement: what does the paper’s cost model predict on <em>your</em> hardware, and which of its numbers could you reproduce in a day? <span class="xref-missing">??</span> turns these questions into a working method for reading, reproducing and extending papers.</p>
+</section>
+</section>
+<section id="sec:landscape:summary" class="level2">
+<h2><span class="xn"><span class="num">1.15&nbsp;&nbsp;</span></span>Summary</h2>
+<ul>
+<li><p>An LLM is a deep neural network, almost always a decoder-only transformer, trained to predict the next token on a massive text corpus; “large” refers to both parameter count and data size.</p></li>
+<li><p>Building an LLM proceeds through pretraining (self-supervised, by far the most compute), then post-training: classification or instruction fine-tuning and preference tuning. A chat product adds orchestration on top.</p></li>
+<li><p>The transformer’s self-attention lets each position weigh the relevance of earlier positions. Decoder-only models generate autoregressively, one forward pass per token, which makes decoding inherently sequential and memory-bound.</p></li>
+<li><p>Reasoning models generate intermediate steps before the answer. They are improved by inference-time scaling (no weight changes, per-query cost), reinforcement learning (often with verifiable rewards), and distillation from stronger teachers.</p></li>
+<li><p>LLMs simulate reasoning through learned patterns rather than explicit rules; this is powerful at scale but fragile for novel, long, or counter-intuitive problems.</p></li>
+<li><p>A three-line cost model (<span class="math inline">\(2N\)</span> FLOPs/token forward, <span class="math inline">\(6ND\)</span> training FLOPs, <span class="math inline">\(16N\)</span> bytes of training state plus a per-token KV cache) is enough to estimate most budgets to within a small factor. Its attention term, which Kaplan et al. (2020) could drop at 1k tokens, cannot be dropped at long context.</p></li>
+<li><p>The book has seven parts, each closed by capstone projects that use only that part and earlier ones; four reading paths serve systems researchers, inference engineers, training engineers and post-training researchers.</p></li>
+<li><p>The frontier of the field is set by reasoning and test-time compute, hybrid and sparse architectures, low precision, disaggregated serving, RL systems and hardware co-design. A new paper is placed by its stage, the resource it attacks, its mechanism, its exactness, the hardware ratio it assumes and what its evaluation holds fixed.</p></li>
+</ul>
+</section>
+<section id="sec:landscape:exercises" class="level2">
+<h2><span class="xn"><span class="num">1.16&nbsp;&nbsp;</span></span>Exercises</h2>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.1</span></span></strong> (<em>Chain rule</em>).</p>
+<p>Show that any joint distribution over length-<span class="math inline">\(T\)</span> token sequences can be written as (<a href="#eq:landscape:chain">1.1</a>). Then explain why a model trained on (<a href="#eq:landscape:nll">1.2</a>) with a causal mask produces <span class="math inline">\(T\)</span> training signals from one sequence of length <span class="math inline">\(T\)</span>, whereas a masked-language model that masks 15% of tokens produces only about <span class="math inline">\(0.15\,T\)</span>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.2</span></span></strong> (<em>Perplexity intuition</em>).</p>
+<p>A model achieves an average cross-entropy of 2.0 nats per token on held-out text. What is its perplexity? Interpret the number as an “effective branching factor”. What loss would a model that predicts uniformly over a 50,257-token vocabulary have?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.3</span></span></strong> (<em>Weighted mixtures</em>).</p>
+<p>Using Table&nbsp;<a href="#tab:landscape:gpt3data">1.1</a>, compute how many epochs GPT-3 made over Wikipedia and over Common Crawl during its 300B-token run. Why might a practitioner deliberately repeat small, high-quality sources?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.4</span></span></strong> (<em>Your own compute budget</em>).</p>
+<p>You have 64 H100s for 30 days and expect 35% MFU. Using <span class="math inline">\(C=6ND\)</span> and the Chinchilla heuristic <span class="math inline">\(D\approx20N\)</span>, what model size and token count are compute-optimal? If you instead plan to serve the model heavily, argue whether to choose a smaller <span class="math inline">\(N\)</span> and larger <span class="math inline">\(D\)</span>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.5</span></span></strong> (<em>Memory-bound decoding</em>).</p>
+<p>Derive the batch-1 decode bound in Table&nbsp;<a href="#tab:landscape:qwen3napkin">1.3</a> for Qwen3-4B at a 4k context by hand. Then compute the bound for the same model with int4 weights (0.5 bytes/parameter) and a bf16 KV cache. Which term now dominates the bytes moved per step?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.6</span></span></strong> (<em>Critical batch size</em>).</p>
+<p>For a decode step of a dense model with <span class="math inline">\(N\)</span> parameters stored in <span class="math inline">\(b\)</span> bytes each, ignoring the KV cache, show that the step becomes compute-bound when the batch exceeds approximately <span class="math inline">\(B^\star = b\cdot \text{FLOP/s}_{\text{peak}} / (2\cdot\text{bytes/s}_{\text{peak}})\)</span>. Evaluate <span class="math inline">\(B^\star\)</span> for an H100 in bf16 and compare with the lab’s numerical result. Why does a long context increase the effective <span class="math inline">\(B^\star\)</span>?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.7</span></span></strong> (<em>Reasoning tokens and concurrency</em>).</p>
+<p>A server has 40 GB of HBM free for KV cache and serves Qwen3-8B. Requests have 500-token prompts. How many concurrent requests fit if responses average 300 tokens? If they average 6,000 tokens of thinking? Express the answer as the throughput penalty of turning on thinking, assuming decode is memory-bound and throughput scales with batch size.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.8</span></span></strong> (<em>Error compounding</em>).</p>
+<p>Under the independent-step model of Section&nbsp;<a href="#sec:landscape:simulate">1.10</a>, suppose a problem needs 30 steps and each is right with probability 0.97. Compute the single-chain success rate. Assuming chains are independent and wrong answers are spread over many distinct values, estimate how many samples are needed for a majority vote to be right with probability above 0.9. Discuss why the independence assumption is optimistic.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.9</span></span></strong> (<em>Pattern matching probe</em>).</p>
+<p>Design three prompts that separate pattern matching from logical reasoning: one closed-world syllogism with a false premise, one novel puzzle unlikely to appear in training data, and one where the answer contradicts a strong surface association. Predict how a base model, an instruction-tuned model and a reasoning model would differ, and how you would score them automatically.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.10</span></span></strong> (<em>Lever selection</em>).</p>
+<p>A company must improve accuracy on an internal code-review task. It has a mid-sized open model, a GPU budget for one week of training, and strict latency targets in production. Rank inference-time scaling, RL, and distillation for this setting and justify the ranking using the cost profiles of Section&nbsp;<a href="#sec:landscape:levers">1.8</a>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.11</span></span></strong> (<em>Kaplan’s accounting at long context</em>).</p>
+<p>Extend the napkin calculator to the setting of Kaplan et al. (2020). (a) Using <code>kaplan_forward_flops</code>, find for GPT-2 small, Qwen3-0.6B and Qwen3-8B the context length at which the context term of (<a href="#eq:landscape:kaplan">1.3</a>) equals <span class="math inline">\(2N\)</span>. (b) Derive the general condition and explain why the paper’s rule <span class="math inline">\(d &gt; n_{\text{ctx}}/12\)</span> is too optimistic for Qwen3. (c) A team plans to continue pretraining Qwen3-8B on 100B tokens at a 32k context and budgets <span class="math inline">\(6ND\)</span>. By what factor is the budget wrong, and in which direction? (d) Place Kaplan et al. and Hoffmann et al. on the six axes of Section&nbsp;<a href="#sec:landscape:frontier">1.14</a>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 1.12</span></span></strong> (<em>Predict, then measure: the reference box</em>).</p>
+<p>Predict with <code>report.py --hw A100-40GB-PCIe</code> the batch-1 decode time per token of Qwen3-0.6B at a 1,024-token context and the critical batch size on one A100-40GB PCIe, and compare both with the H100 numbers of Table&nbsp;<a href="#tab:landscape:qwen3napkin">1.3</a>. Then measure the decode step with the benchmark of Lab&nbsp;<span class="xref-unpub" title="Not published yet">45</span>, in eager mode and with <code>torch.compile</code>. Which of the predicted and measured ratios between the two GPUs would you expect to agree, and which not? Explain the gap between prediction and measurement with the three regimes of Figure&nbsp;<a href="ch03_machine.html#fig:machine:async">3.6</a>.</p>
+</div>
+</section>
+<section id="sec:landscape:lab" class="level2">
+<h2><span class="xn"><span class="num">1.17&nbsp;&nbsp;</span></span>Lab 1: A napkin-math calculator for LLMs</h2>
+<div class="labbox box">
+<p><strong><span class="xn"><span class="num">Lab 1</span></span>: A napkin-math calculator for LLMs</strong></p>
+<p><strong>Code:</strong> <code>code/labs/lab01_napkin</code></p>
+<p><strong>Goals</strong></p>
+<p>Turn the cost model of Section&nbsp;<a href="#sec:landscape:cost">1.12</a> into code and verify it against reality: exact parameter counts of real <code>nn.Module</code>s, FLOP counts from PyTorch’s FLOP counter, and byte counts of real KV-cache buffers. You will reuse this calculator in nearly every later chapter.</p>
+<p><strong>Setup</strong></p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> code <span class="kw">&amp;&amp;</span> <span class="ex">pip</span> install <span class="at">-r</span> requirements.txt</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pytest</span> <span class="at">-q</span> labs/lab01_napkin                    <span class="co"># tests your starter.py</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="va">LAB_IMPL</span><span class="op">=</span>solution <span class="ex">pytest</span> <span class="at">-q</span> labs/lab01_napkin  <span class="co"># reference solution</span></span></code></pre></div>
+<p>The calculator works directly on the configuration dictionaries in <code>llmsys.gpt</code> and <code>llmsys.qwen3</code>, so every formula can be checked against a model built from the same dictionary.</p>
+<p><strong>Tasks</strong></p>
+<ol type="1">
+<li><p><code>gpt_param_count(cfg)</code>: exact parameter count of <code>GPTModel(cfg)</code>, including token and position embeddings, Q/K/V (with optional biases), output projection, MLP, both LayerNorms per block, the final norm, and the separate output head. Check that GPT-2 small without weight tying has 163,009,536 parameters, and that removing the duplicated head recovers the familiar “124M”.</p></li>
+<li><p><code>qwen3_param_count(cfg)</code>: the same for <code>Qwen3Model</code>: grouped K/V projections, QK-norm, three SwiGLU matrices, RMSNorms, and tied versus untied embeddings.</p></li>
+<li><p><code>forward_flops_per_token(cfg, context)</code>: linear-layer FLOPs plus attention FLOPs. The test multiplies your per-token value by the sequence length and compares it with <code>torch.utils.flop_counter.FlopCounterMode</code>, which must match <em>exactly</em>.</p></li>
+<li><p><code>training_flops</code>, <code>training_days</code>, <code>training_state_bytes</code>: the <span class="math inline">\(6ND\)</span> rule, wall-clock days at a given MFU, and the 16-bytes-per-parameter rule.</p></li>
+<li><p><code>kv_cache_bytes</code>: must equal <code>StaticKVCache(...).nbytes()</code> for the same shapes.</p></li>
+<li><p><code>decode_step_roofline</code>, <code>critical_batch</code>, <code>max_batch_for_kv</code>: a roofline lower bound for one decode step, the smallest batch that makes it compute-bound, and the largest batch whose KV cache fits.</p></li>
+<li><p><code>kaplan_forward_flops</code>: the per-token forward cost in the convention of Kaplan et al. (2020), (<a href="#eq:landscape:kaplan">1.3</a>). The test checks that it equals your <code>forward_flops_per_token</code> at half the context, minus the LM head.</p></li>
+</ol>
+<p><strong>Measurements</strong></p>
+<p>Run <code>python labs/lab01_napkin/report.py</code> to regenerate Table&nbsp;<a href="#tab:landscape:qwen3napkin">1.3</a> for the GPT-2 and Qwen3 families. Then use <code>--hw A100-40GB-PCIe</code> (this book’s reference box), <code>--hw A100-80GB-SXM</code> and <code>--hw RTX-4090</code> and note how the critical batch size tracks the ratio of peak FLOP/s to bandwidth (the <em>ridge point</em>, Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>) rather than the model. Expect critical batches of a few hundred on datacentre GPUs: about 200 on the A100-40GB PCIe and about 300 on the H100 for Qwen3-0.6B. <code>python labs/lab01_napkin/figures.py</code> redraws the book map of Figure&nbsp;<a href="#fig:landscape:bookmap">1.12</a>.</p>
+<p><strong>Deliverables</strong></p>
+<p>All tests passing; a one-page table for five model sizes on two GPUs; a paragraph explaining which resource (compute, HBM capacity, HBM bandwidth) limits batch-1 decoding, large-batch decoding, and pretraining.</p>
+<p><strong>Stretch goals</strong></p>
+<p>Add mixture-of-experts support (active versus total parameters, Chapter&nbsp;<span class="xref-unpub" title="Not published yet">11</span>); add an int4/fp8 weight option and recompute the decode bound; add a <code>tensor_parallel</code> argument that divides weight and KV bytes per GPU and adds an all-reduce term per layer (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">24</span>).</p>
+</div>
+</section>
+</section>
+
+    </article>
+    <nav class="pager"><a class="prev" href="roadmap.html">&larr; Roadmap</a> <a class="next" href="ch02_pytorch.html">PyTorch Essentials &rarr;</a></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#sec:landscape:what" id="toc-sec:landscape:what"><span class="num">1.1&nbsp;&nbsp;</span>What is a large language model?</a></li>
+<li><a href="#sec:landscape:apps" id="toc-sec:landscape:apps"><span class="num">1.2&nbsp;&nbsp;</span>What LLMs are used for</a></li>
+<li><a href="#sec:landscape:stages" id="toc-sec:landscape:stages"><span class="num">1.3&nbsp;&nbsp;</span>The stages of building and using an LLM</a>
+<ul>
+<li><a href="#pretraining-learning-from-raw-text" id="toc-pretraining-learning-from-raw-text"><span class="num">1.3.1&nbsp;&nbsp;</span>Pretraining: learning from raw text</a></li>
+<li><a href="#post-training-fine-tuning-and-preference-tuning" id="toc-post-training-fine-tuning-and-preference-tuning"><span class="num">1.3.2&nbsp;&nbsp;</span>Post-training: fine-tuning and preference tuning</a></li>
+</ul></li>
+<li><a href="#sec:landscape:transformer" id="toc-sec:landscape:transformer"><span class="num">1.4&nbsp;&nbsp;</span>The transformer architecture</a></li>
+<li><a href="#sec:landscape:data" id="toc-sec:landscape:data"><span class="num">1.5&nbsp;&nbsp;</span>Training data at scale</a></li>
+<li><a href="#sec:landscape:gpt" id="toc-sec:landscape:gpt"><span class="num">1.6&nbsp;&nbsp;</span>A closer look at GPT</a></li>
+<li><a href="#sec:landscape:reasoning" id="toc-sec:landscape:reasoning"><span class="num">1.7&nbsp;&nbsp;</span>From LLMs to reasoning models</a></li>
+<li><a href="#sec:landscape:levers" id="toc-sec:landscape:levers"><span class="num">1.8&nbsp;&nbsp;</span>Three levers for improving reasoning</a></li>
+<li><a href="#sec:landscape:pattern" id="toc-sec:landscape:pattern"><span class="num">1.9&nbsp;&nbsp;</span>Pattern matching versus logical reasoning</a></li>
+<li><a href="#sec:landscape:simulate" id="toc-sec:landscape:simulate"><span class="num">1.10&nbsp;&nbsp;</span>Simulating reasoning without explicit rules</a></li>
+<li><a href="#sec:landscape:why" id="toc-sec:landscape:why"><span class="num">1.11&nbsp;&nbsp;</span>Why reasoning models, and why from scratch?</a></li>
+<li><a href="#sec:landscape:cost" id="toc-sec:landscape:cost"><span class="num">1.12&nbsp;&nbsp;</span>The systems view: where the FLOPs and bytes go</a>
+<ul>
+<li><a href="#sec:landscape:request" id="toc-sec:landscape:request"><span class="num">1.12.1&nbsp;&nbsp;</span>Anatomy of a single request</a></li>
+<li><a href="#the-hardware-zoo" id="toc-the-hardware-zoo"><span class="num">1.12.2&nbsp;&nbsp;</span>The hardware zoo</a></li>
+</ul></li>
+<li><a href="#sec:landscape:roadmap" id="toc-sec:landscape:roadmap"><span class="num">1.13&nbsp;&nbsp;</span>A roadmap for this book</a></li>
+<li><a href="#sec:landscape:frontier" id="toc-sec:landscape:frontier"><span class="num">1.14&nbsp;&nbsp;</span>Research frontier</a>
+<ul>
+<li><a href="#where-the-field-is-moving" id="toc-where-the-field-is-moving"><span class="num">1.14.1&nbsp;&nbsp;</span>Where the field is moving</a></li>
+<li><a href="#the-works-that-defined-the-field" id="toc-the-works-that-defined-the-field"><span class="num">1.14.2&nbsp;&nbsp;</span>The works that defined the field</a></li>
+<li><a href="#assumptions-that-are-likely-to-break" id="toc-assumptions-that-are-likely-to-break"><span class="num">7.12.3&nbsp;&nbsp;</span>Assumptions that are likely to break</a></li>
+<li><a href="#how-to-recognise-the-next-variant" id="toc-how-to-recognise-the-next-variant"><span class="num">7.12.4&nbsp;&nbsp;</span>How to recognise the next variant</a></li>
+</ul></li>
+<li><a href="#sec:landscape:summary" id="toc-sec:landscape:summary"><span class="num">1.15&nbsp;&nbsp;</span>Summary</a></li>
+<li><a href="#sec:landscape:exercises" id="toc-sec:landscape:exercises"><span class="num">1.16&nbsp;&nbsp;</span>Exercises</a></li>
+<li><a href="#sec:landscape:lab" id="toc-sec:landscape:lab"><span class="num">1.17&nbsp;&nbsp;</span>Lab 1: A napkin-math calculator for LLMs</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

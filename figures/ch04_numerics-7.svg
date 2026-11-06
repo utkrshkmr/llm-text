@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="240" viewBox="0 0 760 240">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#000000"/></marker></defs>
+<rect x="0" y="0" width="760" height="240" fill="#ffffff"/>
+<text x="10.0" y="20.0" font-size="13" text-anchor="start" font-weight="bold" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">One pass over blocks of scores s; state (m, l, o) lives in registers</text>
+<rect x="12.0" y="36.0" width="168.0" height="30.0" rx="4" fill="#dce6f1" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="96.0" y="56.0" font-size="11" text-anchor="middle" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">scores s_1, values V_1</text>
+<rect x="12.0" y="100.0" width="168.0" height="76.0" rx="4" fill="#deeedc" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="20.0" y="118.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">m_1 = max(m_0, max s_1)</text>
+<text x="20.0" y="136.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">a = exp(m_0 - m_1)</text>
+<text x="20.0" y="154.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">l_1 = a l_0 + sum e^(s - m_1)</text>
+<text x="20.0" y="170.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">o_1 = a o_0 + e^(s - m) V</text>
+<line x1="96.0" y1="66.0" x2="96.0" y2="98.0" stroke="#000000" stroke-width="1.0" marker-end="url(#arr)"/>
+<rect x="198.0" y="36.0" width="168.0" height="30.0" rx="4" fill="#dce6f1" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="282.0" y="56.0" font-size="11" text-anchor="middle" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">scores s_2, values V_2</text>
+<rect x="198.0" y="100.0" width="168.0" height="76.0" rx="4" fill="#deeedc" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="206.0" y="118.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">m_2 = max(m_1, max s_2)</text>
+<text x="206.0" y="136.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">a = exp(m_1 - m_2)</text>
+<text x="206.0" y="154.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">l_2 = a l_1 + sum e^(s - m_2)</text>
+<text x="206.0" y="170.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">o_2 = a o_1 + e^(s - m) V</text>
+<line x1="282.0" y1="66.0" x2="282.0" y2="98.0" stroke="#000000" stroke-width="1.0" marker-end="url(#arr)"/>
+<line x1="181.0" y1="138.0" x2="196.0" y2="138.0" stroke="#2e6b30" stroke-width="1.0" marker-end="url(#arr)"/>
+<rect x="384.0" y="36.0" width="168.0" height="30.0" rx="4" fill="#dce6f1" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="468.0" y="56.0" font-size="11" text-anchor="middle" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">scores s_3, values V_3</text>
+<rect x="384.0" y="100.0" width="168.0" height="76.0" rx="4" fill="#deeedc" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="392.0" y="118.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">m_3 = max(m_2, max s_3)</text>
+<text x="392.0" y="136.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">a = exp(m_2 - m_3)</text>
+<text x="392.0" y="154.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">l_3 = a l_2 + sum e^(s - m_3)</text>
+<text x="392.0" y="170.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">o_3 = a o_2 + e^(s - m) V</text>
+<line x1="468.0" y1="66.0" x2="468.0" y2="98.0" stroke="#000000" stroke-width="1.0" marker-end="url(#arr)"/>
+<line x1="367.0" y1="138.0" x2="382.0" y2="138.0" stroke="#2e6b30" stroke-width="1.0" marker-end="url(#arr)"/>
+<rect x="570.0" y="36.0" width="168.0" height="30.0" rx="4" fill="#dce6f1" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="654.0" y="56.0" font-size="11" text-anchor="middle" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">scores s_4, values V_4</text>
+<rect x="570.0" y="100.0" width="168.0" height="76.0" rx="4" fill="#deeedc" stroke="#2e6b30" stroke-width="1.2"/>
+<text x="578.0" y="118.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">m_4 = max(m_3, max s_4)</text>
+<text x="578.0" y="136.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">a = exp(m_3 - m_4)</text>
+<text x="578.0" y="154.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">l_4 = a l_3 + sum e^(s - m_4)</text>
+<text x="578.0" y="170.0" font-size="10" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">o_4 = a o_3 + e^(s - m) V</text>
+<line x1="654.0" y1="66.0" x2="654.0" y2="98.0" stroke="#000000" stroke-width="1.0" marker-end="url(#arr)"/>
+<line x1="553.0" y1="138.0" x2="568.0" y2="138.0" stroke="#2e6b30" stroke-width="1.0" marker-end="url(#arr)"/>
+<text x="10.0" y="205.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#000000" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">Start: m_0 = -inf, l_0 = 0, o_0 = 0.  End: softmax(s) V = o / l, logsumexp(s) = m + log l.</text>
+<text x="10.0" y="225.0" font-size="11" text-anchor="start" font-weight="normal" font-style="normal" fill="#555555" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">Rescaling identity: e^(s - m_old) = e^(s - m_new) e^(m_new - m_old), so old partial sums are corrected by one multiply.</text>
+</svg>

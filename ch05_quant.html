@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scaling, Quantisation and Mixed Precision · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="ch:quant" class="level1">
+<h1><span class="xn"><span class="num">Chapter 5&nbsp;&nbsp;</span></span>Scaling, Quantisation and Mixed Precision</h1>
+<p>Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> built the number formats of modern accelerators bit by bit and showed what rounding and accumulation do to them. It left one problem open. A narrow format has a fixed window of magnitudes: FP8 E4M3 spans 5.4 decades, FP4 E2M1 barely one, and INT8 is a uniform grid of 255 levels. A tensor in a language model has a range of its own, which moves from layer to layer, from token to token and from step to step, and in which a few outlier channels can sit a hundred times above the rest. Cast such a tensor straight into an 8- or 4-bit format and either its largest values saturate or most of its small ones flush to zero. The remedy is a <em>scale</em>: a number stored next to the elements that slides the tensor’s range into the format’s window. Every low-precision scheme in this book is a set of answers to four questions about scales: how many there are (the granularity), in which format they are stored, how they are computed, and which kernel applies them.</p>
+<p>This chapter works through those answers and their consequences. We start with block scaling: the OCP microscaling (MX) formats and NVIDIA’s NVFP4, why small blocks recover the range that 4- and 8-bit formats lack (quantitatively, on Gaussian data and on activations with outliers), how a randomised Hadamard rotation spreads outliers over a block and when that helps, and why the backward pass, whose GEMMs reduce over different dimensions, needs scales of a different shape. We then develop the mathematics of quantisation that every later method relies on: the uniform affine quantiser and its zero point, the 6 dB per bit rule, the trade-off between clipping and rounding, granularity and its metadata, non-uniform grids such as NF4, and the Hessian-weighted error that tells us which errors the loss notices, with the Optimal Brain Surgeon update that GPTQ applies column by column. The last part assembles all of this into mixed-precision recipes: the standard recipe for BF16 and FP16 training (master weights, FP32 accumulation and sensitive operations, loss scaling), FP8 training with delayed, current and block scaling, the DeepSeek-V3 FP8 recipe as a full case study, and the choice of formats for inference.</p>
+<p>The code is the same bit-exact simulator, <code>llmsys/numerics.py</code>, whose block quantiser takes any block shape and any scale format; the lab (Lab&nbsp;<a href="#sec:quant:lab">5</a>) re-implements its MX, NVFP4, Hadamard, affine and second-order parts and a DeepSeek-style block-scaled FP8 GEMM, and measures on the A100 what each granularity, rotation and scaling rule costs in error. The low-precision training capstone (Chapter&nbsp;<a href="ch07_proj_lowprec.html#ch:proj11">7</a>) then tests these recipes on real training runs by removing one safeguard at a time, and the later chapters on pretraining (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">20</span>), single-GPU performance (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">23</span>), cheaper inference (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>), the KV cache (<span class="xref-missing">??</span>) and parameter-efficient fine-tuning (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">42</span>) apply them at scale.</p>
+<figure id="fig:quant:roadmap">
+<img style="width: 1596px" src="figures/ch05_quant-1.svg" class="fig fig-light" loading="lazy" alt="Roadmap of : scales and the block formats built on them (1–3), the mathematics of quantisation and of which errors matter (4–5), and the recipes assembled from them for training and inference (6–7). The formats, rounding and accumulators come from ." /><img style="width: 1596px" src="figures/ch05_quant-1-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Roadmap of : scales and the block formats built on them (1–3), the mathematics of quantisation and of which errors matter (4–5), and the recipes assembled from them for training and inference (6–7). The formats, rounding and accumulators come from ." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.1: </span></span>Roadmap of Chapter&nbsp;<a href="#ch:quant">5</a>: scales and the block formats built on them (1–3), the mathematics of quantisation and of which errors matter (4–5), and the recipes assembled from them for training and inference (6–7). The formats, rounding and accumulators come from Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a>.</figcaption>
+</figure>
+<section id="sec:quant:mx" class="level2">
+<h2><span class="xn"><span class="num">5.1&nbsp;&nbsp;</span></span>Block scaling: microscaling (MX) and NVFP4</h2>
+<p>A format has a fixed dynamic range (in decades, Table&nbsp;<a href="ch04_numerics.html#tab:numerics:formats">4.3</a>); a tensor has its own. A <em>scale</em> <span class="math inline">\(s\)</span> maps one onto the other: we store <span class="math inline">\(p = \operatorname{round}(x/s)\)</span> in the narrow format and reconstruct <span class="math inline">\(\hat x = s\,p\)</span>. Choosing <span class="math inline">\(s=\max|x|/q_{\max}\)</span> (the <em>absmax</em> rule) puts the largest element at the top of the format’s grid. The scale can be shared by the whole tensor, by a row, by a block of 16 or 32 elements, or anything in between, and this <em>granularity</em> is the main design axis of every low-precision scheme in the book.</p>
+<p><strong>OCP microscaling (MX).</strong> The MX formats (Rouhani et al., 2023) attach one shared scale to every block of <span class="math inline">\(k=32\)</span> consecutive elements along the reduction dimension. The scale is a pure power of two stored as <strong>E8M0</strong>, an 8-bit biased exponent (<span class="math inline">\(2^{-127}\)</span> to <span class="math inline">\(2^{127}\)</span>, code 255 is NaN). The specification fixes the scale rule: with <span class="math inline">\(e_{\max}^{\text{elem}}\)</span> the exponent of the element format’s largest binade (2 for E2M1, 8 for E4M3), <span class="xn" id="eq:quant:mx"></span><span class="math display">\[X = 2^{\,\lfloor\log_2\max_i|x_i|\rfloor - e_{\max}^{\text{elem}}},\qquad
+p_i = \operatorname{round}_{\text{sat}}(x_i/X),\qquad \hat x_i = X\,p_i .
+\tag{5.1}\]</span> The concrete formats are MXFP8 (E4M3 or E5M2 elements), MXFP6 (E2M3, E3M2), MXFP4 (E2M1) and MXINT8. An MXFP4 block costs <span class="math inline">\(8+32\cdot4=136\)</span> bits, 4.25 bits per element (Figure&nbsp;<a href="#fig:quant:mxlayout">5.2</a>). A power-of-two scale is cheap in hardware: applying it is an addition to the exponent, and on Blackwell-class tensor cores the block scales are consumed inside the MMA instruction, so a block-scaled GEMM needs no separate dequantisation pass.</p>
+<figure id="fig:quant:mxlayout">
+<img style="width: 1596px" src="figures/ch05_quant-2.svg" class="fig fig-light" loading="lazy" alt="The two block-scaled 4-bit formats. MXFP4: 32 E2M1 elements share an E8M0 power-of-two scale. NVFP4: 16 E2M1 elements share an E4M3 scale, and a per-tensor FP32 scale brings the block scales into E4M3’s range." /><img style="width: 1596px" src="figures/ch05_quant-2-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The two block-scaled 4-bit formats. MXFP4: 32 E2M1 elements share an E8M0 power-of-two scale. NVFP4: 16 E2M1 elements share an E4M3 scale, and a per-tensor FP32 scale brings the block scales into E4M3’s range." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.2: </span></span>The two block-scaled 4-bit formats. MXFP4: 32 E2M1 elements share an E8M0 power-of-two scale. NVFP4: 16 E2M1 elements share an E4M3 scale, and a per-tensor FP32 scale brings the block scales into E4M3’s range.</figcaption>
+</figure>
+<p>The floor in (<a href="#eq:quant:mx">5.1</a>) places <span class="math inline">\(\max|x_i|/X\)</span> in <span class="math inline">\([2^{e_{\max}}, 2^{e_{\max}+1})\)</span>. For E2M1 that interval is <span class="math inline">\([4,8)\)</span> and the format’s maximum is 6, so the largest elements of a block can <em>saturate</em>; for E4M3 it is <span class="math inline">\([256,512)\)</span> against a maximum of 448. Rounding the exponent up instead (<span class="math inline">\(X = 2^{\lceil\log_2(\max|x|/q_{\max})\rceil}\)</span>) never saturates but leaves up to one binade unused. NVIDIA’s MXFP8 pre-training recipe rounds up (Mishra et al., 2025). Our emulation agrees: on the activations of Figure&nbsp;<a href="#fig:quant:granularity">5.3</a>, MXFP8 with the specification’s floor rule has a GEMM error of 4.8%, with the round-up rule 3.7%.</p>
+<p><strong>NVFP4</strong> uses blocks of 16 elements, an E4M3 block scale and an FP32 per-tensor scale <span class="math inline">\(g\)</span>: <span class="xn" id="eq:quant:nvfp4"></span><span class="math display">\[g = \frac{\max|x|}{6\cdot448},\qquad
+s_b = \operatorname{round}_{\text{E4M3}}\Big(\frac{\max_{i\in b}|x_i|}{6\,g}\Big),\qquad
+\hat x_i = g\,s_b\,p_i .
+\tag{5.2}\]</span> The E4M3 scale has three fraction bits, so it maps each block’s maximum to within about 6% of the top of the E2M1 grid instead of within a factor of two; the smaller block tracks local magnitude better. The price is 4.5 bits per element.</p>
+<section id="why-block-scaling-recovers-range-quantitatively" class="level3">
+<h3><span class="xn"><span class="num">5.1.1&nbsp;&nbsp;</span></span>Why block scaling recovers range, quantitatively</h3>
+<p>Consider an integer grid first. With <span class="math inline">\(s=\max|x|/q_{\max}\)</span>, rounding errors are roughly uniform on <span class="math inline">\([-s/2,s/2]\)</span> with variance <span class="math inline">\(s^2/12\)</span>, so the mean squared error is proportional to <span class="math inline">\(\mathbb{E}[\max|x|^2]\)</span> over the elements sharing a scale. For <span class="math inline">\(n\)</span> independent Gaussian values, <span class="math inline">\(\max|x|\approx\sigma\sqrt{2\ln n}\)</span>. One scale for a <span class="math inline">\(4096\times4096\)</span> tensor (<span class="math inline">\(n=2^{24}\)</span>) against one per block of 32 therefore changes the MSE by a factor <span class="math inline">\(\ln 2^{24}/\ln 32 = 4.8\)</span>, a predicted gain of <span class="math inline">\(10\log_{10}4.8=6.8\)</span> dB. We measure 7.05 dB with INT4 (13.2 dB per tensor, 20.3 dB per 32-block). For a floating-point element format the error is relative, so scale granularity matters through range instead: E2M1 represents nothing below 1/24 of a block’s maximum except zero, and with one scale per tensor 17.5% of a Gaussian tensor’s elements are flushed to zero, against 7.8% with blocks of 32.</p>
+<p>Real activations are not Gaussian. A handful of hidden dimensions carry values 10 to 100 times larger than the rest (Dettmers et al., 2022), and with one scale per tensor (or per token) those outliers set the scale for everything else. Blocks along the reduction dimension confine an outlier to its own block. Figure&nbsp;<a href="#fig:quant:granularity">5.3</a> measures this: activations with eight outlier channels multiplied by 30, a <span class="math inline">\(2048\times4096\)</span> by <span class="math inline">\(4096\times1024\)</span> GEMM, each operand quantised with the granularity on the horizontal axis.</p>
+<figure id="fig:quant:granularity">
+<img style="width: 998px" src="figures/ch05_quant-3.svg" class="fig fig-light" loading="lazy" alt="Relative error of XW^{\top} against bits per element (scales included) for several element formats and scale granularities; stars are the MX and NVFP4 formats with their own scale formats. Emulated on 2x A100-40GB (PCIe) with bench.py --only blocks." /><img style="width: 998px" src="figures/ch05_quant-3-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Relative error of XW^{\top} against bits per element (scales included) for several element formats and scale granularities; stars are the MX and NVFP4 formats with their own scale formats. Emulated on 2x A100-40GB (PCIe) with bench.py --only blocks." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.3: </span></span>Relative error of <span class="math inline">\(XW^{\top}\)</span> against bits per element (scales included) for several element formats and scale granularities; stars are the MX and NVFP4 formats with their own scale formats. Emulated on 2x A100-40GB (PCIe) with <code>bench.py --only blocks</code>.</figcaption>
+</figure>
+<p>Three lessons stand out. FP8 E4M3 barely cares about granularity (3.7% per tensor, 3.0% with <span class="math inline">\(1\times128\)</span> tiles): its 5.4 decades absorb an outlier of 30. INT8 cares a great deal (15.6% per tensor, 2.2% with <span class="math inline">\(1\times128\)</span>): a uniform grid has no range to spare, but once the scale is local its 8 uniform bits beat E4M3’s 4 significant bits. And 4-bit formats are unusable without fine scales (62% error per tensor, 15% with blocks of 32, 12% with blocks of 16); NVFP4’s 16-element blocks with E4M3 scales reach 12.7% at 4.5 bits, MXFP4 19% at 4.25 bits.</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: What the scales cost a decode step</strong></p>
+<p>For the 8B-parameter model of the decode estimate in Section&nbsp;<a href="ch04_numerics.html#sec:numerics:why">4.1</a>, the weights take 4.25 GB in MXFP4 and 4.5 GB in NVFP4 (elements plus block scales; the tensor scales of NVFP4 are a few bytes). At 1.555 TB/s the floor of a batch-1 decode step is 2.73 ms against 2.89 ms, both against 10.3 ms in BF16. NVFP4’s extra quarter of a bit costs 6% of the step and, on the activations of Figure&nbsp;<a href="#fig:quant:granularity">5.3</a>, buys a GEMM error of 12.7% instead of 19.1%. One scale per tensor would save another quarter to half a bit per weight and raise the error to 62%. Metadata is the cheapest accuracy there is.</p>
+</div>
+<div id="tab:quant:meta" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 5.1: </span></span>The metadata tax and the kernel consequence of each granularity. A scale that is constant along the reduction dimension <span class="math inline">\(K\)</span> can be pulled out of <span class="math inline">\(\sum_k a_k w_k\)</span>; any finer granularity must be applied inside the <span class="math inline">\(K\)</span> loop.</caption>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Scheme</th>
+<th style="text-align: left;">elements</th>
+<th style="text-align: left;">scale</th>
+<th style="text-align: right;">bits/element</th>
+<th style="text-align: left;">scale factors out of the dot product?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">per tensor</td>
+<td style="text-align: left;">any</td>
+<td style="text-align: left;">FP32</td>
+<td style="text-align: right;"><span class="math inline">\(+32/n\)</span></td>
+<td style="text-align: left;">yes: one multiply in the epilogue</td>
+</tr>
+<tr>
+<td style="text-align: left;">per row (channel / token)</td>
+<td style="text-align: left;">any</td>
+<td style="text-align: left;">FP32</td>
+<td style="text-align: right;"><span class="math inline">\(+32/K\)</span></td>
+<td style="text-align: left;">yes: outer product in the epilogue</td>
+</tr>
+<tr>
+<td style="text-align: left;">per group of 128, with zero point</td>
+<td style="text-align: left;">INT4</td>
+<td style="text-align: left;">FP16 + INT4</td>
+<td style="text-align: right;">4.16</td>
+<td style="text-align: left;">no: dequantise inside the K loop</td>
+</tr>
+<tr>
+<td style="text-align: left;">MX (blocks of 32 along K)</td>
+<td style="text-align: left;">FP8/6/4</td>
+<td style="text-align: left;">E8M0</td>
+<td style="text-align: right;">+0.25</td>
+<td style="text-align: left;">no: hardware applies it in the MMA</td>
+</tr>
+<tr>
+<td style="text-align: left;">NVFP4 (blocks of 16)</td>
+<td style="text-align: left;">E2M1</td>
+<td style="text-align: left;">E4M3 + FP32</td>
+<td style="text-align: right;">4.5</td>
+<td style="text-align: left;">no: hardware applies it in the MMA</td>
+</tr>
+<tr>
+<td style="text-align: left;">DeepSeek-V3 activations, <span class="math inline">\(1\times128\)</span></td>
+<td style="text-align: left;">E4M3</td>
+<td style="text-align: left;">FP32</td>
+<td style="text-align: right;">8.25</td>
+<td style="text-align: left;">no: applied at each promotion</td>
+</tr>
+<tr>
+<td style="text-align: left;">DeepSeek-V3 weights, <span class="math inline">\(128\times128\)</span></td>
+<td style="text-align: left;">E4M3</td>
+<td style="text-align: left;">FP32</td>
+<td style="text-align: right;">8.002</td>
+<td style="text-align: left;">no: applied at each promotion</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="systemslens box">
+<p><strong>Systems Lens: Which scales a GEMM can pull out of the sum</strong></p>
+<p>For <span class="math inline">\(C = AB\)</span> with per-row scales <span class="math inline">\(s^A_m\)</span> on <span class="math inline">\(A\)</span> and per-column scales <span class="math inline">\(s^B_n\)</span> on <span class="math inline">\(B\)</span>, <span class="math inline">\(C_{mn} = s^A_m s^B_n\sum_k p^A_{mk}p^B_{kn}\)</span>: the integer or FP8 GEMM runs unscaled and the epilogue multiplies by an outer product of scales. This is why weights are scaled per output channel and activations per token. A scale that varies <em>along</em> <span class="math inline">\(K\)</span> (groups, blocks, MX) does not factor out: either the kernel dequantises in registers before the MMA (weight-only INT4 kernels), or the hardware applies the scale inside the MMA (MX and NVFP4 on Blackwell), or the kernel accumulates each <span class="math inline">\(K\)</span>-block separately and rescales partial sums (DeepSeek-V3 on Hopper, Section&nbsp;<a href="#sec:quant:deepseek">5.7</a>). A per-<em>column</em> activation scale (one per input channel) varies along <span class="math inline">\(K\)</span> and cannot be used directly by a W8A8 GEMM, which is why SmoothQuant moves it into the weights (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>).</p>
+</div>
+<div class="keyidea box">
+<p><strong>Key Idea: A quantisation scheme is four choices about scales</strong></p>
+<p>Every scheme in this chapter, and almost every one a new paper proposes, is an element format plus four choices about its scales: the <em>granularity</em> (tensor, row, group or block, and along which dimension), the scale’s own <em>format</em> (FP32, FP16, E4M3, E8M0, or two levels of them), the <em>rule</em> that computes it (absmax, a power of two rounded down or up, a clipped or calibrated value, a value delayed from earlier steps), and the <em>place</em> where it is applied (a GEMM epilogue, a dequantisation in registers, the MMA instruction, a promotion step). The first three set the error; the fourth sets what the kernel costs.</p>
+</div>
+<div class="deepdive box">
+<p><strong>Deeper Dive: Reading the research: Microscaling Data Formats for Deep Learning (Rouhani et al., 2023)</strong></p>
+<p><strong>What it proposes.</strong> A family of block-scaled formats, standardised through the Open Compute Project by a group of accelerator and cloud vendors: blocks of <span class="math inline">\(k=32\)</span> elements along the reduction dimension share one 8-bit power-of-two scale (E8M0), and the elements are FP8 (E4M3 or E5M2), FP6 (E2M3 or E3M2), FP4 (E2M1) or INT8. The scale rule is fixed by the specification (<a href="#eq:quant:mx">5.1</a>), so every implementation produces the same bits. The paper’s experiments span three uses: casting trained FP32 models directly to MXINT8 or MXFP8 for inference, with small accuracy losses; MXFP6 and MXFP4 inference after quantisation-aware fine-tuning or a light calibration; and training GPT-style language models (the largest with about 1.5 billion parameters) with MXFP6 weights, activations and gradients, and with MXFP4 weights, at losses close to the FP32 baseline.</p>
+<p><strong>Cost model in our notation.</strong> An MX tensor of <span class="math inline">\(b\)</span>-bit elements costs <span class="math inline">\(b+8/k\)</span> bits per element: 4.25 (MXFP4), 6.25 (MXFP6), 8.25 (MXFP8). The scale is applied as an exponent addition, inside the MMA on hardware that supports the formats, so a block-scaled GEMM moves the bytes of an unscaled one plus 0.25 bits per element (3% more for MXFP8, 6% for MXFP4). The error has two parts. Within a block, the element format’s relative error applies to every value that lands in its normal range. At the top, the floor in (<a href="#eq:quant:mx">5.1</a>) places the block maximum in <span class="math inline">\([2^{e_{\max}},2^{e_{\max}+1})\)</span> of the element grid, but E2M1 ends at <span class="math inline">\(1.5\cdot2^{e_{\max}}=6\)</span> and E4M3 at <span class="math inline">\(1.75\cdot2^{e_{\max}}=448\)</span>. If the significand of a block’s maximum is spread log-uniformly over its binade, the maximum saturates whenever that significand exceeds 1.5 (E2M1) or 1.75 (E4M3): in <span class="math inline">\(\log_2(2/1.5)=41\%\)</span> of FP4 blocks and <span class="math inline">\(\log_2(2/1.75)=19\%\)</span> of FP8 blocks, with a clipping error of up to 25% and 12.5% of the largest value respectively. At the bottom, a power of two cannot match the block maximum to better than a factor of two, so a block can waste up to one binade of its element range.</p>
+<p><strong>What our code reproduces.</strong> The formats bit for bit: the lab’s <code>mx_quantize</code> matches <code>numerics.mx_quantize</code> exactly for MXFP4, MXFP6 and MXFP8, and the metadata is exactly 0.25 bits per element. On the outlier activations of Figure&nbsp;<a href="#fig:quant:granularity">5.3</a>, the emulated MXFP8 GEMM has a relative error of 4.8% with the specification’s floor rule and 3.7% when the exponent is rounded up, which is the saturation effect above; MXFP4 has 19.1% against 14.6% for E2M1 blocks of 32 with an FP32 scale, which is the price of a power-of-two scale, and against 12.7% for NVFP4.</p>
+<p><strong>What is out of reach, and what its evaluation leaves out.</strong> The end-to-end training and inference results need MX tensor cores (or weeks of emulated compute) and the paper’s models and evaluation suites, so we do not reproduce them. The evaluation does not separate the effect of the scale rule from that of the element format; later work found that rounding the shared exponent up instead of down was needed for MXFP8 pre-training at scale (Mishra et al., 2025). It does not discuss which orientation of blocks the backward pass needs (Section&nbsp;<a href="#sec:quant:backward">5.3</a>), the precision of the accumulator inside a block-scaled MMA (Section&nbsp;<a href="ch04_numerics.html#sec:numerics:accum">4.6</a>), or how the formats behave over the trillion-token horizons where FP8 training first showed instabilities (Fishman et al., 2025). And it fixes the scale format before asking how many bits a scale needs: NVFP4’s E4M3 scales per 16 elements answer the same question differently, at 4.5 bits per element.</p>
+</div>
+</section>
+</section>
+<section id="sec:quant:hadamard" class="level2">
+<h2><span class="xn"><span class="num">5.2&nbsp;&nbsp;</span></span>Rotating outliers away: Hadamard transforms</h2>
+<p>Any orthogonal matrix <span class="math inline">\(\mathbf{Q}\)</span> applied to both operands along the reduction dimension leaves a GEMM unchanged: <span class="math inline">\((\mathbf{X}\mathbf{Q})(\mathbf{W}\mathbf{Q})^{\top} =
+\mathbf{X}\mathbf{Q}\mathbf{Q}^{\top}\mathbf{W}^{\top} = \mathbf{X}\mathbf{W}^{\top}\)</span>. We may therefore quantise <span class="math inline">\(\mathbf{X}\mathbf{Q}\)</span> and <span class="math inline">\(\mathbf{W}\mathbf{Q}\)</span> instead, and choose <span class="math inline">\(\mathbf{Q}\)</span> to make them easier to quantise. The normalised Hadamard matrix <span class="math inline">\(\mathbf{H}_b/\sqrt b\)</span> (Sylvester’s construction, <span class="math inline">\(b\)</span> a power of two) has entries <span class="math inline">\(\pm1/\sqrt b\)</span>, is orthogonal, and can be applied in <span class="math inline">\(b\log_2 b\)</span> additions by the fast Walsh–Hadamard transform. An outlier of size <span class="math inline">\(a\)</span> in one channel contributes <span class="math inline">\(\pm a/\sqrt b\)</span> to <em>every</em> channel of its block, while the Gaussian bulk stays Gaussian with the same variance (an orthogonal map preserves an isotropic Gaussian). The block maximum therefore drops from about <span class="math inline">\(a\)</span> to about <span class="math inline">\(a/\sqrt b + \sigma\sqrt{2\ln b}\)</span>: for <span class="math inline">\(a=30\sigma\)</span> and <span class="math inline">\(b=128\)</span>, from <span class="math inline">\(30\sigma\)</span> to roughly <span class="math inline">\(6\sigma\)</span>. Multiplying by a random diagonal of signs first (a <em>randomised</em> Hadamard transform, <span class="math inline">\(\mathbf{Q}=\mathbf{D}\mathbf{H}_b/\sqrt b\)</span>) makes it unlikely that any fixed structure in the data lines up with the transform. Inference methods fold fixed or learned rotations into the weights (QuaRot, Ashkboos et al., 2024; SpinQuant, Liu et al., 2025); the 2025 FP4 training recipes apply random Hadamard transforms of size 16 to 128 on the fly (NVIDIA, 2025; Tseng et al., 2025).</p>
+<div id="lst:quant:hadamard" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 5.1: </span></span>A block-diagonal randomised Hadamard transform along the last dim (from <code>numerics.hadamard_transform</code>).
+</div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> hadamard_transform(x, block, signs<span class="op">=</span><span class="va">None</span>):</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> x.reshape(<span class="op">*</span>x.shape[:<span class="op">-</span><span class="dv">1</span>], x.shape[<span class="op">-</span><span class="dv">1</span>] <span class="op">//</span> block, block)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> signs <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span>:</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        y <span class="op">=</span> y <span class="op">*</span> signs                                  <span class="co"># random diagonal D</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    h <span class="op">=</span> <span class="dv">1</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> h <span class="op">&lt;</span> block:                                   <span class="co"># fast Walsh-Hadamard: log2(block) passes</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>        z <span class="op">=</span> y.reshape(<span class="op">*</span>y.shape[:<span class="op">-</span><span class="dv">1</span>], block <span class="op">//</span> (<span class="dv">2</span> <span class="op">*</span> h), <span class="dv">2</span>, h)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>        y <span class="op">=</span> torch.stack([z[..., <span class="dv">0</span>, :] <span class="op">+</span> z[..., <span class="dv">1</span>, :], z[..., <span class="dv">0</span>, :] <span class="op">-</span> z[..., <span class="dv">1</span>, :]], <span class="op">-</span><span class="dv">2</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        y <span class="op">=</span> y.reshape(<span class="op">*</span>z.shape[:<span class="op">-</span><span class="dv">3</span>], block)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        h <span class="op">*=</span> <span class="dv">2</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (y <span class="op">/</span> block <span class="op">**</span> <span class="fl">0.5</span>).reshape(x.shape)</span></code></pre></div>
+</div>
+<p>On the outlier activations of Figure&nbsp;<a href="#fig:quant:granularity">5.3</a> (Figure&nbsp;<a href="#fig:quant:hadamard">5.4</a>; <code>bench.py --only hadamard</code>), the ratio of the largest activation to the RMS falls from 68.7 to 18.1, 13.3, 7.5 and 5.1 for transform blocks of 16, 32, 128 and 4096. The GEMM error falls for MXFP4 (19.1% to 15.9% with blocks of 32) and for INT4 with groups of 32 (15.7% to 12.0%), but <em>rises</em> for NVFP4 (12.7% to 14.4% with blocks of 32, 14.0% with 128). NVFP4’s 16-element blocks with E4M3 scales already confine an outlier to a block and give that block a well-fitted scale; spreading the outlier makes every value in the block large, and they then land on the coarse top of the E2M1 grid. This agrees with the NVFP4 training recipe, which found no benefit from the transform in the forward and data-gradient GEMMs and applies it only to the weight-gradient GEMM (NVIDIA, 2025). A rotation is a tool for the coarse-scale formats, not a free lunch.</p>
+<figure id="fig:quant:hadamard">
+<img style="width: 1058px" src="figures/ch05_quant-4.svg" class="fig fig-light" loading="lazy" alt="GEMM error of \mathbf{X}\mathbf{W}^{\top} for MXFP4, NVFP4 and INT4 with groups of 32 against the size of the randomised Hadamard transform applied to both operands along K (left; “none” is no transform), and the largest activation over the RMS (right). Emulated on 2x A100-40GB (PCIe) with bench.py --only hadamard." /><img style="width: 1058px" src="figures/ch05_quant-4-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="GEMM error of \mathbf{X}\mathbf{W}^{\top} for MXFP4, NVFP4 and INT4 with groups of 32 against the size of the randomised Hadamard transform applied to both operands along K (left; “none” is no transform), and the largest activation over the RMS (right). Emulated on 2x A100-40GB (PCIe) with bench.py --only hadamard." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.4: </span></span>GEMM error of <span class="math inline">\(\mathbf{X}\mathbf{W}^{\top}\)</span> for MXFP4, NVFP4 and INT4 with groups of 32 against the size of the randomised Hadamard transform applied to both operands along <span class="math inline">\(K\)</span> (left; “none” is no transform), and the largest activation over the RMS (right). Emulated on 2x A100-40GB (PCIe) with <code>bench.py --only hadamard</code>.</figcaption>
+</figure>
+</section>
+<section id="sec:quant:backward" class="level2">
+<h2><span class="xn"><span class="num">5.3&nbsp;&nbsp;</span></span>Scales and the backward pass</h2>
+<p>A linear layer <span class="math inline">\(\mathbf{Y}=\mathbf{X}\mathbf{W}^{\top}\)</span> with <span class="math inline">\(\mathbf{X}\in\mathbb{R}^{M\times K}\)</span> and <span class="math inline">\(\mathbf{W}\in\mathbb{R}^{N\times K}\)</span> runs three GEMMs per training step, each reducing over a different dimension: the forward pass over <span class="math inline">\(K\)</span>, the data gradient <span class="math inline">\(\mathrm{d}\mathbf{X}=\mathrm{d}\mathbf{Y}\,\mathbf{W}\)</span> over <span class="math inline">\(N\)</span>, and the weight gradient <span class="math inline">\(\mathrm{d}\mathbf{W}=\mathrm{d}\mathbf{Y}^{\top}\mathbf{X}\)</span> over <span class="math inline">\(M\)</span>. A block scale is only usable in a GEMM if its blocks run along that GEMM’s reduction dimension (Table&nbsp;<a href="#tab:quant:meta">5.1</a>), so the <span class="math inline">\(1\times128\)</span> tiles of <span class="math inline">\(\mathbf{X}\)</span> along <span class="math inline">\(K\)</span> are the wrong shape for the weight gradient, which needs <span class="math inline">\(128\times1\)</span> tiles along the tokens. There are four ways out:</p>
+<ol type="1">
+<li><strong>Quantise twice from the high-precision source</strong>, once along each reduction axis. The MXFP8 recipe keeps two copies of each tensor (Mishra et al., 2025). It costs memory and a second cast, and the two copies differ, so the forward and backward passes see slightly different weights.</li>
+<li><strong>Re-quantise the forward copy</strong> along the other dimension (<code>numerics.requantize</code>). One copy, but errors compound.</li>
+<li><strong>Two-dimensional blocks</strong> whose scale is valid in both orientations: DeepSeek-V3’s <span class="math inline">\(128\times128\)</span> weight blocks, NVFP4’s <span class="math inline">\(16\times16\)</span> weight blocks (NVIDIA, 2025). One consistent copy, but a coarser scale.</li>
+<li><strong>Power-of-two scales</strong>: re-quantising <span class="math inline">\(2^{a}p\)</span> with a new scale <span class="math inline">\(2^{b}\)</span> only shifts the exponent of <span class="math inline">\(p\)</span>, which is exact unless a value drops into the subnormal range. DeepSeek-V3 uses this for the activations it transposes from <span class="math inline">\(1\times128\)</span> to <span class="math inline">\(128\times1\)</span> tiles.</li>
+</ol>
+<p>We measure the copy that the weight-gradient GEMM needs for the outlier activations (<code>bench.py --only backward</code>), as the relative error against the BF16 source. With E4M3 and FP32 scales, the forward copy (<span class="math inline">\(1\times128\)</span>) has 1.56%; a <span class="math inline">\(128\times1\)</span> copy made directly from the source has 2.58%, made by re-quantising the forward copy 3.01%, and a <span class="math inline">\(128\times128\)</span> 2-D block 2.61%. With power-of-two scales every copy has 2.64% and the re-quantised copy differs from the forward copy by <span class="math inline">\(1.7\times10^{-8}\)</span>: re-quantisation is free, which is the point of DeepSeek’s trick, paid for by a coarser scale in the forward pass. With E2M1 elements and E4M3 scales (NVFP4-like, blocks of 16) re-quantisation hurts much more: 8.6% forward, 9.5% direct, 12.7% re-quantised and 14.1% with <span class="math inline">\(16\times16\)</span> blocks, which is why the NVFP4 recipe uses 2-D blocks only for the weights, whose values are free of activation outliers.</p>
+</section>
+<section id="sec:quant:quant" class="level2">
+<h2><span class="xn"><span class="num">5.4&nbsp;&nbsp;</span></span>Quantisation maths</h2>
+<section id="uniform-affine-quantisation" class="level3">
+<h3><span class="xn"><span class="num">5.4.1&nbsp;&nbsp;</span></span>Uniform affine quantisation</h3>
+<p>A <span class="math inline">\(b\)</span>-bit uniform quantiser maps a real <span class="math inline">\(x\)</span> to an integer code with a scale <span class="math inline">\(s&gt;0\)</span> and an integer zero point <span class="math inline">\(z\)</span>: <span class="xn" id="eq:quant:affine"></span><span class="math display">\[q = \operatorname{clamp}\big(\lfloor x/s\rceil + z,\ q_{\min},\ q_{\max}\big),\qquad
+\hat x = s\,(q-z).
+\tag{5.3}\]</span> <em>Symmetric</em> quantisation fixes <span class="math inline">\(z=0\)</span> and <span class="math inline">\(s=\max|x|/q_{\max}\)</span> (with the narrow range <span class="math inline">\(q_{\min}=-q_{\max}\)</span>). <em>Asymmetric</em> quantisation maps <span class="math inline">\([\min(x,0),\max(x,0)]\)</span> onto <span class="math inline">\([q_{\min},q_{\max}]\)</span> with <span class="math inline">\(s=(\max-\min)/(q_{\max}-q_{\min})\)</span> and <span class="math inline">\(z=q_{\min}-\lfloor\min/s\rceil\)</span>. Including 0 in the range and making <span class="math inline">\(z\)</span> an integer guarantees that <span class="math inline">\(x=0\)</span> is represented exactly, which matters for padding, for ReLU outputs and for masked positions. Asymmetric quantisation wastes no codes on a one-sided distribution, but it costs compute in a GEMM: expanding <span class="math display">\[\sum_k (q^A_k - z_A)(q^W_k - z_W) = \sum_k q^A_kq^W_k - z_W\sum_k q^A_k - z_A\sum_k q^W_k + Kz_Az_W\]</span> shows that each zero point adds a row or column sum to the epilogue. The convention that follows is symmetric weights (no <span class="math inline">\(z_W\)</span>, so no per-row sums of activations) and, where needed, asymmetric activations, whose <span class="math inline">\(z_A\sum_k q^W_k\)</span> term can be precomputed offline. In weight-only kernels the zero point is subtracted while dequantising in registers and costs one extra operation per weight.</p>
+</section>
+<section id="rounding-noise-and-the-6-db-rule" class="level3">
+<h3><span class="xn"><span class="num">5.4.2&nbsp;&nbsp;</span></span>Rounding noise and the 6 dB rule</h3>
+<p>If values are spread over many quantisation steps, the rounding error <span class="math inline">\(x-\hat x\)</span> is close to uniform on <span class="math inline">\([-s/2,s/2]\)</span>, with mean 0 and variance <span class="xn" id="eq:quant:s212"></span><span class="math display">\[\mathbb{E}[(x-\hat x)^2] = \frac1s\int_{-s/2}^{s/2} t^2\,dt = \frac{s^2}{12}.
+\tag{5.4}\]</span> For a signal uniform on <span class="math inline">\([-A,A]\)</span> with <span class="math inline">\(s=2A/2^b\)</span>, the signal-to-quantisation-noise ratio is <span class="math inline">\(\frac{A^2/3}{s^2/12} = 2^{2b}\)</span>, or <span class="math inline">\(6.02\,b\)</span> dB: <em>each bit buys 6 dB</em>. The per-tensor E4M3 and E5M2 measurements of Section&nbsp;<a href="ch04_numerics.html#sec:numerics:lowfp">4.4</a> (31.6 against 25.6 dB on a Gaussian tensor) show the same rule for the mantissa bits of a float.</p>
+</section>
+<section id="clipping-against-rounding" class="level3">
+<h3><span class="xn"><span class="num">5.4.3&nbsp;&nbsp;</span></span>Clipping against rounding</h3>
+<p>The absmax scale wastes resolution on rare large values. Clipping at <span class="math inline">\(c&lt;\max|x|\)</span> uses <span class="math inline">\(s=c/q_{\max}\)</span> and incurs two errors: rounding noise <span class="math inline">\(s^2/12\)</span> on the values inside <span class="math inline">\([-c,c]\)</span>, and clipping error on those outside: <span class="xn" id="eq:quant:clipmse"></span><span class="math display">\[\operatorname{MSE}(c) \approx \frac{c^2}{12\,q_{\max}^2}\,P(|x|\le c) \;+\;
+2\int_c^\infty (x-c)^2\,p(x)\,dx .
+\tag{5.5}\]</span> The first term grows with <span class="math inline">\(c\)</span>, the second falls, and the optimum depends on the tails of <span class="math inline">\(p\)</span> and on <span class="math inline">\(b\)</span>. Figure&nbsp;<a href="#fig:quant:clip">5.5</a> sweeps <span class="math inline">\(c\)</span> for Gaussian and Laplace data: at 4 bits the optimum is <span class="math inline">\(2.51\sigma\)</span> for a Gaussian and <span class="math inline">\(3.43\sigma\)</span> for a Laplace distribution, at 6 bits <span class="math inline">\(3.30\sigma\)</span> and <span class="math inline">\(5.15\sigma\)</span>, while absmax would clip at the sample maximum, about <span class="math inline">\(5\sigma\)</span> (Gaussian) or <span class="math inline">\(9\sigma\)</span> (Laplace) for <span class="math inline">\(2^{19}\)</span> samples. At 4 bits the optimal clip has a third to a fifth of the absmax MSE. This analysis, with closed forms for the integral, is the ACIQ method of Banner et al. (2019); calibration methods that choose clipping ranges by minimising MSE or a KL divergence on sample data are its empirical versions.</p>
+<figure id="fig:quant:clip">
+<img style="width: 998px" src="figures/ch05_quant-5.svg" class="fig fig-light" loading="lazy" alt="Mean squared error of symmetric INT4 and INT6 quantisation against the clipping threshold, for Gaussian and Laplace data with unit variance. Dots mark the optimum. Computed on 2^{19} samples with numerics.clip_sweep." /><img style="width: 998px" src="figures/ch05_quant-5-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Mean squared error of symmetric INT4 and INT6 quantisation against the clipping threshold, for Gaussian and Laplace data with unit variance. Dots mark the optimum. Computed on 2^{19} samples with numerics.clip_sweep." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.5: </span></span>Mean squared error of symmetric INT4 and INT6 quantisation against the clipping threshold, for Gaussian and Laplace data with unit variance. Dots mark the optimum. Computed on <span class="math inline">\(2^{19}\)</span> samples with <code>numerics.clip_sweep</code>.</figcaption>
+</figure>
+</section>
+<section id="granularity" class="level3">
+<h3><span class="xn"><span class="num">5.4.4&nbsp;&nbsp;</span></span>Granularity</h3>
+<p>Table&nbsp;<a href="#tab:quant:meta">5.1</a> listed the granularities with their costs. The library implements all of them with one argument, the block shape over the 2-D view (rows <span class="math inline">\(\times\)</span> last dimension) of a tensor: <code>"tensor"</code>, <code>"row"</code> (per output channel of a weight, per token of an activation), <code>"col"</code> (per input channel), an integer <span class="math inline">\(g\)</span> (groups of <span class="math inline">\(g\)</span> along the last dimension) or a tuple such as <code>(128, 128)</code>.</p>
+<div id="lst:quant:quantize" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 5.2: </span></span>Scaled quantisation with any block shape (simplified from <code>numerics.quantize</code>).
+</div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> quantize(x, fmt, block<span class="op">=</span><span class="st">&quot;row&quot;</span>, symmetric<span class="op">=</span><span class="va">True</span>, clip<span class="op">=</span><span class="fl">1.0</span>, scale_fmt<span class="op">=</span><span class="va">None</span>):</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    xb, (br, bc) <span class="op">=</span> blocked(x, block)            <span class="co"># pad, view as (M/br, br, K/bc, bc)</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">isinstance</span>(fmt, IntFormat) <span class="kw">and</span> <span class="kw">not</span> symmetric:</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        lo <span class="op">=</span> (xb.amin(dim<span class="op">=</span>(<span class="dv">1</span>, <span class="dv">3</span>)) <span class="op">*</span> clip).clamp(<span class="bu">max</span><span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>        hi <span class="op">=</span> (xb.amax(dim<span class="op">=</span>(<span class="dv">1</span>, <span class="dv">3</span>)) <span class="op">*</span> clip).clamp(<span class="bu">min</span><span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>        s <span class="op">=</span> round_scale((hi <span class="op">-</span> lo) <span class="op">/</span> (fmt.qmax <span class="op">-</span> fmt.qmin), scale_fmt)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        z <span class="op">=</span> (fmt.qmin <span class="op">-</span> torch.<span class="bu">round</span>(lo <span class="op">/</span> s)).clamp(fmt.qmin, fmt.qmax)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        s <span class="op">=</span> round_scale(xb.<span class="bu">abs</span>().amax(dim<span class="op">=</span>(<span class="dv">1</span>, <span class="dv">3</span>)) <span class="op">*</span> clip <span class="op">/</span> fmt.max_finite, scale_fmt)</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        z <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    y <span class="op">=</span> xb <span class="op">/</span> s[:, <span class="va">None</span>, :, <span class="va">None</span>] <span class="op">+</span> (<span class="dv">0</span> <span class="cf">if</span> z <span class="kw">is</span> <span class="va">None</span> <span class="cf">else</span> z[:, <span class="va">None</span>, :, <span class="va">None</span>])</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    q <span class="op">=</span> round_elements(y, fmt)                  <span class="co"># int: round + clamp; float: saturating cast</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> QTensor(values<span class="op">=</span>q, scale<span class="op">=</span>s, zero<span class="op">=</span>z, fmt<span class="op">=</span>fmt, block<span class="op">=</span>(br, bc), shape<span class="op">=</span>x.shape)</span></code></pre></div>
+</div>
+</section>
+<section id="non-uniform-grids" class="level3">
+<h3><span class="xn"><span class="num">5.4.5&nbsp;&nbsp;</span></span>Non-uniform grids</h3>
+<p>A uniform grid is optimal for uniformly distributed values; weights are closer to Gaussian, with most mass near zero. A non-uniform grid puts more levels where the values are. <strong>NF4</strong> (Dettmers et al., 2023) takes quantiles of <span class="math inline">\(\mathcal{N}(0,1)\)</span> so that each level covers equal probability mass, normalised to <span class="math inline">\([-1,1]\)</span>, with 8 positive and 7 negative levels plus an exact zero; our <code>nf4_grid()</code> reproduces the published table to <span class="math inline">\(10^{-6}\)</span>. <strong>Logarithmic grids</strong> (<span class="math inline">\(0,\pm2^{-k}\)</span>) suit values spread over decades, and FP4 E2M1 is itself a non-uniform grid (Figure&nbsp;<a href="#fig:quant:grids">5.6</a>). On Gaussian weights with blocks of 64, NF4 reaches 20.7 dB against 19.4 dB for symmetric INT4 and 19.5 dB for E2M1. The cost is in the kernel: a non-uniform code must be looked up in a table (16 entries kept in registers or shared memory) instead of being converted arithmetically, and no tensor core multiplies NF4 directly, so NF4 is a storage format that is dequantised to BF16 before the GEMM.</p>
+<figure id="fig:quant:grids">
+<img style="width: 998px" src="figures/ch05_quant-6.svg" class="fig fig-light" loading="lazy" alt="Four 4-bit grids over a Gaussian weight distribution: symmetric INT4, asymmetric UINT4 with a zero point fitted to [-0.6, 1], NF4’s normal quantiles, and FP4 E2M1 scaled to [-1,1]." /><img style="width: 998px" src="figures/ch05_quant-6-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Four 4-bit grids over a Gaussian weight distribution: symmetric INT4, asymmetric UINT4 with a zero point fitted to [-0.6, 1], NF4’s normal quantiles, and FP4 E2M1 scaled to [-1,1]." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.6: </span></span>Four 4-bit grids over a Gaussian weight distribution: symmetric INT4, asymmetric UINT4 with a zero point fitted to <span class="math inline">\([-0.6, 1]\)</span>, NF4’s normal quantiles, and FP4 E2M1 scaled to <span class="math inline">\([-1,1]\)</span>.</figcaption>
+</figure>
+</section>
+<section id="outliers-dominate-the-error" class="level3">
+<h3><span class="xn"><span class="num">5.4.6&nbsp;&nbsp;</span></span>Outliers dominate the error</h3>
+<p>With an absmax scale, every element’s rounding noise is <span class="math inline">\(s^2/12\)</span> with <span class="math inline">\(s\)</span> set by the <em>largest</em> element. One activation channel 30 times larger than the rest multiplies <span class="math inline">\(s\)</span> by 30 and the noise of every other element by 900, while the outlier itself is represented well. Since outlier channels are systematic in LLM activations (Dettmers et al., 2022; Sun et al., 2024), quantisation methods are best understood as different ways to stop outliers from setting the scale for everyone: smaller blocks along <span class="math inline">\(K\)</span> (MX, DeepSeek’s tiles), keeping outlier channels in higher precision (LLM.int8()), migrating the range into the weights (SmoothQuant), rotating the basis so that no channel stands out, or changing the architecture so that outliers never form (Bondarenko et al., 2023).</p>
+</section>
+</section>
+<section id="sec:quant:hessian" class="level2">
+<h2><span class="xn"><span class="num">5.5&nbsp;&nbsp;</span></span>Hessian-weighted error: which errors matter</h2>
+<p>Weight MSE treats every weight alike, but the loss does not. Expanding the loss around trained weights <span class="math inline">\(\mathbf{w}\)</span>, <span class="xn" id="eq:quant:taylor"></span><span class="math display">\[\mathcal{L}(\mathbf{w}+\boldsymbol{\delta}) = \mathcal{L}(\mathbf{w}) + \mathbf{g}^{\top}\boldsymbol{\delta}
++ \tfrac12\,\boldsymbol{\delta}^{\top}\mathbf{H}\,\boldsymbol{\delta} + O(\|\boldsymbol{\delta}\|^3),
+\tag{5.6}\]</span> and at a minimum <span class="math inline">\(\mathbf{g}\approx\mathbf{0}\)</span>, so the quantisation error <span class="math inline">\(\boldsymbol{\delta}\)</span> costs <span class="math inline">\(\tfrac12\boldsymbol{\delta}^{\top}\mathbf{H}\boldsymbol{\delta}\)</span>. For a linear layer <span class="math inline">\(\mathbf{y}=\mathbf{W}\mathbf{x}\)</span> with the proxy loss “mean squared change of the output on calibration inputs <span class="math inline">\(\mathbf{X}\in\mathbb{R}^{n\times d}\)</span>”, the loss is exactly quadratic, the rows of <span class="math inline">\(\mathbf{W}\)</span> decouple, and each row has the Hessian <span class="xn" id="eq:quant:hessian"></span><span class="math display">\[\mathbf{H} = \frac{2}{n}\mathbf{X}^{\top}\mathbf{X},\qquad
+\Delta\mathcal{L} = \tfrac12\sum_j \boldsymbol{\delta}_j^{\top}\mathbf{H}\,\boldsymbol{\delta}_j
+= \frac1n\big\|\mathbf{X}\,\Delta\mathbf{W}^{\top}\big\|_F^2 .
+\tag{5.7}\]</span> An error on a weight that multiplies a large or frequently active input channel costs far more than the same error elsewhere. In the lab’s test, two perturbations with identical weight MSE, one on the input channel with the smallest variance and one on the largest (scales <span class="math inline">\(10^{-1}\)</span> and <span class="math inline">\(10^{1}\)</span>), differ in loss by more than a factor of 1,000.</p>
+<p>The Hessian also tells us how to <em>compensate</em>. Optimal Brain Surgeon (Hassibi and Stork, 1993), which refined the diagonal-Hessian Optimal Brain Damage of LeCun et al. (1990), asks: if weight <span class="math inline">\(i\)</span> must take the value <span class="math inline">\(q\)</span>, how should the others move to minimise the loss? Minimising <span class="math inline">\(\tfrac12\boldsymbol{\delta}^{\top}\mathbf{H}\boldsymbol{\delta}\)</span> subject to <span class="math inline">\(\mathbf{e}_i^{\top}\boldsymbol{\delta}=q-w_i\)</span> with a Lagrange multiplier gives <span class="xn" id="eq:quant:obs"></span><span class="math display">\[\boldsymbol{\delta} = -\frac{w_i-q}{[\mathbf{H}^{-1}]_{ii}}\,\mathbf{H}^{-1}\mathbf{e}_i,\qquad
+\Delta\mathcal{L} = \frac{(w_i-q)^2}{2\,[\mathbf{H}^{-1}]_{ii}} .
+\tag{5.8}\]</span></p>
+<div id="lst:quant:obs" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 5.3: </span></span>The Optimal Brain Surgeon update for one weight (from <code>numerics.obs_quantize_one</code>).
+</div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> obs_quantize_one(w, H, i, target):</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    Hinv <span class="op">=</span> torch.linalg.inv(H.double())</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    d <span class="op">=</span> (w[i] <span class="op">-</span> target) <span class="op">/</span> Hinv[i, i]</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    w_new <span class="op">=</span> w <span class="op">-</span> d <span class="op">*</span> Hinv[:, i]          <span class="co"># move the correlated weights to absorb the error</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    w_new[i] <span class="op">=</span> target</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> w_new, <span class="bu">float</span>(<span class="fl">0.5</span> <span class="op">*</span> (w[i] <span class="op">-</span> target) <span class="op">**</span> <span class="dv">2</span> <span class="op">/</span> Hinv[i, i])</span></code></pre></div>
+</div>
+<p>The lab verifies that this update equals the brute-force least-squares optimum with <span class="math inline">\(w_i\)</span> fixed and that the predicted <span class="math inline">\(\Delta\mathcal{L}\)</span> is exact. Applying it to every weight of a row in turn, quantising one input column at a time and updating the rest, is GPTQ; Optimal Brain Compression (Frantar and Alistarh, 2022) and AdaRound (Nagel et al., 2020) are relatives. Those calibration algorithms, with AWQ and SmoothQuant, are the subject of Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>; this section supplies the objective they all minimise.</p>
+</section>
+<section id="sec:quant:mixed" class="level2">
+<h2><span class="xn"><span class="num">5.6&nbsp;&nbsp;</span></span>Mixed precision for training and inference</h2>
+<section id="the-general-recipe" class="level3">
+<h3><span class="xn"><span class="num">5.6.1&nbsp;&nbsp;</span></span>The general recipe</h3>
+<p>Section&nbsp;<span class="xref-unpub" title="Not published yet">20.8</span> introduced the training recipe and Section&nbsp;<span class="xref-unpub" title="Not published yet">23.5</span> what autocast does per operator; here we derive it. Every mixed-precision scheme assigns a format to five roles: <em>storage</em> of each tensor, <em>matmul inputs</em>, <em>accumulation</em>, <em>master weights</em> and <em>optimiser state</em>. The recipe that Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> and the preceding sections imply (Micikevicius et al., 2018):</p>
+<ol type="1">
+<li><strong>Matmul inputs narrow, accumulation wide.</strong> GEMM operands in BF16 (or FP16, FP8), products accumulated in FP32 on the tensor core.</li>
+<li><strong>FP32 master weights.</strong> The optimiser updates an FP32 copy, so updates below half a BF16 ulp survive (Section&nbsp;<a href="ch04_numerics.html#sec:numerics:rounding">4.5</a>); the BF16 copy used by the forward pass is a rounding of it.</li>
+<li><strong>Optimiser state in FP32</strong> by default. The second Adam moment holds squares of gradients and needs range; 8-bit block-quantised states (Dettmers et al., 2022) and BF16 moments work with care (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">19</span>).</li>
+<li><strong>Numerically sensitive operations in FP32</strong>: softmax and log-softmax, normalisation statistics, the loss, reductions such as <code>sum</code> and <code>mean</code>, <code>exp</code> and <code>pow</code>, and usually the residual stream. <code>torch.autocast</code> encodes this as a per-operator policy.</li>
+<li><strong>Loss scaling for FP16</strong> (not BF16).</li>
+</ol>
+<div class="napkinmath box">
+<p><strong>Napkin Math: Bytes per parameter of a training state</strong></p>
+<p>AdamW in standard mixed precision: BF16 weights (2) + FP32 master weights (4) + FP32 gradients (4) + two FP32 moments (8) = 18 bytes per parameter, or 16 if the gradients are kept in BF16. A 7B model needs 112–126 GB before any activation, which is why the sharding of Chapter&nbsp;<span class="xref-unpub" title="Not published yet">25</span> exists. DeepSeek-V3’s recipe (FP32 master weights and gradients, BF16 moments) spends 4 + 4 + 4 = 12 bytes on the optimiser side; stochastic rounding of BF16 weights without a master copy would save 4 more.</p>
+</div>
+<p><strong>Loss scaling.</strong> FP16’s smallest subnormal is <span class="math inline">\(2^{-24}\approx6\times10^{-8}\)</span>. Multiplying the loss by <span class="math inline">\(S\)</span> multiplies every gradient by <span class="math inline">\(S\)</span> (backpropagation is linear in the upstream gradient), moving the small ones into range; the optimiser divides by <span class="math inline">\(S\)</span> in FP32 before using them. We measure on a gradient-like log-normal tensor centred at <span class="math inline">\(10^{-6}\)</span> (<code>bench.py --only lossscale</code>): unscaled FP16 flushes 10.4% of the values to zero and stores 88% as subnormals; <span class="math inline">\(S=2^{10}\)</span> flushes 0.017% and leaves 16.5% subnormal; <span class="math inline">\(S=2^{16}\)</span> flushes <span class="math inline">\(2.9\times10^{-6}\)</span> of them and leaves 0.53% subnormal; <span class="math inline">\(S=2^{24}\)</span> overflows (21 of <span class="math inline">\(2^{20}\)</span> values). The right <span class="math inline">\(S\)</span> is the largest one that does not overflow, and it changes during training, hence <em>dynamic</em> loss scaling: start high (<span class="math inline">\(2^{16}\)</span> in PyTorch’s <code>GradScaler</code>), halve <span class="math inline">\(S\)</span> and skip the step whenever a gradient contains inf or NaN, double it after 2,000 clean steps. A skipped step costs a little throughput; an undetected overflow would destroy the weights. <code>numerics.DynamicLossScaler</code> is a 20-line version.</p>
+</section>
+<section id="fp8-training-recipes" class="level3">
+<h3><span class="xn"><span class="num">5.6.2&nbsp;&nbsp;</span></span>FP8 training recipes</h3>
+<p>FP8 adds per-tensor (or finer) scales to every GEMM operand, and recipes differ in how the scales are obtained:</p>
+<ul>
+<li><strong>Delayed scaling</strong> (NVIDIA Transformer Engine): the scale used at step <span class="math inline">\(t\)</span> comes from a history of amax values of the same tensor at earlier steps (<code>numerics.AmaxHistory</code>). No extra pass over the tensor is needed before the cast, so the cast fuses into the producer kernel, but a sudden activation spike overflows (E4M3 saturates) until the history catches up.</li>
+<li><strong>Current (just-in-time) scaling</strong>: compute the amax of the tensor being cast, then cast. Exact, but it needs a reduction over the whole tensor before the first element can be converted: an extra read, or a global synchronisation inside a fused kernel.</li>
+<li><strong>Block scaling</strong>: one scale per tile or block, computed from that block alone. The reduction is local (one warp can compute it), so current scaling becomes cheap, and outliers stay local. MX formats and DeepSeek-V3 do this.</li>
+</ul>
+<p>We measure the three on a stream of 48 activation tensors (<span class="math inline">\(1024\times1024\)</span>, slowly growing in scale) in which, at step 30, one token’s activations jump by a factor of 100 (<code>bench.py --only scaling</code>, E4M3, a 16-step amax history; Figure&nbsp;<a href="#fig:quant:fp8scaling">5.7</a>). In calm steps the three are indistinguishable: relative errors 2.65% (delayed), 2.65% (current) and 2.57% (block, <span class="math inline">\(1\times128\)</span>). At the spike, delayed scaling saturates 996 of the spiked token’s 1,024 values and its error jumps to 91%; current and block scaling stay at 2.7% and 2.6%. For the 16 steps after the spike, the inflated history makes delayed scaling flush on average 649 small values per step to zero (current: 10), although the relative error hardly moves (2.650% against 2.646%) because those values are tiny. A spike is rare, but it hits exactly the tensor where something unusual is happening; the lab’s tests check that delayed scaling saturates on it and current scaling cannot.</p>
+<figure id="fig:quant:fp8scaling">
+<img style="width: 998px" src="figures/ch05_quant-7.svg" class="fig fig-light" loading="lazy" alt="Delayed (16-step amax history), current (per-tensor) and block (1\times128) E4M3 scaling over a stream of 1024\times1024 activations in which one token’s values jump by a factor of 100 at step 30. Top: relative error per step (at step 0 the delayed scale comes from an empty history). Bottom: values flushed to zero per step; at the spike itself the per-tensor current scale also flushes small values of the other tokens, for one step. Emulated on 2x A100-40GB (PCIe) with bench.py --only scaling." /><img style="width: 998px" src="figures/ch05_quant-7-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Delayed (16-step amax history), current (per-tensor) and block (1\times128) E4M3 scaling over a stream of 1024\times1024 activations in which one token’s values jump by a factor of 100 at step 30. Top: relative error per step (at step 0 the delayed scale comes from an empty history). Bottom: values flushed to zero per step; at the spike itself the per-tensor current scale also flushes small values of the other tokens, for one step. Emulated on 2x A100-40GB (PCIe) with bench.py --only scaling." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.7: </span></span>Delayed (16-step amax history), current (per-tensor) and block (<span class="math inline">\(1\times128\)</span>) E4M3 scaling over a stream of <span class="math inline">\(1024\times1024\)</span> activations in which one token’s values jump by a factor of 100 at step 30. Top: relative error per step (at step 0 the delayed scale comes from an empty history). Bottom: values flushed to zero per step; at the spike itself the per-tensor current scale also flushes small values of the other tokens, for one step. Emulated on 2x A100-40GB (PCIe) with <code>bench.py --only scaling</code>.</figcaption>
+</figure>
+<p>The second axis is the format assignment: hybrid E4M3 forward and E5M2 backward (Micikevicius et al., 2022) or E4M3 everywhere with fine-grained scales (DeepSeek-V3). The third is accumulation: FP32 throughout, or limited precision with promotion.</p>
+</section>
+<section id="inference-precision-choices" class="level3">
+<h3><span class="xn"><span class="num">5.6.3&nbsp;&nbsp;</span></span>Inference precision choices</h3>
+<p>At inference there is no gradient and no optimiser, and the bottleneck decides the format (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>, <span class="xref-missing">??</span>):</p>
+<div id="tab:quant:infer" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 5.2: </span></span>Choosing inference precision by bottleneck. Mixed configurations are normal: W4A16 weights with an FP8 KV cache is a common throughput setting.</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Regime</th>
+<th style="text-align: left;">Bottleneck</th>
+<th style="text-align: left;">Good choice</th>
+<th style="text-align: left;">Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">decode, small batch</td>
+<td style="text-align: left;">weight bytes</td>
+<td style="text-align: left;">weight-only INT4/INT8 (W4A16, W8A16), NF4</td>
+<td style="text-align: left;">step time <span class="math inline">\(\propto\)</span> weight bytes; dequantise in registers</td>
+</tr>
+<tr>
+<td style="text-align: left;">prefill, large batch</td>
+<td style="text-align: left;">tensor-core FLOP/s</td>
+<td style="text-align: left;">W8A8 in FP8 (Hopper) or INT8 (Ampere); MXFP4/NVFP4 (Blackwell)</td>
+<td style="text-align: left;">low-precision MMA rate; needs activation scales</td>
+</tr>
+<tr>
+<td style="text-align: left;">long context, many sequences</td>
+<td style="text-align: left;">KV-cache bytes and capacity</td>
+<td style="text-align: left;">FP8 or INT8 KV cache (per token, per channel for keys)</td>
+<td style="text-align: left;">KV traffic dominates; capacity sets batch size</td>
+</tr>
+<tr>
+<td style="text-align: left;">quality-critical layers</td>
+<td style="text-align: left;">–</td>
+<td style="text-align: left;">BF16 for embeddings, output head, norms</td>
+<td style="text-align: left;">errors land directly on the logits</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="sec:quant:deepseek" class="level2">
+<h2><span class="xn"><span class="num">5.7&nbsp;&nbsp;</span></span>Case study: the DeepSeek-V3 FP8 recipe</h2>
+<p>DeepSeek-V3 (DeepSeek-AI, 2024), a 671B-parameter mixture-of-experts model, was pre-trained with FP8 GEMMs on H800 GPUs. Its recipe combines every idea of this chapter and of Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a>, so we go through it in full (Figure&nbsp;<a href="#fig:quant:deepseek">5.8</a>).</p>
+<figure id="fig:quant:deepseek">
+<img style="width: 1596px" src="figures/ch05_quant-8.svg" class="fig fig-light" loading="lazy" alt="The DeepSeek-V3 FP8 GEMM and the precision of the surrounding components. Scales are computed online per 1\times128 activation tile and per 128\times128 weight block; the tensor core accumulates unscaled FP8 products, and every 128 elements of K the partial sum is scaled and promoted to FP32 on the CUDA cores." /><img style="width: 1596px" src="figures/ch05_quant-8-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The DeepSeek-V3 FP8 GEMM and the precision of the surrounding components. Scales are computed online per 1\times128 activation tile and per 128\times128 weight block; the tensor core accumulates unscaled FP8 products, and every 128 elements of K the partial sum is scaled and promoted to FP32 on the CUDA cores." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 5.8: </span></span>The DeepSeek-V3 FP8 GEMM and the precision of the surrounding components. Scales are computed online per <span class="math inline">\(1\times128\)</span> activation tile and per <span class="math inline">\(128\times128\)</span> weight block; the tensor core accumulates unscaled FP8 products, and every 128 elements of <span class="math inline">\(K\)</span> the partial sum is scaled and promoted to FP32 on the CUDA cores.</figcaption>
+</figure>
+<ol type="1">
+<li><strong>E4M3 for all tensors</strong>, including gradients (“mantissa over exponents”): the fine-grained scales provide the range that E5M2 would otherwise be needed for. Our heavy-tailed measurement in Section&nbsp;<a href="ch04_numerics.html#sec:numerics:lowfp">4.4</a> (2.2% flushed with <span class="math inline">\(1\times128\)</span> tiles, 59% per tensor) shows why this works.</li>
+<li><strong>Fine-grained scaling</strong>: activations get one FP32 scale per <span class="math inline">\(1\times128\)</span> tile (per token, per 128 channels), weights one per <span class="math inline">\(128\times128\)</span> block. Weights change slowly and are reused by all tokens, so coarse 2-D blocks suffice and keep the scale tensor tiny; activations vary per token and carry outlier channels, so their tiles are thin.</li>
+<li><strong>Online scaling</strong>: each tile’s amax is computed when it is quantised; no delayed history.</li>
+<li><strong>Increased accumulation precision</strong>: promotion to FP32 CUDA-core registers every 128 elements along <span class="math inline">\(K\)</span> (four WGMMAs), where the per-tile and per-block scales are also applied. Because the activation tile and the weight block both have extent 128 along <span class="math inline">\(K\)</span>, the scales are constant inside each accumulation window, and the scaling costs one multiply per output per window.</li>
+<li><strong>What stays in higher precision</strong>: the embedding, the output head, the MoE gating, the normalisation operators and the attention operators run in BF16 or FP32. Master weights and weight gradients are FP32; the AdamW moments are BF16.</li>
+<li><strong>Low-precision storage and communication</strong>: activations saved for the backward pass of linear layers are cached in FP8. The inputs of the SwiGLU operator in the MoE layers are cached in FP8 and the SwiGLU output is <em>recomputed</em> in the backward pass instead of stored. Activations are quantised to FP8 before the MoE dispatch (the up-projections consume FP8 anyway), and the activation gradients before the MoE down-projections are likewise sent in FP8; the forward and backward <em>combine</em> stay in BF16. The inputs of the linear layer after attention, which the attention backward also uses, get a custom E5M6 format, and their scales are powers of two so that converting the <span class="math inline">\(1\times128\)</span> tiles to <span class="math inline">\(128\times1\)</span> tiles for the backward pass adds no error (Section&nbsp;<a href="#sec:quant:backward">5.3</a>).</li>
+<li><strong>Result</strong>: the paper validates the framework against BF16 on two MoE models of the scale of DeepSeek-V2-Lite and DeepSeek-V2, about 16B and 230B total parameters trained on about one trillion tokens (1.33T and 0.9T in its appendix), and reports a relative loss error that stays below 0.25%, within training randomness.</li>
+</ol>
+<p>We simulate the GEMM part with <code>numerics.fp8_gemm_sim</code> (and the lab’s <code>fp8_block_gemm</code>). For activations with four outlier channels (magnitude 20) and Gaussian weights, the total error against the exact FP64 product is 3.1–3.5% with tile/block scaling against 3.7–3.8% per tensor; the accumulation error alone is <span class="math inline">\(1.2\times10^{-4}\)</span> with promotion against up to <span class="math inline">\(6.6\times10^{-3}\)</span> without (Section&nbsp;<a href="ch04_numerics.html#sec:numerics:accum">4.6</a>). The accumulation error is small next to the representation error, but it is a <em>bias</em> toward zero that grows with <span class="math inline">\(K\)</span>, and biases, unlike noise, compound over a training run. DeepSeek also asked hardware vendors for tensor cores that accept fine-grained scales and accumulate at full precision; Blackwell’s block-scaled MMAs for MX and NVFP4 are the first answer.</p>
+</section>
+<section id="sec:quant:frontier" class="level2">
+<h2><span class="xn"><span class="num">5.8&nbsp;&nbsp;</span></span>Research frontier</h2>
+<p><strong>Open problems.</strong> <em>FP4 training.</em> Blackwell’s MXFP4 and NVFP4 tensor cores double FP8 throughput again, and 2025 brought the first credible FP4 pre-training results: NVFP4 with random Hadamard transforms, 2-D weight scaling, stochastic rounding of gradients and a few BF16 layers (NVIDIA, 2025), MXFP4 with stochastic rounding and Hadamard transforms in the backward pass (Tseng et al., 2025), native FP4 training with a low-precision scaling law (Castro et al., 2025), and fully quantised NVFP4 training of a 7B model (Chmiel et al., 2025). Kumar et al. (2024) fitted <em>scaling laws for precision</em>: training in low precision acts like a smaller effective parameter count, and post-training quantisation hurts more the longer a model was trained. Which tensors can go to 4 bits, at which scale and token budget the gap to BF16 opens, and whether the answer changes with model size are open. <em>Scale formats and scale rules</em>: FP32, E4M3 and E8M0 scales, one level or two, the floor or the round-up rule for a shared exponent; how many bits a scale needs, and how that interacts with the backward pass (power-of-two scales make re-quantisation exact), has no settled answer. <em>Rotations</em>: inference methods fold fixed or learned rotations into the weights (Ashkboos et al., 2024; Liu et al., 2025), FP4 training applies random Hadamard transforms on the fly, and our measurement shows the same transform helping MXFP4 and INT4 groups while hurting NVFP4; which transform suits which scale format and granularity is open. <em>Low-precision optimiser states and communication</em>: 8-bit Adam states (Dettmers et al., 2022), FP8 gradients and states (Peng et al., 2023) and the precision of gradient all-reduces at scale. <em>Outlier-free architectures</em>: if outliers did not form, per-tensor INT8 and FP8 would be enough; attention variants that avoid “no-op” heads (Bondarenko et al., 2023) and smoothed SwiGLU (Fishman et al., 2025) are first steps.</p>
+<p><strong>Papers that define the area.</strong></p>
+<ul>
+<li>Micikevicius et al. (2018), <em>Mixed Precision Training</em>: FP16 compute, FP32 master weights, loss scaling; the recipe everything else modifies.</li>
+<li>Dettmers et al. (2022), <em>LLM.int8()</em>: outlier features in LLM activations and why per-tensor scaling fails.</li>
+<li>Rouhani et al. (2023), <em>Microscaling Data Formats</em>: shared E8M0 scales per 32 elements; the OCP MX standard.</li>
+<li>DeepSeek-AI (2024), <em>DeepSeek-V3</em>: fine-grained scaling, promotion and FP8 storage and communication at frontier scale.</li>
+<li>Ashkboos et al. (2024), <em>QuaRot</em>: rotations folded into the weights remove activation outliers for 4-bit inference.</li>
+<li>Kumar et al. (2024), <em>Scaling Laws for Precision</em>: precision as a third axis of scaling laws, next to parameters and data.</li>
+<li>Fishman et al. (2025), <em>Scaling FP8 Training to Trillion-Token LLMs</em>: failures that only appear late in long runs.</li>
+<li>Mishra et al. (2025), <em>Recipes for Pre-training LLMs with MXFP8</em>: MXFP8 for all tensors once the shared exponent is rounded up and each tensor is quantised along both reduction axes.</li>
+<li>NVIDIA (2025), <em>Pretraining LLMs with NVFP4</em>: a 12B model on 10T tokens in NVFP4, with <span class="math inline">\(16\times16\)</span> weight blocks, random Hadamard transforms on Wgrad inputs, stochastic rounding of gradients and a few BF16 layers.</li>
+<li>Tseng et al. (2025), <em>Training LLMs with MXFP4</em>: stochastic rounding plus random Hadamard transforms make MXFP4 backward passes viable.</li>
+<li>Castro et al. (2025), <em>Quartet</em>: FP4 training on Blackwell kernels, with a scaling law that says when FP4 is compute-optimal.</li>
+<li>Chmiel et al. (2025), <em>FP4 All the Way</em>: fully quantised NVFP4 training (weights, activations, gradients) and a criterion for when quantisation noise stalls training.</li>
+</ul>
+<p><strong>Assumptions likely to break.</strong> That a power-of-two scale is good enough (NVFP4 already uses E4M3 scales). That one block orientation serves all three GEMMs of a training step (the weight gradient reduces over tokens). That outliers are a fixed property of the data rather than of the architecture and optimiser. That weight MSE is the right objective (the loss weights errors by input statistics, Section&nbsp;<a href="#sec:quant:hessian">5.5</a>). That master weights are free (at trillion-parameter scale, 4 bytes per parameter is a cluster’s worth of HBM). And that results at short horizons predict long runs.</p>
+<p><strong>How to recognise the next variant.</strong> Place a new paper on these axes: (1) element format and which tensors use it (weights, activations, gradients, optimiser states, KV cache, communication); (2) scale format (FP32, E4M3, E8M0, one level or two) and granularity (tensor, row, block, along which dimension); (3) how scales are computed (delayed, current, learned, calibrated, power of two or not); (4) transforms applied before quantisation (smoothing, rotations, Hadamard); (5) the error objective (MSE, Hessian-weighted, end-to-end loss) and whether it is post-training or quantisation-aware; (6) which operations stay in high precision, and how the backward pass is scaled; (7) rounding and accumulation, the axes of Section&nbsp;<a href="ch04_numerics.html#sec:numerics:frontier">4.8</a>; (8) what hardware executes it natively and what it costs where it does not. Most new methods change one or two of these and keep the rest of a known recipe.</p>
+</section>
+<section id="sec:quant:summary" class="level2">
+<h2><span class="xn"><span class="num">5.9&nbsp;&nbsp;</span></span>Summary</h2>
+<ul>
+<li>A scale maps a tensor’s range onto a format’s window; its granularity, format, rule and the kernel that applies it define a low-precision scheme. A scale constant along the reduction dimension factors out of a GEMM; any finer one must be applied inside the <span class="math inline">\(K\)</span> loop or the MMA.</li>
+<li>MX shares an E8M0 scale per 32 elements, NVFP4 an E4M3 scale per 16 plus an FP32 tensor scale. Block scaling buys about <span class="math inline">\(10\log_{10}(\ln N/\ln B)\)</span> dB on Gaussian data and far more with outliers; 4-bit formats are unusable without it (62% GEMM error per tensor, 12.7% for NVFP4).</li>
+<li>Hadamard rotations spread outliers over a block (they help MXFP4 and INT4, not NVFP4, in our measurement), and the backward pass needs scales along other dimensions: two copies, 2-D blocks, or power-of-two scales that make re-quantisation exact.</li>
+<li>Quantisation error is <span class="math inline">\(s^2/12\)</span> inside the range (6 dB per bit) plus clipping error outside; optimal clipping beats absmax by a factor of three to five at 4 bits; zero points cost epilogue terms; NF4 suits Gaussian weights; outliers set the scale.</li>
+<li>The Hessian <span class="math inline">\(\tfrac2n\mathbf{X}^{\top}\mathbf{X}\)</span> weights errors by input statistics and yields the OBS update that GPTQ applies column by column.</li>
+<li>Mixed precision: narrow inputs, wide accumulators, FP32 master weights and sensitive ops, loss scaling for FP16. Delayed FP8 scaling saturates on a spike (91% error) where current and block scaling do not.</li>
+<li>DeepSeek-V3’s FP8 recipe adds E4M3 everywhere, <span class="math inline">\(1\times128\)</span>/<span class="math inline">\(128\times128\)</span> online scales, promotion every 128 and FP8 storage and communication, within 0.25% of BF16. At inference the bottleneck picks the format: weight-only for decode, W8A8 or FP4 for prefill, a quantised KV cache for long contexts.</li>
+</ul>
+</section>
+<section id="sec:quant:exercises" class="level2">
+<h2><span class="xn"><span class="num">5.10&nbsp;&nbsp;</span></span>Exercises</h2>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.1</span></span></strong> (<em>Metadata and kernels</em>).</p>
+<p>For a <span class="math inline">\(4096\times4096\)</span> weight, compute the bytes of elements and of metadata for: INT8 per output channel with FP32 scales; INT4 with groups of 128, FP16 scales and INT4 zero points; MXFP4; NVFP4; FP8 with DeepSeek’s <span class="math inline">\(128\times128\)</span> blocks. For each, say whether the scale factors out of the dot product, and describe what the GEMM kernel must do with it.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.2</span></span></strong> (<em>The block-scaling gain, derived</em>).</p>
+<p>For a symmetric INT-<span class="math inline">\(b\)</span> quantiser with the absmax scale, show that the mean squared error is about <span class="math inline">\(\mathbb{E}[\max|x|^2]/(12\,q_{\max}^2)\)</span> over the elements sharing a scale, and use <span class="math inline">\(\max|x|\approx\sigma\sqrt{2\ln n}\)</span> to predict the gain in signal-to-noise ratio of blocks of 128, 32 and 16 over one scale for a <span class="math inline">\(4096\times4096\)</span> Gaussian tensor. Compare with the 7.05 dB we measure for blocks of 32. Then explain why the gain on the outlier activations of Figure&nbsp;<a href="#fig:quant:granularity">5.3</a> is much larger, and why the prediction does not apply to a floating-point element format.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.3</span></span></strong> (<em>Hadamard and the block maximum</em>).</p>
+<p>An activation row has independent <span class="math inline">\(\mathcal{N}(0,1)\)</span> entries and one outlier channel of standard deviation <span class="math inline">\(a\)</span> in a block of <span class="math inline">\(b\)</span> channels. What is the distribution of the entries of that block after the normalised (randomised) Hadamard transform? Predict the ratio of the largest activation to the RMS for the bench’s activations (<span class="math inline">\(2048\times4096\)</span>, eight outlier channels scaled by 30) after transforms of size 16, 32, 128 and 4096, and compare with the measured 18.1, 13.3, 7.5 and 5.1. For which inputs does the transform make a block’s maximum <em>larger</em>, and what does the random sign diagonal protect against?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.4</span></span></strong> (<em>Zero points in a GEMM</em>).</p>
+<p>For <span class="math inline">\(\mathbf{C}=\mathbf{A}\mathbf{W}^{\top}\)</span> with <span class="math inline">\(\mathbf{A}\)</span> (<span class="math inline">\(M\times K\)</span>) quantised asymmetrically per token and <span class="math inline">\(\mathbf{W}\)</span> (<span class="math inline">\(N\times K\)</span>) symmetrically per output channel, write the integer GEMM and the epilogue, and say which terms can be precomputed offline. Repeat with asymmetric weights. For <span class="math inline">\(M=N=K=4096\)</span>, what fraction of the GEMM’s work do the extra terms cost, and why do kernels avoid asymmetric weights anyway?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.5</span></span></strong> (<em>Optimal clipping for a Laplace distribution</em>).</p>
+<p>For <span class="math inline">\(x\sim\operatorname{Laplace}(0,\beta)\)</span> derive the clipping term of (<a href="#eq:quant:clipmse">5.5</a>) in closed form and minimise the total MSE numerically for <span class="math inline">\(b=4\)</span> and <span class="math inline">\(b=8\)</span> (symmetric, narrow range). Compare your optimum with Figure&nbsp;<a href="#fig:quant:clip">5.5</a> (where <span class="math inline">\(\sigma=\sqrt2\beta\)</span>).</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.6</span></span></strong> (<em>Loss scaling</em>).</p>
+<p>Gradients of a model are log-normally distributed in magnitude with median <span class="math inline">\(10^{-7}\)</span> and <span class="math inline">\(\sigma_{\log_{10}}=1.5\)</span>; the largest gradient seen so far is 0.3. Compute the fraction of gradient values that FP16 flushes to zero without scaling, the largest power-of-two loss scale that does not overflow, and the fraction flushed with it. Verify with <code>numerics.classify</code>. How often does <code>GradScaler</code> with default settings skip a step if a true overflow occurs once every 10,000 steps?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.7</span></span></strong> (<em>Delayed scaling and a spike</em>).</p>
+<p>A delayed-scaling recipe casts step <span class="math inline">\(t\)</span>’s activations to E4M3 with the scale <span class="math inline">\(448/a_t\)</span>, where <span class="math inline">\(a_t\)</span> is the largest amax of the previous <span class="math inline">\(L\)</span> steps. In the stream of Figure&nbsp;<a href="#fig:quant:fp8scaling">5.7</a> the activations are <span class="math inline">\(\mathcal{N}(0,\sigma_t^2)\)</span> with <span class="math inline">\(\sigma_t=1+0.01t\)</span>, <span class="math inline">\(1024\times1024\)</span> per step, and at step 30 one token’s activations are multiplied by 100. (a) Predict how many of that token’s 1,024 values saturate. (b) For the <span class="math inline">\(L=16\)</span> steps after the spike, predict how many values per step are flushed to zero, and compare with current scaling. (c) A <em>margin</em> divides the scale by <span class="math inline">\(2^\mu\)</span> in advance. Which <span class="math inline">\(\mu\)</span> absorbs a spike of 100, and what does it cost on calm steps?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.8</span></span></strong> (<em>Research: MX scaling inside the MMA versus promotion</em>).</p>
+<p>Extend the lab’s <code>fp8_block_gemm</code> to the setting of Rouhani et al. (2023): MXFP8 E4M3 operands with an E8M0 scale per 32 elements along <span class="math inline">\(K\)</span>, the scales applied to each 32-deep MMA result before it enters a (14-bit, truncating) accumulator, and no promotion. Predict, before running, how its accumulation error compares at <span class="math inline">\(K=4096\)</span> with DeepSeek-V3’s FP32 promotion every 128, and how its total error compares given the E8M0 scale. Measure both on activations with outlier channels and explain the differences. Which design would you want in hardware?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 5.9</span></span></strong> (<em>Research: two-dimensional NVFP4 weight blocks</em>).</p>
+<p>Extend the lab’s <code>nvfp4_quantize</code> to the setting of the NVFP4 pre-training recipe (NVIDIA, 2025): one E4M3 scale per <span class="math inline">\(16\times16\)</span> tile of the weight, so that the copies used by the forward GEMM (blocks along <span class="math inline">\(K\)</span>) and by the data-gradient GEMM (blocks along <span class="math inline">\(N\)</span>) are the same. Predict, then measure with <code>numerics.quantize(x, E2M1, block=(16, 16), scale_fmt=E4M3)</code>, the error of the 2-D copy against <span class="math inline">\(1\times16\)</span> and <span class="math inline">\(16\times1\)</span> blocks for Gaussian weights (<span class="math inline">\(\sigma=0.02\)</span>) and for the outlier activations of Section&nbsp;<a href="#sec:quant:backward">5.3</a>. Explain why the recipe uses 2-D blocks only for weights, and what a re-quantised <span class="math inline">\(16\times1\)</span> copy would cost instead.</p>
+</div>
+</section>
+<section id="sec:quant:lab" class="level2">
+<h2><span class="xn"><span class="num">5.11&nbsp;&nbsp;</span></span>Lab 5: Scales, quantisers and a block-scaled FP8 GEMM</h2>
+<div class="labbox box">
+<p><strong><span class="xn"><span class="num">Lab 5</span></span>: Scales, quantisers and a block-scaled FP8 GEMM</strong></p>
+<p><strong>Code:</strong> <code>code/labs/lab05_quant</code></p>
+<p><strong>Goals</strong></p>
+<p>Build the scaling and quantisation half of <code>llmsys/numerics.py</code> on top of the formats of Lab&nbsp;<a href="ch04_numerics.html#sec:numerics:lab">4</a>: OCP MX block scaling, NVFP4’s two-level scales, the fast randomised Hadamard transform, per-group affine integer quantisation, the Hessian-weighted error with the OBS update, and the DeepSeek-V3 block-scaled FP8 GEMM with a limited-precision accumulator and promotion. Then measure what scale granularity, rotations, re-quantisation for the backward pass, FP8 scaling rules and FP16 loss scaling do to the error. The low-precision training capstone (Chapter&nbsp;<a href="ch07_proj_lowprec.html#ch:proj11">7</a>) uses exactly these quantisers.</p>
+<p><strong>Setup</strong></p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> code</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> pytest <span class="at">-q</span> labs/lab05_quant                     <span class="co"># grades starter.py</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="va">LAB_IMPL</span><span class="op">=</span>solution <span class="ex">python</span> <span class="at">-m</span> pytest <span class="at">-q</span> labs/lab05_quant   <span class="co"># the reference (seconds, CPU)</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_VISIBLE_DEVICES</span><span class="op">=</span>0 <span class="ex">python</span> labs/lab05_quant/bench.py  <span class="co"># measurements (emulated)</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> labs/lab05_quant/figures.py                       <span class="co"># redraw this chapter&#39;s figures</span></span></code></pre></div>
+<p><strong>Tasks</strong></p>
+<ol type="1">
+<li><strong>Microscaling.</strong> <code>mx_quantize</code> and <code>mx_dequantize</code> with the OCP scale rule (<a href="#eq:quant:mx">5.1</a>); compared bit for bit with <code>numerics.mx_quantize</code> for MXFP4, MXFP6 and MXFP8, and checked to beat per-tensor FP4 by more than 10 dB on data spanning four decades.</li>
+<li><strong>NVFP4.</strong> <code>nvfp4_quantize</code> and <code>nvfp4_dequantize</code> with the two-level scales of (<a href="#eq:quant:nvfp4">5.2</a>); compared with <code>numerics.nvfp4_quantize</code>, and checked to place every block’s maximum near the top of the E2M1 grid.</li>
+<li><strong>Rotations.</strong> <code>hadamard_transform</code>, the fast Walsh–Hadamard transform with an optional random sign diagonal (Listing&nbsp;<a href="#lst:quant:hadamard">5.1</a>); tested against the dense Hadamard matrix, for invertibility, for leaving <span class="math inline">\(\mathbf{X}\mathbf{W}^{\top}\)</span> unchanged, and for spreading a single spike of size <span class="math inline">\(a\)</span> to <span class="math inline">\(a/\sqrt b\)</span> in every channel of its block.</li>
+<li><strong>Affine quantisation.</strong> <code>quantize_affine</code> and <code>dequantize_affine</code>, per group, symmetric and asymmetric; tested for the <span class="math inline">\(s/2\)</span> round-trip bound and an exactly representable zero.</li>
+<li><strong>Second order.</strong> <code>hessian_weighted_error</code> and <code>obs_update</code>; tested against the actual output loss and a brute-force least-squares solution.</li>
+<li><strong>Block-scaled FP8 GEMM.</strong> <code>fp8_block_gemm</code> with DeepSeek-V3’s <span class="math inline">\(1\times128\)</span> activation tiles, <span class="math inline">\(128\times128\)</span> weight blocks, a 14-bit truncating accumulator and promotion every 128; tested against <code>numerics.fp8_gemm_sim</code> and against per-tensor scaling on activations with an outlier channel.</li>
+</ol>
+<p>The last block of tests checks the library itself: the NF4 grid against the published table, quantisation with every block shape and its metadata, the dynamic loss scaler and the amax history, delayed scaling saturating on an activation spike while current scaling does not, the library’s Hadamard transform, and exact re-quantisation with power-of-two scales.</p>
+<p><strong>Measurements</strong></p>
+<p><code>bench.py</code> writes <code>results/bench_results.{json,md}</code> (emulated on 2x A100-40GB (PCIe); every number is a deterministic simulation and should match ours exactly). GEMM error against granularity (Figure&nbsp;<a href="#fig:quant:granularity">5.3</a>): per-tensor FP4 62% against 12.7% for NVFP4 and 19.1% for MXFP4; INT8 from 15.6% per tensor to 2.2% with <span class="math inline">\(1\times128\)</span> tiles (<code>blocks</code>). Hadamard transforms: MXFP4 19.1% to 15.9%, NVFP4 12.7% to 14.4% (<code>hadamard</code>). Copies for the weight-gradient GEMM: 2.6% direct, 3.0% re-quantised, exact with power-of-two scales (<code>backward</code>). The block-scaled FP8 GEMM: 3.4% total error at <span class="math inline">\(K=4096\)</span> against 3.7% per tensor, with an accumulation error of <span class="math inline">\(1.2\times10^{-4}\)</span> (<code>deepseek</code>). Delayed FP8 scaling: 91% error at an activation spike against 2.7% for current scaling (<code>scaling</code>). FP16 loss scaling: 10.4% of small gradients flushed unscaled, 0.017% with <span class="math inline">\(S=2^{10}\)</span> (<code>lossscale</code>).</p>
+<p><strong>Deliverables</strong></p>
+<p>Passing tests; your <code>bench_results.md</code>; a half-page note explaining (a) which granularity you would choose for 4-bit weights and for 8-bit activations, with numbers, (b) why a Hadamard transform helps MXFP4 and hurts NVFP4, and (c) which of delayed, current and block FP8 scaling you would use in a training run, and what each costs.</p>
+<p><strong>Stretch goals</strong></p>
+<p>(1) Add an MXINT8 format and compare it with MXFP8 in the granularity experiment. (2) Add a <code>margin</code> to the delayed-scaling experiment and find the smallest one that survives the spike. (3) Quantise the weights of the <code>hadamard</code> experiment in <span class="math inline">\(16\times16\)</span> NVFP4 blocks and compare. (4) Loop <code>obs_update</code> over the columns of a weight matrix, quantising one column at a time and updating the rest: a first GPTQ, which Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span> develops.</p>
+</div>
+</section>
+</section>
+
+    </article>
+    <nav class="pager"><a class="prev" href="ch04_numerics.html">&larr; Numbers on the Machine: Formats, Rounding and Stable Algorithms</a> <a class="next" href="ch06_proj_machine.html">Project 10: Know Your Machine, a Microbenchmark and Roofline Suite &rarr;</a></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#sec:quant:mx" id="toc-sec:quant:mx"><span class="num">5.1&nbsp;&nbsp;</span>Block scaling: microscaling (MX) and NVFP4</a>
+<ul>
+<li><a href="#why-block-scaling-recovers-range-quantitatively" id="toc-why-block-scaling-recovers-range-quantitatively"><span class="num">5.1.1&nbsp;&nbsp;</span>Why block scaling recovers range, quantitatively</a></li>
+</ul></li>
+<li><a href="#sec:quant:hadamard" id="toc-sec:quant:hadamard"><span class="num">5.2&nbsp;&nbsp;</span>Rotating outliers away: Hadamard transforms</a></li>
+<li><a href="#sec:quant:backward" id="toc-sec:quant:backward"><span class="num">5.3&nbsp;&nbsp;</span>Scales and the backward pass</a></li>
+<li><a href="#sec:quant:quant" id="toc-sec:quant:quant"><span class="num">5.4&nbsp;&nbsp;</span>Quantisation maths</a>
+<ul>
+<li><a href="#uniform-affine-quantisation" id="toc-uniform-affine-quantisation"><span class="num">5.4.1&nbsp;&nbsp;</span>Uniform affine quantisation</a></li>
+<li><a href="#rounding-noise-and-the-6-db-rule" id="toc-rounding-noise-and-the-6-db-rule"><span class="num">5.4.2&nbsp;&nbsp;</span>Rounding noise and the 6 dB rule</a></li>
+<li><a href="#clipping-against-rounding" id="toc-clipping-against-rounding"><span class="num">5.4.3&nbsp;&nbsp;</span>Clipping against rounding</a></li>
+<li><a href="#granularity" id="toc-granularity"><span class="num">5.4.4&nbsp;&nbsp;</span>Granularity</a></li>
+<li><a href="#non-uniform-grids" id="toc-non-uniform-grids"><span class="num">5.4.5&nbsp;&nbsp;</span>Non-uniform grids</a></li>
+<li><a href="#outliers-dominate-the-error" id="toc-outliers-dominate-the-error"><span class="num">5.4.6&nbsp;&nbsp;</span>Outliers dominate the error</a></li>
+</ul></li>
+<li><a href="#sec:quant:hessian" id="toc-sec:quant:hessian"><span class="num">5.5&nbsp;&nbsp;</span>Hessian-weighted error: which errors matter</a></li>
+<li><a href="#sec:quant:mixed" id="toc-sec:quant:mixed"><span class="num">5.6&nbsp;&nbsp;</span>Mixed precision for training and inference</a>
+<ul>
+<li><a href="#the-general-recipe" id="toc-the-general-recipe"><span class="num">5.6.1&nbsp;&nbsp;</span>The general recipe</a></li>
+<li><a href="#fp8-training-recipes" id="toc-fp8-training-recipes"><span class="num">5.6.2&nbsp;&nbsp;</span>FP8 training recipes</a></li>
+<li><a href="#inference-precision-choices" id="toc-inference-precision-choices"><span class="num">5.6.3&nbsp;&nbsp;</span>Inference precision choices</a></li>
+</ul></li>
+<li><a href="#sec:quant:deepseek" id="toc-sec:quant:deepseek"><span class="num">5.7&nbsp;&nbsp;</span>Case study: the DeepSeek-V3 FP8 recipe</a></li>
+<li><a href="#sec:quant:frontier" id="toc-sec:quant:frontier"><span class="num">5.8&nbsp;&nbsp;</span>Research frontier</a></li>
+<li><a href="#sec:quant:summary" id="toc-sec:quant:summary"><span class="num">5.9&nbsp;&nbsp;</span>Summary</a></li>
+<li><a href="#sec:quant:exercises" id="toc-sec:quant:exercises"><span class="num">5.10&nbsp;&nbsp;</span>Exercises</a></li>
+<li><a href="#sec:quant:lab" id="toc-sec:quant:lab"><span class="num">5.11&nbsp;&nbsp;</span>Lab 5: Scales, quantisers and a block-scaled FP8 GEMM</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

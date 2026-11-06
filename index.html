@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Big Book of LLMs</title>
+<meta name="description" content="Building, training, serving, and teaching language models to reason: a systems-first textbook with labs.">
+<script>
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script defer src="app.js"></script>
+</head>
+<body class="landing">
+<header class="topbar">
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+</header>
+
+<main class="landing-main">
+  <section class="hero">
+    <p class="eyebrow">Labs, projects and measured results on real hardware</p>
+    <h1>Big Book of LLMs</h1>
+    <p class="subtitle">A Systems-First Textbook</p>
+    <p class="author">utkrshkmr</p>
+    <div class="hero-actions">
+      <a class="btn primary" href="preface.html">Start reading</a>
+      <a class="btn" href="https://github.com/utkrshkmr/llm-text">Code and labs</a>
+    </div>
+    <p class="blurb">From number formats, GPU architecture and compilers to attention, mixture-of-experts, FSDP,
+      CUDA kernels, serving engines, KV-cache management, RLHF, DPO and GRPO. Every chapter pairs the
+      modelling idea with its cost on real hardware, ends with a hands-on lab, and closes with the
+      research frontier.</p>
+  </section>
+  <div class="part-grid">
+<section class="part-card"><h3>Foundations</h3><ul>
+<li><a href="ch01_landscape.html"><span class="num">1</span> The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html"><span class="num">2</span> PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html"><span class="num">3</span> The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html"><span class="num">4</span> Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html"><span class="num">5</span> Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html"><span class="num">6</span> Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html"><span class="num">7</span> Project 11: A Low-Precision Training Study</a></li>
+</ul></section>
+<section class="part-card"><h3>Appendices</h3><ul>
+<li><a href="appF_references.html"><span class="num">F</span> References and Further Reading</a></li>
+<li><a href="appH_solutions.html"><span class="num">H</span> Solutions to Exercises</a></li>
+</ul></section>
+<p class="parts-coming">Coming next, each published as it is completed: Building a Large Language Model, Pretraining at Scale, From Python to the Metal, Fine-Tuning, Inference and Serving, Reasoning and Post-Training.</p>
+  </div>
+</main>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

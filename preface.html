@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preface · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="preface" class="level1 unnumbered">
+<h1 class="unnumbered">Preface</h1>
+<p><em>Big Book of LLMs: A Systems-First Textbook</em> follows a language model from raw text to a deployed reasoning system, and keeps asking, at every step, what the machine underneath is doing. Its goal is larger than explaining today’s systems: it is to leave you able to follow the research in LLM systems, judge it, reproduce it on your own hardware, and add to it.</p>
+<p>The first arc goes from text to a working GPT: tokenisation, attention, the transformer block, pretraining, and fine-tuning for classification and for following instructions. The second arc starts from a pretrained model and turns it into a <em>reasoning</em> model: generating text efficiently, grading answers with verifiers, spending more compute at inference time, scoring and refining answers, training with policy gradients, RLHF, preference optimisation and reinforcement learning with verifiable rewards, and distilling the result into something cheaper. Ideas that both arcs need (sampling, loading pretrained weights, evaluation) appear once, where they fit best, and later chapters refer back to them.</p>
+<p>Implementing a model from scratch shows you <em>what</em> it computes. A systems engineer also needs to know <em>where the time, memory and bandwidth go</em>, and how real training and serving stacks are built around that answer. So every chapter carries a systems layer:</p>
+<ul>
+<li><p><strong>Systems Lens</strong> boxes connect each modelling idea to its cost on real hardware: arithmetic intensity, memory traffic, kernel fusion, communication volume.</p></li>
+<li><p><strong>Napkin Math</strong> boxes do back-of-the-envelope calculations with real accelerator numbers, so you build intuition for orders of magnitude.</p></li>
+<li><p>Whole chapters cover the systems themselves: the machine and how to measure it (Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>), the numbers it computes with and how to scale them (Chapters&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> and <a href="ch05_quant.html#ch:quant">5</a>), single-GPU performance engineering (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">23</span>), distributed and sharded training (Chapters&nbsp;<span class="xref-unpub" title="Not published yet">24</span> and <span class="xref-unpub" title="Not published yet">25</span> and <span class="xref-missing">??</span>), serving engines with continuous batching (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">46</span>), KV-cache management (<span class="xref-missing">??</span>), quantisation and speculative decoding (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>), on-device and CPU inference (<span class="xref-missing">??</span>), retrieval and compound systems (<span class="xref-missing">??</span>), a measured study of data movement in long-running reasoning workloads (<span class="xref-missing">??</span>), the infrastructure behind RL for reasoning (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">65</span>), GPU kernels in Triton (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">A</span>) and accelerators beyond the GPU (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">B</span>).</p></li>
+<li><p>A whole part goes beneath Python: C++ extensions and custom operators for PyTorch (<span class="xref-missing">??</span>), the architecture of GPUs and other accelerators (<span class="xref-missing">??</span>), CUDA kernels from first principles (<span class="xref-missing">??</span>), attention and mixture-of-experts kernels (<span class="xref-missing">??</span>), the profiling toolchain (<span class="xref-missing">??</span>), ML compilers (<span class="xref-missing">??</span>), and memory, data movement and interconnects (<span class="xref-missing">??</span>), with JAX and XLA for comparison (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">C</span>). The performance-critical parts of the companion code are written in C++ and CUDA, and the book teaches how to connect them to Python: bindings, builds, testing, packaging.</p></li>
+</ul>
+<p>Throughout, the emphasis is on how things are actually <em>set up and run</em>: code, configurations, data formats, launch scripts, logging, containers, and the systems around the maths.</p>
+<section id="learning-to-do-the-research" class="level2 unnumbered">
+<h2 class="unnumbered">Learning to do the research</h2>
+<p>Every topic is developed from first principles, with working code and a number computed or measured on a real machine, because that is what lets you recognise the same idea when it returns in a new paper. Every chapter ends, before its summary, with a <em>Research frontier</em> section: the open problems, the handful of papers that define the area and what each changed, the assumptions that new hardware or models are likely to break, and the axes along which new papers vary, so that you can place a new one in a minute. Every chapter also works through one landmark paper in a <em>Reading the research</em> box: its cost model in our notation, which of its numbers our lab code reproduces and how closely, and what its evaluation leaves out. The exercises include research-style problems that extend a lab to the setting of a paper, or ask you to predict a measurement on one machine and then make it. The appendix on doing research (<span class="xref-missing">??</span>) gathers the method: how to follow the field, read a paper for its cost model, reproduce a result on a small budget, and write up a finding.</p>
+</section>
+<section id="how-to-read-this-book" class="level2 unnumbered">
+<h2 class="unnumbered">How to read this book</h2>
+<p>The book has seven parts, and every part ends with its own capstone projects. Part I sets up the vocabulary and a performance mental model: the landscape, PyTorch, the machine underneath and how to measure it, the numbers the machine computes with, and the scales, quantisation grids and mixed-precision recipes that make narrow formats usable. Part II builds GPT-2 and then a modern Qwen3-style architecture from scratch, maps the design space around it, looks beyond softmax attention, and then widens the view: encoders and encoder–decoders, mixture-of-experts models end to end, and the anatomy of today’s open models. Part III is pretraining at scale: optimisers, the training loop, data, scaling laws, single-GPU performance, distributed and sharded training, and a calculus for sharded computation. Part IV goes from Python to the metal: C++ for PyTorch, GPU and accelerator architecture, CUDA kernels, attention and MoE kernels, profiling, compilers, and memory and interconnects. Part V fine-tunes the model for classification and for following instructions. Part VI is about inference: how a single request is generated, how a server multiplexes thousands of them, how the KV cache is managed, how to make each token cheaper, how to run models on CPUs and devices, how retrieval, tools and agents turn a model into a compound system, and what data movement costs in a long-running reasoning workload. Part VII is post-training: evaluation, inference-time scaling, self-refinement, the reinforcement-learning setup for LLMs, policy gradients, RLHF and PPO, DPO, GRPO, RL systems, distillation, and alignment. The appendices cover Triton, accelerators, JAX, the lab setup, containerising an ML project, the references, doing LLM systems research, and solutions to the exercises.</p>
+<p>The capstone projects are research-grade work framed as research questions. Each has milestones with automated acceptance tests, baselines, a compute budget sized for two A100 GPUs connected over PCIe, and a reference solution, and each uses only the material of its own part and the parts before it, so you can do the capstones of a part as soon as you have read it:</p>
+<ul>
+<li>Part I: knowing your machine (Chapter&nbsp;<a href="ch06_proj_machine.html#ch:proj10">6</a>) and a low-precision training study (Chapter&nbsp;<a href="ch07_proj_lowprec.html#ch:proj11">7</a>).</li>
+<li>Part II: bringing up a new open model (<span class="xref-missing">??</span>) and sequence mixers at long context (<span class="xref-missing">??</span>).</li>
+<li>Part III: a language model from scratch (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">27</span>), training systems on PCIe GPUs (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">28</span>), a budgeted scaling study (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">29</span>) and a web-data pipeline (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">30</span>).</li>
+<li>Part IV: mixture-of-experts systems (<span class="xref-missing">??</span>), a tiny tensor compiler (<span class="xref-missing">??</span>) and a kernel library measured against vendor libraries (<span class="xref-missing">??</span>).</li>
+<li>Part V: a parameter-efficient fine-tuning study (<span class="xref-missing">??</span>) and a domain specialist built end to end (<span class="xref-missing">??</span>).</li>
+<li>Part VI: a serving engine (<span class="xref-missing">??</span>), a CPU runtime (<span class="xref-missing">??</span>), a profiler (<span class="xref-missing">??</span>) and long-context multi-agent serving (<span class="xref-missing">??</span>).</li>
+<li>Part VII: post-training a reasoning model (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">68</span>), agentic RL with tools (<span class="xref-missing">??</span>) and reasoning distillation under a budget (<span class="xref-missing">??</span>).</li>
+</ul>
+<p>If you already know transformers well, you can skim Part II for the Systems Lens boxes and the labs. Section&nbsp;<a href="ch01_landscape.html#sec:landscape:roadmap">1.13</a> gives four reading paths, for systems researchers, inference engineers, training engineers and post-training researchers, each ending at the capstones that test it.</p>
+</section>
+<section id="labs" class="level2 unnumbered">
+<h2 class="unnumbered">Labs</h2>
+<p>Every chapter ends with a lab. Labs live in <code>code/labs/labNN_*</code> and share the <code>llmsys</code> package in <code>code/llmsys</code>. Each lab has a <code>starter.py</code> with <code>TODO</code>s, a reference <code>solution.py</code>, and a test file. The tests run on a laptop CPU in under a minute with tiny model configurations:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> code</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-r</span> requirements.txt</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="va">LAB_IMPL</span><span class="op">=</span>starter  <span class="ex">python</span> <span class="at">-m</span> pytest labs/lab09_attention   <span class="co"># grade your work</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="va">LAB_IMPL</span><span class="op">=</span>solution <span class="ex">python</span> <span class="at">-m</span> pytest labs/lab09_attention   <span class="co"># check the reference</span></span></code></pre></div>
+<p>Several labs have a C++ or CUDA extension: the performance-critical operators live in <code>code/csrc</code> and are built into the <code>llmsys._C</code> module with <code>pip install -e .</code> (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">D</span>); every such operator keeps a pure-PyTorch reference and a backend switch, so the labs run without a compiler and the C++ task is an explicit extension.</p>
+<p>Each lab also has a <em>Measurements</em> section. Those experiments are meant to be run on real hardware, ideally a GPU, with real checkpoints such as GPT-2 and Qwen3-0.6B, and they ask you to explain what you see using the cost models from the chapter. Numbers in this book are either derived analytically from published hardware specifications or explicitly labelled as measured; the reference machine for measured numbers is a workstation with two A100-40GB GPUs connected over PCIe, without NVLink. Your own measurements are the ones that count.</p>
+</section>
+<section id="conventions" class="level2 unnumbered">
+<h2 class="unnumbered">Conventions</h2>
+<p>Tensors are written with their shapes, as in <span class="math inline">\(\mathbf{X}\in\mathbb{R}^{B\times T\times d}\)</span>, where <span class="math inline">\(B\)</span> is the batch size, <span class="math inline">\(T\)</span> the sequence length, and <span class="math inline">\(d\)</span> the model width <span class="math inline">\(d_{\text{model}}\)</span>. We write <span class="math inline">\(L\)</span> for the number of layers, <span class="math inline">\(H\)</span> for query heads, <span class="math inline">\(G\)</span> for key/value heads, <span class="math inline">\(d_{h}\)</span> for the head dimension, <span class="math inline">\(d_{\text{ff}}\)</span> for the MLP width, and <span class="math inline">\(V\)</span> for the vocabulary size. “FLOPs” counts floating-point operations, with a multiply–add counted as two. Bandwidths are in bytes per second and use decimal prefixes (1 TB/s <span class="math inline">\(=10^{12}\)</span> B/s).</p>
+</section>
+</section>
+
+    </article>
+    <nav class="pager"><span></span> <a class="next" href="roadmap.html">Roadmap &rarr;</a></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#learning-to-do-the-research" id="toc-learning-to-do-the-research">Learning to do the research</a></li>
+<li><a href="#how-to-read-this-book" id="toc-how-to-read-this-book">How to read this book</a></li>
+<li><a href="#labs" id="toc-labs">Labs</a></li>
+<li><a href="#conventions" id="toc-conventions">Conventions</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

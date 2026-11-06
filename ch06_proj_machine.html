@@ -1,0 +1,1698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="ch:proj10" class="level1">
+<h1><span class="xn"><span class="num">Chapter 6&nbsp;&nbsp;</span></span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</h1>
+<p>Every performance argument in this book rests on a handful of numbers: how many bytes per second the GPU’s memory delivers, how many FLOP/s its tensor cores sustain in each format, how fast data cross PCIe to the host or to the other GPU, and how many microseconds a kernel launch or a synchronisation costs. Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a> took the first two from a datasheet, then measured them once, and found that they are ceilings rather than promises. This project turns that observation into a method. We build a microbenchmark suite that measures every ceiling of a GPU server with honest statistics, explain how far each one sits below the vendor’s number and why, and then ask the question that makes the numbers useful: does a roofline built from them predict the running time of real kernels well enough to plan with?</p>
+<p>This is the first capstone of Part I. It needs only what Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a> taught (the roofline, the execution model, honest timing) and the number formats of Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a>; nothing here needs a custom kernel. What it produces is used for the rest of the book: a <em>spec sheet</em> of the machine, measured rather than copied, and a calibrated cost model that later chapters lean on whenever they predict a step time, a decode latency or a transfer. Along the way the measurements turn up four facts about our reference box that no datasheet mentions. The GPU’s clock is a variable, not a constant, and it depends on what ran in the previous half second. Host memory on the wrong NUMA node costs a sixth of the PCIe bandwidth. Peer-to-peer copies between the two GPUs report a bandwidth but deliver wrong data. And a model with no fitted parameters predicts 16 of 20 kernels it was not calibrated on within 20%, failing in ways that each point at a mechanism the roofline leaves out.</p>
+<p>A complete reference solution lives in <code>code/projects/p10_machine/reference/</code>. Attempt each milestone before reading it: the point of the project is the judgement that goes into each measurement, and the reference only shows one set of choices.</p>
+<figure id="fig:proj10:roadmap">
+<img style="width: 1638px" src="figures/ch06_proj_machine-1.svg" class="fig fig-light" loading="lazy" alt="The project in five milestones. Milestones 1–3 measure ceilings and fixed costs; together they define a machine model that milestone 4 validates on 20 kernels; milestone 5 writes the spec sheet and the error analysis." /><img style="width: 1638px" src="figures/ch06_proj_machine-1-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The project in five milestones. Milestones 1–3 measure ceilings and fixed costs; together they define a machine model that milestone 4 validates on 20 kernels; milestone 5 writes the spec sheet and the error analysis." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.1: </span></span>The project in five milestones. Milestones 1–3 measure ceilings and fixed costs; together they define a machine model that milestone 4 validates on 20 kernels; milestone 5 writes the spec sheet and the error analysis.</figcaption>
+</figure>
+<section id="sec:proj10:glance" class="level2">
+<h2><span class="xn"><span class="num">6.1&nbsp;&nbsp;</span></span>The project at a glance</h2>
+<section id="research-questions" class="level3">
+<h3><span class="xn"><span class="num">6.1.1&nbsp;&nbsp;</span></span>Research questions</h3>
+<p>A microbenchmark suite is a research instrument, and it is only as good as the questions it is built to answer. This project asks three, and a fourth emerged from the answers.</p>
+<ol type="1">
+<li><strong>What are this server’s real ceilings?</strong> HBM and L2 bandwidth, host-to-device and device-to-host bandwidth from pageable and from pinned memory, GPU-to-GPU bandwidth, the matmul peak of every data type the tensor cores support, the CUDA-core (SIMT) peak, and the fixed costs of launching, synchronising and copying a few bytes. Each with a spread, not just a number.</li>
+<li><strong>How far below the datasheet are they, and why?</strong> Every gap gets a mechanism and, where possible, a measurement that tests the mechanism: packet overhead, a power limit, NUMA placement, too few tiles for the SMs, a missing data check.</li>
+<li><strong>Can a roofline built from the measured ceilings predict real kernels within 20%?</strong> Twenty kernels spanning elementwise operations, reductions, GEMMs of training and decoding shapes, and attention, predicted before they are measured.</li>
+<li><strong>Which path should data take between our two GPUs?</strong> The question was not in the plan; the peer-to-peer measurement put it there (Section&nbsp;<a href="#sec:proj10:p2p">6.4.5</a>).</li>
+</ol>
+</section>
+<section id="prerequisites" class="level3">
+<h3><span class="xn"><span class="num">6.1.2&nbsp;&nbsp;</span></span>Prerequisites</h3>
+<p>Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a> is required, in particular the roofline and its precise reading (Sections&nbsp;<a href="ch03_machine.html#sec:machine:roofline">3.2</a> and <a href="ch03_machine.html#sec:machine:oi">3.3</a>), the empirical roofline and its pitfalls (Sections&nbsp;<a href="ch03_machine.html#sec:machine:empirical">3.5</a> and <a href="ch03_machine.html#sec:machine:hides">3.6</a>), the asynchronous execution model (Section&nbsp;<a href="ch03_machine.html#sec:machine:async">3.7</a>) and the measuring rules of Section&nbsp;<a href="ch03_machine.html#sec:machine:profiling">3.8</a>. Lab&nbsp;<a href="ch03_machine.html#sec:machine:lab">3</a> built a first empirical roofline; this project replaces its two probes by a suite. Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> supplies the formats whose peaks we measure: FP32, TF32 as a compute mode, FP16, BF16 and INT8. Everything else (Nsight counters, custom CUDA or Triton probes, collective benchmarks) appears only as an optional extension, marked with the later chapter that teaches it.</p>
+</section>
+<section id="milestones-and-acceptance-tests" class="level3">
+<h3><span class="xn"><span class="num">6.1.3&nbsp;&nbsp;</span></span>Milestones and acceptance tests</h3>
+<div id="tab:proj10:milestones" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.1: </span></span>Milestones of Project 10 and the tests in <code>test_p10_acceptance.py</code> that gate them. GPU thresholds live in <code>configs/smoke.json</code> and were calibrated on 2x A100-40GB (PCIe).</caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Milestone</th>
+<th style="text-align: left;">Deliverable</th>
+<th style="text-align: left;">Automated acceptance (CPU unless marked GPU)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">1 Bandwidth</td>
+<td style="text-align: left;">stream sweeps (copy, read, reduce, write, triad), cold and warm; L2 knee; host and peer transfers with <span class="math inline">\(\alpha\)</span>–<span class="math inline">\(\beta\)</span> fits; NUMA placement, verified</td>
+<td style="text-align: left;">byte counts checked against the buffers; NUMA page lookup; knee recovered from synthetic curves; <span class="math inline">\(\alpha,\beta\)</span> recovered within 10%/5%; spec sheet flags wrong data; GPU: HBM <span class="math inline">\(\ge\)</span> 75% of datasheet, L2 above HBM, pinned <span class="math inline">\(\ge 1.2\times\)</span> pageable, peer-copy check agrees with an independent one, staged copy and NCCL correct (two GPUs)</td>
+</tr>
+<tr>
+<td style="text-align: left;">2 Compute</td>
+<td style="text-align: left;">matmul peak per dtype; FMA-chain SIMT ceiling across the ridge; sustained run with clock trace</td>
+<td style="text-align: left;">FLOP counts; datasheet arithmetic; GPU: BF16 <span class="math inline">\(&gt;\)</span> TF32 <span class="math inline">\(&gt;\)</span> FP32, BF16 <span class="math inline">\(\ge\)</span> 70% of datasheet, FMA chain compute-bound</td>
+</tr>
+<tr>
+<td style="text-align: left;">3 Overheads</td>
+<td style="text-align: left;">launch, enqueue, sync, <code>.item()</code>, tiny copies, CUDA graph replay</td>
+<td style="text-align: left;">timer and clock-resolution checks; GPU: graph <span class="math inline">\(\ge 1.5\times\)</span> cheaper per kernel than eager</td>
+</tr>
+<tr>
+<td style="text-align: left;">4 Model</td>
+<td style="text-align: left;">the 20-kernel zoo with analytic costs; calibration shapes disjoint from the zoo; parameter-free and fitted predictions; leave-one-out error</td>
+<td style="text-align: left;">zoo FLOPs equal <code>FlopCounterMode</code>; minimum-traffic bytes; calibration and zoo disjoint; fit recovers known parameters within 5–15%; GPU: six uncalibrated kernels within 20% at the configured hit rate</td>
+</tr>
+<tr>
+<td style="text-align: left;">5 Write-up</td>
+<td style="text-align: left;">spec sheet, datasheet gaps, error analysis, results JSON</td>
+<td style="text-align: left;">results schema; spec-sheet rendering; end-to-end CPU dry run of the suite</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The acceptance suite tests what can be tested without a GPU: that the statistics are right, that the cost formulas agree with an independent count, that the model fitting recovers parameters it was given, and that the whole suite runs end to end on a CPU with tiny sizes. The GPU tests run each benchmark for a few seconds and check orderings and fractions that any healthy A100 satisfies. Whether your <em>numbers</em> are right is not a unit test: that is what the write-up argues.</p>
+</section>
+<section id="the-kit" class="level3">
+<h3><span class="xn"><span class="num">6.1.4&nbsp;&nbsp;</span></span>The kit</h3>
+<pre><code>code/projects/p10_machine/
+  reference/          the reference solution (a package)
+    stats.py          summaries, bootstrap CI, outliers, steady state, model error metrics
+    timing.py         wall-clock, CUDA-event and burst timers; L2 flush; clock warm-up
+    bandwidth.py      milestone 1        compute.py   milestone 2     latency.py  milestone 3
+    kernels.py        the 20-kernel zoo  model.py     milestone 4
+    report.py, env.py milestone 5        suite.py     all milestones in order
+    collectives.py    two-process NCCL correctness and send/receive bandwidth
+  run.py              driver: --config, --milestones, --device, --out
+  numa_probe.py       one host transfer in a fresh process bound to one NUMA node
+  side.py             the side experiments (clock ramp, layouts, baselines, peer checks)
+  figures.py          this chapter&#39;s figures from a results file
+  configs/            smoke.json (about 50 s), full.json (the study), cpu.json (dry run)
+  results/            smoke_a100_pcie.json (GPU0), smoke_a100_pcie_2gpu.json (an earlier
+                      run with both GPUs: the peer rows), side_experiments.json
+  test_p10_acceptance.py, Makefile (test, test-gpu, smoke, side, full, figures), README.md</code></pre>
+<p>Your implementation is a package with the same module and function names as <code>reference/</code>; the acceptance tests import it from the directory in <code>P10_IMPL</code>:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> code/projects/p10_machine</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test                                  <span class="co"># CPU acceptance tests on reference/ (seconds)</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="va">P10_IMPL</span><span class="op">=</span>~/my_p10 <span class="fu">make</span> test                <span class="co"># your package</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test-gpu                              <span class="co"># brief GPU checks (about 15 s)</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> smoke                                 <span class="co"># every benchmark once: about 50 s of GPU time</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> side                                  <span class="co"># the side experiments: about 1 min</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> run.py <span class="at">--config</span> configs/cpu.json <span class="at">--device</span> cpu <span class="at">--out</span> /tmp/p10.json   <span class="co"># no GPU needed</span></span></code></pre></div>
+<div id="tab:proj10:interface" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.2: </span></span>The interface of a Project 10 implementation. Docstrings in <code>reference/</code> are the contract.</caption>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Module</th>
+<th style="text-align: left;">Functions the acceptance tests call</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>stats</code></td>
+<td style="text-align: left;"><code>summarize</code>, <code>bootstrap_ci</code>, <code>reject_outliers</code>, <code>steady_state_index</code>, <code>error_metrics</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timing</code></td>
+<td style="text-align: left;"><code>wall_samples</code>, <code>event_samples</code>, <code>burst_samples</code>, <code>L2Flusher</code>, <code>configure</code>, <code>SETTINGS</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>bandwidth</code></td>
+<td style="text-align: left;"><code>stream_op</code>, <code>device_bandwidth</code>, <code>find_knee</code>, <code>fit_alpha_beta</code>, <code>log_sizes</code>, <code>numa_pages</code>, <code>node_cpus</code>, <code>host_device_bandwidth</code>, <code>p2p_bandwidth</code>, <code>pattern</code>, <code>staged_bandwidth</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>compute</code></td>
+<td style="text-align: left;"><code>fma_chain</code>, <code>fma_flops_bytes</code>, <code>fma_rate</code>, <code>matmul_rate</code>, <code>datasheet_tensor_peak</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>latency</code></td>
+<td style="text-align: left;"><code>clock_resolution</code>, <code>launch_overhead</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>kernels</code></td>
+<td style="text-align: left;"><code>Kernel</code>, <code>SHAPES</code>, <code>zoo</code>, <code>rmsnorm_eager</code>, <code>attention_naive</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>model</code></td>
+<td style="text-align: left;"><code>Machine</code>, <code>Params</code>, <code>combine</code>, <code>predict</code>, <code>predict_all</code>, <code>bound</code>, <code>nelder_mead</code>, <code>fit_model</code>, <code>loo_predictions</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>report</code>, <code>env</code>, <code>suite</code></td>
+<td style="text-align: left;"><code>results_document</code>, <code>validate</code>, <code>spec_sheet_rows</code>, <code>prediction_rows</code>, <code>write</code>, <code>DATASHEETS</code>; <code>collect</code>, <code>versions_line</code>; <code>load_config</code>, <code>run</code>, <code>calibration_overlap</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>collectives</code></td>
+<td style="text-align: left;"><code>nccl_check</code> (two-GPU test only)</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="sec:proj10:box" class="level2">
+<h2><span class="xn"><span class="num">6.2&nbsp;&nbsp;</span></span>The machine under test</h2>
+<p>Our reference box is a two-socket server with one A100-40GB PCIe card on each socket (Figure&nbsp;<a href="#fig:proj10:box">6.2</a>). <code>nvidia-smi topo -m</code> reports the two GPUs as <code>SYS</code>: a path between them crosses PCIe, the first socket’s root complex, the inter-socket link (UPI on these Intel Xeon Gold 6330 processors) and the second root complex. There is no NVLink bridge. Each GPU is local to one NUMA node, and the host memory a transfer reads or writes may sit on either node.</p>
+<figure id="fig:proj10:box">
+<img style="width: 1680px" src="figures/ch06_proj_machine-2.svg" class="fig fig-light" loading="lazy" alt="The box, with the ceilings measured in this project on GPU0 (host transfers: best size, host buffer on GPU0’s node; peer and staged copies: from the two-GPU run). The two GPUs hang off different sockets; a GPU-to-GPU copy crosses both root complexes and the inter-socket link. Measured on 2x A100-40GB (PCIe), driver 595.91.07, CUDA 13.0, torch 2.14.1." /><img style="width: 1680px" src="figures/ch06_proj_machine-2-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The box, with the ceilings measured in this project on GPU0 (host transfers: best size, host buffer on GPU0’s node; peer and staged copies: from the two-GPU run). The two GPUs hang off different sockets; a GPU-to-GPU copy crosses both root complexes and the inter-socket link. Measured on 2x A100-40GB (PCIe), driver 595.91.07, CUDA 13.0, torch 2.14.1." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.2: </span></span>The box, with the ceilings measured in this project on GPU0 (host transfers: best size, host buffer on GPU0’s node; peer and staged copies: from the two-GPU run). The two GPUs hang off different sockets; a GPU-to-GPU copy crosses both root complexes and the inter-socket link. Measured on 2x A100-40GB (PCIe), driver 595.91.07, CUDA 13.0, torch 2.14.1.</figcaption>
+</figure>
+<section id="what-the-datasheet-promises-and-where-the-numbers-come-from" class="level3">
+<h3><span class="xn"><span class="num">6.2.1&nbsp;&nbsp;</span></span>What the datasheet promises, and where the numbers come from</h3>
+<p>Before measuring anything we derive the vendor’s numbers, because a ceiling whose arithmetic we cannot reproduce is a ceiling we cannot reason about. A peak FLOP rate is a product of three counts: <span class="xn" id="eq:proj10:peak"></span><span class="math display">\[\begin{equation}
+\pi \;=\; N_{\text{SM}} \times f_{\text{clock}} \times \phi,
+\tag{6.1}
+\end{equation}\]</span> where <span class="math inline">\(\phi\)</span> is the number of FLOPs one SM completes per clock in the given format. The A100 has 108 SMs, a boost clock of 1,410 MHz, and four tensor cores per SM, each completing 256 dense FP16 or BF16 fused multiply–adds per clock, so <span class="math inline">\(\phi_{\text{BF16}} = 4 \times
+256 \times 2 = 2{,}048\)</span> and <span class="math inline">\(\pi_{\text{BF16}} = 108 \times 1.41\times10^9 \times 2{,}048 = 312\)</span> TFLOP/s. TF32 runs at half that rate per tensor core and INT8 at twice it. Without tensor cores, each SM has 64 FP32 lanes doing one FMA per clock, <span class="math inline">\(\phi = 128\)</span>, which gives 19.5 TFLOP/s.</p>
+<p>Memory bandwidth is bus width times transfer rate. The A100-40GB has five HBM2 stacks on a 5,120-bit interface, clocked at 1,215 MHz with two transfers per clock: <span class="xn" id="eq:proj10:hbm"></span><span class="math display">\[\begin{equation}
+\beta_{\text{HBM}} \;=\; \frac{5{,}120\ \text{bit}}{8\ \text{bit/byte}} \times 2 \times 1.215\times10^{9}\ \text{s}^{-1}
+\;=\; 1.555\times10^{12}\ \text{B/s}.
+\tag{6.2}
+\end{equation}\]</span> PCIe 4.0 runs 16 GT/s per lane with 128b/130b line coding, so an x16 link carries <span class="xn" id="eq:proj10:pcie"></span><span class="math display">\[\begin{equation}
+\beta_{\text{PCIe}} \;=\; 16\times10^{9} \times 16 \times \tfrac{128}{130} \,/\, 8 \;=\; 31.5\ \text{GB/s per direction}
+\tag{6.3}
+\end{equation}\]</span> of encoded payload-plus-headers. The datasheet’s “64 GB/s” is both directions together. Table&nbsp;<a href="#tab:proj10:datasheet">6.3</a> collects these numbers; the measured column is filled in by the rest of the chapter.</p>
+<div id="tab:proj10:datasheet" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.3: </span></span>The A100-40GB PCIe on paper (NVIDIA A100 datasheet and architecture whitepaper, 2020) and as measured by the smoke configuration on 2x A100-40GB (PCIe).</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Ceiling</th>
+<th style="text-align: right;">Datasheet</th>
+<th style="text-align: left;">Derivation</th>
+<th style="text-align: right;">Measured (this chapter)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">HBM bandwidth</td>
+<td style="text-align: right;">1,555 GB/s</td>
+<td style="text-align: left;">5,120 bit <span class="math inline">\(\times\)</span> 2.43 GT/s</td>
+<td style="text-align: right;">1,325 (copy) / 1,498 (write) GB/s</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2 capacity</td>
+<td style="text-align: right;">40 MiB</td>
+<td style="text-align: left;">whitepaper</td>
+<td style="text-align: right;">knee at 24 MiB</td>
+</tr>
+<tr>
+<td style="text-align: left;">PCIe 4.0 x16, per direction</td>
+<td style="text-align: right;">31.5 GB/s</td>
+<td style="text-align: left;">16 GT/s <span class="math inline">\(\times\)</span> 16 <span class="math inline">\(\times\)</span> 128/130</td>
+<td style="text-align: right;">23.9 (H2D) / 23.5 (D2H) GB/s, pinned, local node</td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16 / FP16 dense</td>
+<td style="text-align: right;">312 TFLOP/s</td>
+<td style="text-align: left;">108 <span class="math inline">\(\times\)</span> 1.41 GHz <span class="math inline">\(\times\)</span> 2,048</td>
+<td style="text-align: right;">BF16: 233 burst, 217 sustained</td>
+</tr>
+<tr>
+<td style="text-align: left;">TF32 dense</td>
+<td style="text-align: right;">156 TFLOP/s</td>
+<td style="text-align: left;"><span class="math inline">\(\phi\)</span> = 1,024</td>
+<td style="text-align: right;">116</td>
+</tr>
+<tr>
+<td style="text-align: left;">INT8 dense</td>
+<td style="text-align: right;">624 TOP/s</td>
+<td style="text-align: left;"><span class="math inline">\(\phi\)</span> = 4,096</td>
+<td style="text-align: right;">417</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP32 (CUDA cores)</td>
+<td style="text-align: right;">19.5 TFLOP/s</td>
+<td style="text-align: left;"><span class="math inline">\(\phi\)</span> = 128</td>
+<td style="text-align: right;">18.0 (GEMM), 19.0 (FMA chain)</td>
+</tr>
+<tr>
+<td style="text-align: left;">board power</td>
+<td style="text-align: right;">250 W</td>
+<td style="text-align: left;"></td>
+<td style="text-align: right;">the binding constraint (Section&nbsp;<a href="#sec:proj10:power">6.5.2</a>)</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="napkinmath box">
+<p><strong>Napkin Math: Ridge points before measuring anything</strong></p>
+<p>The datasheet ridge point in BF16 is <span class="math inline">\(312/1.555 = 201\)</span> FLOP/byte; for the CUDA-core FP32 path it is <span class="math inline">\(19.5/1.555 = 12.5\)</span> FLOP/byte (both from datasheet numbers; the measured ones follow in Section&nbsp;<a href="#sec:proj10:fma">6.5.3</a>). A kernel with intensity between these two numbers is compute-bound if it runs on CUDA cores and memory-bound if the same arithmetic runs on tensor cores: which roof applies is a property of the instruction mix, not only of the kernel’s <span class="math inline">\(F\)</span> and <span class="math inline">\(Q\)</span>. Across PCIe the ridge collapses: a kernel whose inputs stream from host memory at 31.5 GB/s needs <span class="math inline">\(312\times10^{12}/31.5\times10^9 \approx 9{,}900\)</span> FLOP per byte to keep the tensor cores busy, which is why everything that must be fast lives in HBM.</p>
+</div>
+</section>
+<section id="recording-the-environment" class="level3">
+<h3><span class="xn"><span class="num">6.2.2&nbsp;&nbsp;</span></span>Recording the environment</h3>
+<p>A number without its context cannot be compared with anything, including your own run next month. <code>env.collect()</code> records what the measurements depend on: GPU model, SM count and L2 size from <code>torch.cuda.get_device_properties</code>; driver version, power limit, maximum clocks and PCIe link generation and width from <code>nvidia-smi</code>; the topology matrix and <code>nvidia-smi topo -p2p r</code>/<code>w</code>; whether the driver reports peer access; each GPU’s NUMA node and IOMMU group type, read from sysfs; CPU model; and the versions of Python, PyTorch, CUDA and Triton. Every results file carries this record under <code>versions</code>, and every plot in this chapter is labelled with the hardware it was measured on. Machine-specific constants of the timers (the size of the cache-flush buffer, the clock used to convert a spin of <span class="math inline">\(x\)</span> μs into cycles) come from the config and the record, not from the code, and <code>report.DATASHEETS</code> carries entries for the A100 PCIe, the H100 SXM and the MI300X, so the suite can run unchanged on another accelerator (on AMD hardware the clock sampler needs <code>amd-smi</code> in place of <code>nvidia-smi</code>).</p>
+</section>
+</section>
+<section id="sec:proj10:method" class="level2">
+<h2><span class="xn"><span class="num">6.3&nbsp;&nbsp;</span></span>Measuring honestly</h2>
+<p>Section&nbsp;<a href="ch03_machine.html#sec:machine:profiling">3.8</a> gave three rules: warm up, synchronise, repeat and take the median. A microbenchmark suite needs more, because it measures the very costs (launch, synchronisation, clocks, caches) that ordinary benchmarks try to hide, and each rule has a failure mode at the microsecond scale.</p>
+<section id="three-timers-for-three-questions" class="level3">
+<h3><span class="xn"><span class="num">6.3.1&nbsp;&nbsp;</span></span>Three timers for three questions</h3>
+<p><code>timing.py</code> provides three timers (Figure&nbsp;<a href="#fig:proj10:timers">6.3</a>), and choosing between them is part of designing each measurement.</p>
+<p><em>Wall clock around the call plus a synchronisation</em> (<code>wall_samples</code>, which reuses <code>llmsys.perf.time_fn</code>) measures what a Python caller waits for: launch, execution and synchronisation together. It is the right timer for host-visible costs such as <code>.item()</code> or a 4-byte copy, and the wrong one for a 5 μs kernel, since the synchronisation alone costs 10 μs.</p>
+<p><em>CUDA events recorded on the stream</em> (<code>event_samples</code>) measure device time between two points in the stream. They have a trap. If the queue is empty when the start event is recorded, the GPU timestamps it at once, and the kernel arrives only when the host has finished launching it: the measurement then contains the host’s launch latency. On our box a tiny kernel timed this way takes 19.5 μs. The fix is to keep the queue ahead of the GPU: enqueue a spin kernel of about 100 μs (<code>torch.cuda._sleep</code>) before the start event, so that by the time the GPU reaches the start event, the kernel and the end event are already queued behind it. The same tiny kernel then measures 5.1 μs, and an empty event pair 2.0 μs, the timer’s own floor.</p>
+<p><em>Bursts</em> (<code>burst_samples</code>) time <span class="math inline">\(n\)</span> calls back to back and divide by <span class="math inline">\(n\)</span>. Eager bursts measure the host’s launch rate when kernels are short; bursts replayed from a CUDA graph remove the host and leave the device’s own gap between kernels, 1.27 μs on our box.</p>
+<figure id="fig:proj10:timers">
+<img style="width: 1764px" src="figures/ch06_proj_machine-3.svg" class="fig fig-light" loading="lazy" alt="Three ways to time a GPU operation. (a) With an idle queue, the start event fires before the host has launched the kernel, so the elapsed time is mostly host latency. (b) A spin kernel keeps the queue ahead, and the events bracket only the device’s cost. (c) A CUDA graph replays many kernels with one launch, exposing the device’s per-kernel gap. Numbers measured on 2x A100-40GB (PCIe)." /><img style="width: 1764px" src="figures/ch06_proj_machine-3-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Three ways to time a GPU operation. (a) With an idle queue, the start event fires before the host has launched the kernel, so the elapsed time is mostly host latency. (b) A spin kernel keeps the queue ahead, and the events bracket only the device’s cost. (c) A CUDA graph replays many kernels with one launch, exposing the device’s per-kernel gap. Numbers measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.3: </span></span>Three ways to time a GPU operation. (a) With an idle queue, the start event fires before the host has launched the kernel, so the elapsed time is mostly host latency. (b) A spin kernel keeps the queue ahead, and the events bracket only the device’s cost. (c) A CUDA graph replays many kernels with one launch, exposing the device’s per-kernel gap. Numbers measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+<div id="lst:proj10:events" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 6.1: </span></span>Event timing with an optional L2 flush and a queue kept ahead (from <code>reference/timing.py</code>, simplified).
+</div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> event_samples(fn, warmup<span class="op">=</span><span class="dv">3</span>, reps<span class="op">=</span><span class="dv">20</span>, device<span class="op">=</span><span class="st">&quot;cuda&quot;</span>, flush<span class="op">=</span><span class="va">None</span>, ahead_us<span class="op">=</span><span class="fl">0.0</span>):</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    dev <span class="op">=</span> torch.device(device)</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> torch.cuda.device(dev):</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(warmup):           <span class="co"># may compile or autotune: seconds of idle GPU ...</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>            fn()</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>        keep_warm(dev)                    <span class="co"># ... so ramp the SM clock up after it (see below)</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>        starts <span class="op">=</span> [torch.cuda.Event(enable_timing<span class="op">=</span><span class="va">True</span>) <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(reps)]</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        ends <span class="op">=</span> [torch.cuda.Event(enable_timing<span class="op">=</span><span class="va">True</span>) <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(reps)]</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> s, e <span class="kw">in</span> <span class="bu">zip</span>(starts, ends):</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> flush <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span>:</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>                flush()                   <span class="co"># write 2x L2 so the call starts cold</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> ahead_us:</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>                torch.cuda._sleep(<span class="bu">int</span>(ahead_us <span class="op">*</span> MHZ))    <span class="co"># spin: host gets ahead of the GPU</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>            s.record()<span class="op">;</span> fn()<span class="op">;</span> e.record()</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>        torch.cuda.synchronize(dev)</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [s.elapsed_time(e) <span class="op">*</span> <span class="fl">1e-3</span> <span class="cf">for</span> s, e <span class="kw">in</span> <span class="bu">zip</span>(starts, ends)]   <span class="co"># seconds</span></span></code></pre></div>
+</div>
+<p>Two more details matter at this scale. The L2 flush writes a buffer twice the L2 size before each call (twice the largest on-chip cache in general: 512 MiB on an MI300X with its 256 MB Infinity Cache); without it a 16 MiB copy measures L2, not HBM, the third pitfall of Section&nbsp;<a href="ch03_machine.html#sec:machine:profiling">3.8</a>. And event timestamps are quantised: every elapsed time we recorded is a multiple of about 0.5 μs (most are multiples of 1.024 μs), so single-kernel times below 10 μs carry a resolution error of 5–20% that only the median over many repetitions averages out. The host clock, <code>time.perf_counter</code>, resolves about 60 ns.</p>
+</section>
+<section id="the-clock-is-a-variable" class="level3">
+<h3><span class="xn"><span class="num">6.3.2&nbsp;&nbsp;</span></span>The clock is a variable</h3>
+<p>The most consequential discovery of the project came from a number that would not reproduce. The FMA-chain kernel of Section&nbsp;<a href="#sec:proj10:fma">6.5.3</a> measured 19.0 TFLOP/s in one development run and 10.4 TFLOP/s in the next, with the same code. The cause is the GPU’s clock management. Without locked clocks (<code>nvidia-smi -lgc</code> needs administrator rights), an idle A100 parks its SM clock at a low frequency, 765 MHz on our box, and raises it to the 1,410 MHz boost only after sustained load. A lone kernel after a pause, or after a few seconds of <code>torch.compile</code> work on the host, runs at about half speed: <span class="math inline">\(19.5 \times 765/1{,}410 = 10.6\)</span> TFLOP/s, almost exactly the slow measurement. The <code>clock_ramp</code> experiment of <code>side.py</code> (recorded in <code>results/side_experiments.json</code>) fixes the time scale: after 3 s idle, the chain runs at 10.3 TFLOP/s with no prior load or 50 ms of it, and at 19.0–19.1 TFLOP/s after 200 ms or more. In a development run, 200 ms had not been enough and a 300 ms pause after warming had already cost 15%; the ramp is a controller’s decision, not a constant, which is why the suite warms generously.</p>
+<p><code>keep_warm</code> therefore runs a streaming kernel for 250 ms (500 ms after a pause of over a second) before any measurement that follows an idle gap of more than 50 ms, and it runs <em>after</em> the warm-up calls, because warm-up is where compilation and autotuning leave the GPU idle. The cost is small, because back-to-back measurements leave no gap long enough to trigger it; it fires after compilation, after <code>nvidia-smi</code> queries and between milestones. The opposite effect, the clock falling under sustained heavy load, is the subject of Section&nbsp;<a href="#sec:proj10:power">6.5.2</a>.</p>
+<div class="pitfall box">
+<p><strong>Pitfall: Four ways a benchmark measured the wrong thing in this project</strong></p>
+<p>(1) <strong>Global switches.</strong> TF32 is enabled by a process-wide flag. Our first validation run timed “TF32” GEMMs at FP32 speed because the flag was set in the measurement of milestone 2 and not in the kernel zoo; <code>side.py</code> shows the size of the error, 7.7 ms with the flag off against 1.1 ms with it on for a <span class="math inline">\(4096^3\)</span> FP32 GEMM. The zoo now sets it inside each call. (2) <strong>Layouts that select a different kernel.</strong> <code>torch._int_mm</code> with a row-major right operand runs an 8192<span class="math inline">\(^3\)</span> INT8 GEMM at 60 TOP/s; with the operand stored column-major (the “TN” layout cuBLASLt’s INT8 tensor-core path expects) the same product runs at 410 TOP/s (<code>side.py</code>, <code>int8_layout</code>). (3) <strong>Transfers that never happened.</strong> The GPU-to-GPU copy of Section&nbsp;<a href="#sec:proj10:p2p">6.4.5</a> reports 8.3 GB/s and delivers zeros. (4) <strong>Memory on the wrong node.</strong> In our first runs, pinned host buffers landed on the other socket’s memory and the “PCIe bandwidth” was 20 GB/s instead of 24 (Section&nbsp;<a href="#sec:proj10:numa">6.4.4</a>). A benchmark that does not check its output measures the speed of whatever the system did instead.</p>
+</div>
+</section>
+<section id="statistics-what-to-report-and-how-many-samples" class="level3">
+<h3><span class="xn"><span class="num">6.3.3&nbsp;&nbsp;</span></span>Statistics: what to report and how many samples</h3>
+<p>Timing distributions are right-skewed (nothing runs faster than the hardware allows, but anything can be preempted), so the suite reports the median with the 10th and 90th percentiles, never the mean alone, following the reporting rules of Hoefler and Belli (2015); the spec sheet prints the p10–p90 range next to every median. <code>stats.summarize</code> adds the median absolute deviation (MAD), a spread estimate that one wild sample cannot move, and the coefficient of variation. For every zoo kernel milestone 4 also records three diagnostics: a bootstrap confidence interval of the median (below); the number of samples <code>reject_outliers</code> would drop, those more than five scaled MADs (<span class="math inline">\(1.4826\times\)</span>MAD estimates a Gaussian’s standard deviation) from the median; and <code>steady_state_index</code>, how many repetitions the measurement needed before every rolling median stayed within 5% of the second half’s median. The medians themselves are taken over all samples; the diagnostics say whether that was safe. In our run every zoo median has a 95% interval within 1% of it except two (the <span class="math inline">\(8192^3\)</span> and MLP GEMMs, whose intervals span 3% and 8% because the power limiter acted during the measurement, with <code>steady_state_index</code> of 4 and 20, the latter meaning never settled).</p>
+<p>The precision of a median is itself a quantity to report. <code>bootstrap_ci</code> resamples the <span class="math inline">\(n\)</span> timings with replacement, recomputes the median of each resample, and takes quantiles of those medians; it assumes nothing about the distribution. For planning, the order-statistic interval is enough (Le Boudec, 2010): with <span class="math inline">\(n\)</span> samples sorted, a 95% confidence interval for the median runs from rank <span class="math inline">\(j\)</span> to rank <span class="math inline">\(k\)</span>, <span class="xn" id="eq:proj10:ci"></span><span class="math display">\[\begin{equation}
+j \approx \tfrac{n}{2} - 0.98\sqrt{n}, \qquad k \approx \tfrac{n}{2} + 0.98\sqrt{n} + 1,
+\tag{6.4}
+\end{equation}\]</span> the normal approximation to the binomial distribution of the number of samples below the median. For <span class="math inline">\(n = 20\)</span> it gives ranks 5.6 and 15.4; rounding outwards to 5 and 16 is safe, and the exact binomial calculation shows that ranks 6 and 15 already cover the median with probability 95.9%. For timings with a coefficient of variation of 2% (typical of our large kernels), that interval is about <span class="math inline">\(\pm1\%\)</span> wide; for the 5 μs launch measurements, with their 1 μs quantisation, it is several percent, and the suite uses 200 samples there.</p>
+</section>
+</section>
+<section id="sec:proj10:m1" class="level2">
+<h2><span class="xn"><span class="num">6.4&nbsp;&nbsp;</span></span>Milestone 1: the bandwidth suite</h2>
+<section id="streams-through-hbm" class="level3">
+<h3><span class="xn"><span class="num">6.4.1&nbsp;&nbsp;</span></span>Streams through HBM</h3>
+<p>We follow STREAM’s conventions (McCalpin, 1995): a probe counts only the bytes it must move, and <code>stream_op</code> computes the count from the tensors the kernel reads and writes. <em>Copy</em> (<code>y.copy_(x)</code>) moves <span class="math inline">\(2n\)</span> bytes for an <span class="math inline">\(n\)</span>-byte buffer; <em>read</em> views the buffer as 64 rows and sums them element-wise (<code>x.view(64, -1).sum(0)</code>), <span class="math inline">\(n + n/64\)</span>; <em>reduce</em> sums the whole buffer (<code>torch.sum(x)</code>), <span class="math inline">\(n\)</span>; <em>write</em> (<code>x.fill_(1.0)</code>) <span class="math inline">\(n\)</span>; and <em>triad</em> (<span class="math inline">\(a = b + s\cdot c\)</span>, here <code>torch.add(b, x, alpha=0.5, out=a)</code>) <span class="math inline">\(3n\)</span>. The read probe needed care: summing groups of 64 <em>contiguous</em> floats instead reaches only 754 GB/s, a limit of PyTorch’s inner-dimension reduction kernel rather than of the memory. Each probe runs cold, with the L2 flushed before every call, over buffers from 1.5 MiB to 1.5 GiB (sizes of the form <span class="math inline">\(1.5\times2^k\)</span>, so that no probe coincides with a kernel of milestone 4). Figure&nbsp;<a href="#fig:proj10:bw">6.4</a> shows the curves and Table&nbsp;<a href="#tab:proj10:hbm">6.4</a> the plateaus.</p>
+<div id="tab:proj10:hbm" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.4: </span></span>HBM and L2 streaming bandwidth, median of 20 calls. Plateau = median of the three largest working sets, with the p10–p90 range over them; “still rising” marks probes whose bandwidth grew by more than 3% across those three, so the full configuration extends the sweep to 3 GiB. Measured on 2x A100-40GB (PCIe), GPU0.</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Probe</th>
+<th style="text-align: right;">Plateau (GB/s), p10–p90</th>
+<th style="text-align: right;">Fraction of 1,555 GB/s</th>
+<th style="text-align: right;">Working set at 90% of the plateau</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">copy, cold</td>
+<td style="text-align: right;">1,325 (1,311–1,378)</td>
+<td style="text-align: right;">85%</td>
+<td style="text-align: right;">about 96 MiB</td>
+</tr>
+<tr>
+<td style="text-align: left;">read (64-row sum), cold</td>
+<td style="text-align: right;">1,326 (1,272–1,351), still rising</td>
+<td style="text-align: right;">85%</td>
+<td style="text-align: right;">about 390 MiB</td>
+</tr>
+<tr>
+<td style="text-align: left;">reduce (<code>sum</code>), cold</td>
+<td style="text-align: right;">1,293 (1,228–1,322), still rising</td>
+<td style="text-align: right;">83%</td>
+<td style="text-align: right;">about 384 MiB</td>
+</tr>
+<tr>
+<td style="text-align: left;">write (<code>fill_</code>), cold</td>
+<td style="text-align: right;">1,498 (1,478–1,508)</td>
+<td style="text-align: right;">96%</td>
+<td style="text-align: right;">about 96 MiB</td>
+</tr>
+<tr>
+<td style="text-align: left;">triad, cold</td>
+<td style="text-align: right;">1,329 (1,321–1,368)</td>
+<td style="text-align: right;">85%</td>
+<td style="text-align: right;">about 144 MiB</td>
+</tr>
+<tr>
+<td style="text-align: left;">copy, warm (graph burst)</td>
+<td style="text-align: right;"><span class="math inline">\(\ge\)</span> 3,103 at a 16 MiB working set (about 4,050 gap-corrected)</td>
+<td style="text-align: right;">(L2)</td>
+<td style="text-align: right;"></td>
+</tr>
+</tbody>
+</table>
+</div>
+<figure id="fig:proj10:bw">
+<img style="width: 1089px" src="figures/ch06_proj_machine-4.svg" class="fig fig-light" loading="lazy" alt="Streaming bandwidth against working set. Cold probes (L2 flushed) climb to the HBM plateau; the warm copy, replayed from a CUDA graph on the same buffers, rises to the L2 plateau and falls to HBM when the working set outgrows the cache. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1089px" src="figures/ch06_proj_machine-4-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Streaming bandwidth against working set. Cold probes (L2 flushed) climb to the HBM plateau; the warm copy, replayed from a CUDA graph on the same buffers, rises to the L2 plateau and falls to HBM when the working set outgrows the cache. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.4: </span></span>Streaming bandwidth against working set. Cold probes (L2 flushed) climb to the HBM plateau; the warm copy, replayed from a CUDA graph on the same buffers, rises to the L2 plateau and falls to HBM when the working set outgrows the cache. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+<p>Three features of the cold curves need explaining. First, the slow climb: a 3 MiB copy working set reaches only 384 GB/s. Each call carries a few microseconds of fixed device cost (we measure it in milestone 3), and moving 3 MiB at 1.3 TB/s takes 2.4 μs; the curve is the <span class="math inline">\(\alpha\)</span>–<span class="math inline">\(\beta\)</span> shape of (<a href="#eq:proj10:ab">6.5</a>) below, with HBM in place of PCIe. Second, the plateau: no probe reaches the datasheet, and the <em>write-only</em> stream gets closest, 96% against 85% for everything that reads. Our first hypothesis was the DRAM’s read–write turnaround, the penalty paid each time the data bus changes direction, which copy and triad pay and a pure write stream does not. The read probe refutes it: a stream that only reads also stops at 85%. A hypothesis that survives is that reads are latency-bound and writes are not: a read must keep <span class="math inline">\(\beta\lambda\)</span> bytes outstanding to cover the memory latency <span class="math inline">\(\lambda\)</span> (Little’s law, Section&nbsp;<a href="ch03_machine.html#sec:machine:hides">3.6</a>), while writes are posted and need no reply. Testing it needs a probe whose loads in flight we control, an extension for <span class="xref-missing">??</span>. The 85% of a copy is in line with the 86–88% that Section&nbsp;<a href="ch03_machine.html#sec:machine:empirical">3.5</a> measured with a different probe. Third, the read and reduce probes climb slowest and are still rising at 1.5 GiB (1,350 and 1,317 GB/s at the largest size): the reduction’s final stage and the launch are fixed costs that only very large buffers amortise.</p>
+</section>
+<section id="l2-capacity-bandwidth-and-a-knee-in-the-wrong-place" class="level3">
+<h3><span class="xn"><span class="num">6.4.2&nbsp;&nbsp;</span></span>L2: capacity, bandwidth and a knee in the wrong place</h3>
+<p>To see the L2 we must stop flushing it and stop paying launch costs. The warm probe captures 50 copies on the same pair of buffers in a CUDA graph and replays it: if the working set (both buffers) fits in L2, every copy after the first is served from cache. The warm curve peaks at 3,103 GB/s, 2.3 times HBM, at a 16 MiB working set, and falls to the HBM plateau beyond 45 MiB. That peak is a lower bound. Each replayed copy also pays the 1.27 μs gap between kernels of milestone 3, about a quarter of its 5.4 μs; removing it gives about 4.05 TB/s, still an estimate, since the gap may overlap the copy’s own start-up. A single long kernel that re-reads an L2-resident buffer would measure L2 bandwidth without the gap, and is the right probe once <span class="xref-missing">??</span> has been read.</p>
+<p><code>find_knee</code> locates the capacity transition as the size where the curve, past its peak, crosses the geometric mean of the peak and the final plateau: 24 MiB. (The gap correction raises the peak and so moves the threshold up, which would move the knee slightly <em>down</em>; the knee is a capacity estimate good to the sweep’s half-octave spacing, not better. The method also assumes one cache level between the probe and DRAM; on parts with a second large cache, such as the MI300X’s Infinity Cache, the curve has two drops and needs a two-knee fit.) Twenty-four is not forty. The A100 whitepaper describes the L2 as two partitions, each caching the memory accesses of the SMs attached to it, with hardware coherence between them, and NVIDIA’s own tuning guidance (GTC 2021, session S33322) describes the A100’s L2 as a near and a far 20 MB partition; data that SMs on both sides read can occupy space in both. A copy kernel spreads every buffer over all 108 SMs, so a working set that does not fit in one partition starts missing well before 40 MiB. This is a hypothesis consistent with the measurement, not a measurement of it: confirming it needs a probe that pins which SMs touch which addresses, an extension for <span class="xref-missing">??</span>. The warm curve has a second oddity: at the half-octave working sets of 5.7 and 11.3 MiB it runs about 19% <em>slower</em> than at the next smaller power of two, although the buffers are larger. We leave its explanation as an exercise.</p>
+</section>
+<section id="host-and-device-pinned-pageable-and-the-alphabeta-model" class="level3">
+<h3><span class="xn"><span class="num">6.4.3&nbsp;&nbsp;</span></span>Host and device: pinned, pageable, and the <span class="math inline">\(\alpha\)</span>–<span class="math inline">\(\beta\)</span> model</h3>
+<p>A copy between host and device memory is the canonical latency-plus-bandwidth path, and the two-parameter model of Hockney (1994) describes it: <span class="xn" id="eq:proj10:ab"></span><span class="math display">\[\begin{equation}
+t(n) = \alpha + \frac{n}{\beta}, \qquad
+B(n) = \frac{n}{t(n)} = \beta\,\frac{n}{n + n_{1/2}}, \qquad n_{1/2} = \alpha\beta,
+\tag{6.5}
+\end{equation}\]</span> where <span class="math inline">\(\alpha\)</span> is the fixed cost of a transfer, <span class="math inline">\(\beta\)</span> its asymptotic bandwidth, and <span class="math inline">\(n_{1/2}\)</span> the size at which half of <span class="math inline">\(\beta\)</span> is reached. Below <span class="math inline">\(n_{1/2}\)</span> a path is latency-bound; to reach 90% of <span class="math inline">\(\beta\)</span> a transfer must be <span class="math inline">\(9\,n_{1/2}\)</span> long. <code>fit_alpha_beta</code> fits the two parameters by least squares weighted by <span class="math inline">\(1/t\)</span>, so that a 4 KiB transfer counts as much as a 256 MiB one:</p>
+<div id="lst:proj10:ab" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 6.2: </span></span>Fitting the alpha-beta model to a transfer sweep (from <code>reference/bandwidth.py</code>).
+</div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fit_alpha_beta(sizes, seconds):</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    n, t <span class="op">=</span> np.asarray(sizes, <span class="bu">float</span>), np.asarray(seconds, <span class="bu">float</span>)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    w <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> t                                     <span class="co"># minimise relative, not absolute, error</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    A <span class="op">=</span> np.stack([np.ones_like(n), n], axis<span class="op">=</span><span class="dv">1</span>) <span class="op">*</span> w[:, <span class="va">None</span>]</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    (alpha, g), <span class="op">*</span>_ <span class="op">=</span> np.linalg.lstsq(A, t <span class="op">*</span> w, rcond<span class="op">=</span><span class="va">None</span>)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    alpha, beta <span class="op">=</span> <span class="bu">max</span>(<span class="bu">float</span>(alpha), <span class="fl">0.0</span>), <span class="fl">1.0</span> <span class="op">/</span> <span class="bu">float</span>(g)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">dict</span>(alpha<span class="op">=</span>alpha, beta<span class="op">=</span>beta, n_half<span class="op">=</span>alpha <span class="op">*</span> beta)</span></code></pre></div>
+</div>
+<p>Pinned (page-locked) host memory can be read and written by the GPU’s DMA engines directly. Pageable memory cannot, because the operating system may move or swap its pages during the transfer, so the driver copies it through a pinned staging buffer: one extra memory copy by the CPU per transfer, partly overlapped with the DMA. Figure&nbsp;<a href="#fig:proj10:xfer">6.5</a> and Table&nbsp;<a href="#tab:proj10:host">6.5</a> show what that costs.</p>
+<div id="tab:proj10:host" class="table-float">
+<table style="width:99%;">
+<caption><span class="xn"><span class="num">Table 6.5: </span></span>Transfer paths of the box, sizes 4 KiB to 256 MiB, host buffers on GPU0’s NUMA node, median of 20 calls; plateau = median of the three largest sizes; <span class="math inline">\(\alpha\)</span> and <span class="math inline">\(\beta\)</span> from (<a href="#eq:proj10:ab">6.5</a>) fitted to the whole sweep (CUDA events). <span class="math inline">\(^\dagger\)</span>From the earlier two-GPU run (<code>results/smoke_a100_pcie_2gpu.json</code>). <span class="math inline">\(^\ddagger\)</span>Wall clock including the synchronisation of both devices (about 20 μs), not the transfer’s own latency. Measured on 2x A100-40GB (PCIe).</caption>
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Path</th>
+<th style="text-align: right;">Best (GB/s)</th>
+<th style="text-align: right;">Plateau (GB/s)</th>
+<th style="text-align: right;"><span class="math inline">\(\alpha\)</span> (μs)</th>
+<th style="text-align: right;"><span class="math inline">\(\beta\)</span> (GB/s)</th>
+<th style="text-align: right;"><span class="math inline">\(n_{1/2}\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">H2D, pinned</td>
+<td style="text-align: right;">24.2</td>
+<td style="text-align: right;">23.9</td>
+<td style="text-align: right;">6.3</td>
+<td style="text-align: right;">23.9</td>
+<td style="text-align: right;">151 KB</td>
+</tr>
+<tr>
+<td style="text-align: left;">H2D, pageable</td>
+<td style="text-align: right;">14.6</td>
+<td style="text-align: right;">10.1</td>
+<td style="text-align: right;">24.2</td>
+<td style="text-align: right;">12.1</td>
+<td style="text-align: right;">294 KB</td>
+</tr>
+<tr>
+<td style="text-align: left;">D2H, pinned</td>
+<td style="text-align: right;">24.3</td>
+<td style="text-align: right;">23.5</td>
+<td style="text-align: right;">13.0</td>
+<td style="text-align: right;">27.3</td>
+<td style="text-align: right;">356 KB</td>
+</tr>
+<tr>
+<td style="text-align: left;">D2H, pageable</td>
+<td style="text-align: right;">14.5</td>
+<td style="text-align: right;">8.1</td>
+<td style="text-align: right;">23.1</td>
+<td style="text-align: right;">10.5</td>
+<td style="text-align: right;">242 KB</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPU0 <span class="math inline">\(\to\)</span> GPU1, peer copy<span class="math inline">\(^\dagger\)</span></td>
+<td style="text-align: right;">8.3 (wrong data)</td>
+<td style="text-align: right;">8.3</td>
+<td style="text-align: right;">43.6<span class="math inline">\(^\ddagger\)</span></td>
+<td style="text-align: right;">8.4</td>
+<td style="text-align: right;">367 KB</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPU0 <span class="math inline">\(\to\)</span> host <span class="math inline">\(\to\)</span> GPU1, staged<span class="math inline">\(^\dagger\)</span></td>
+<td style="text-align: right;">18.5</td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+</tr>
+</tbody>
+</table>
+</div>
+<figure id="fig:proj10:xfer">
+<img style="width: 1089px" src="figures/ch06_proj_machine-5.svg" class="fig fig-light" loading="lazy" alt="Host and peer transfers against size, with the \alpha–\beta fits for pinned H2D and for the peer copy. Pinned transfers reach 24 GB/s; pageable ones half that, and less for large buffers; the peer copy (from the two-GPU run) saturates at 8.3 GB/s and delivers wrong data. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1089px" src="figures/ch06_proj_machine-5-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Host and peer transfers against size, with the \alpha–\beta fits for pinned H2D and for the peer copy. Pinned transfers reach 24 GB/s; pageable ones half that, and less for large buffers; the peer copy (from the two-GPU run) saturates at 8.3 GB/s and delivers wrong data. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.5: </span></span>Host and peer transfers against size, with the <span class="math inline">\(\alpha\)</span>–<span class="math inline">\(\beta\)</span> fits for pinned H2D and for the peer copy. Pinned transfers reach 24 GB/s; pageable ones half that, and less for large buffers; the peer copy (from the two-GPU run) saturates at 8.3 GB/s and delivers wrong data. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+<p>Pinned transfers plateau at 23.5–24 GB/s, 75–76% of the 31.5 GB/s line rate, and three effects account for most of the gap. PCIe moves data in packets (transaction-layer packets), and each carries about 24 bytes of framing, sequence number, header and checksum, so a payload of <span class="math inline">\(P\)</span> bytes travels at an efficiency of <span class="math inline">\(P/(P+24)\)</span>: 91% for 256-byte payloads, 84% for 128 and 73% for 64. Reads of host memory (the H2D direction, from the GPU’s point of view) return as completions that the root complex may split into 64-byte pieces. Link-level acknowledgements and flow-control credits take a few percent more. With 128-byte effective payloads these give about 26 GB/s; the IOMMU’s address translation and the DMA engine’s own limits plausibly take the rest, but the suite cannot separate them without PCIe counters (an extension). Our first runs disagreed with each other by up to 20% (pinned H2D at 20 or 24 GB/s for the same size); the cause turned out to be where the host buffer lived (Section&nbsp;<a href="#sec:proj10:numa">6.4.4</a>). With the buffer on the GPU’s own node, three fresh processes in <code>side.py</code> measured 23.7–23.8 GB/s at 16 MiB and 23.5–24.0 GB/s at 256 MiB.</p>
+<p>Pageable transfers lose about half the bandwidth and gain 20 μs of fixed cost. If the staging copy and the DMA did not overlap at all, the two stages would add: <span class="xn" id="eq:proj10:pageable"></span><span class="math display">\[\begin{equation}
+\frac{1}{\beta_{\text{pageable}}} \approx \frac{1}{\beta_{\text{pinned}}} + \frac{1}{\beta_{\text{memcpy}}},
+\tag{6.6}
+\end{equation}\]</span> and with 10.0 and 24.0 GB/s at 256 MiB the implied host copy runs at <span class="math inline">\(1/(1/10.0 - 1/24.0) = 17.1\)</span> GB/s, a plausible single-threaded <code>memcpy</code> rate on this CPU. The pageable curves also <em>fall</em> past 16 MiB, by 30–40%, which the two-stage model does not explain; the driver’s staging strategy is not documented, and the drop is an open item for the full study. These are the numbers behind the advice of Section&nbsp;<a href="ch02_pytorch.html#sec:pytorch:loaders">2.6</a> to set <code>pin_memory=True</code>.</p>
+</section>
+<section id="sec:proj10:numa" class="level3">
+<h3><span class="xn"><span class="num">6.4.4&nbsp;&nbsp;</span></span>Which socket’s memory?</h3>
+<p>A host buffer lives in the DRAM of one socket, and a DMA to a GPU on the other socket crosses the inter-socket link. Measuring this needs control over placement, which is harder than it looks. Pinning the measuring thread to a node’s CPUs is not enough: PyTorch fills a new tensor with its pool of worker threads, which may run on either node and touch the pages first, and the caching host allocator hands a later “pinned” request a block it allocated earlier, wherever that was. <code>numa_h2d</code> therefore runs each placement in a fresh process (<code>numa_probe.py</code>) that, before touching any memory, restricts itself to the node’s CPUs, sets a strict memory policy for that node with the <code>set_mempolicy</code> system call (<code>numactl --cpunodebind=N --membind=N</code> does the same, where installed), and uses one intra-op thread. After measuring, it reads <code>/proc/self/numa_maps</code> to report which nodes actually hold the buffer’s pages.</p>
+<p>With the 256 MiB buffer verified on GPU0’s node (node 0), pinned H2D runs at 24.0 GB/s; verified on the remote node, at 20.1 GB/s, 16% slower. Pageable transfers barely care (10.4 against 10.2 GB/s): their bottleneck is the CPU’s staging copy, not the link. The suite now allocates the buffers of its host sweep on the GPU’s own node, and records the page placement of every row. Our earlier, unbound runs had put the pinned buffers on node 1, which explains both their 20 GB/s plateau and the run-to-run disagreement.</p>
+</section>
+<section id="sec:proj10:p2p" class="level3">
+<h3><span class="xn"><span class="num">6.4.5&nbsp;&nbsp;</span></span>Between the GPUs: a bandwidth that delivers zeros</h3>
+<p>The numbers in this section come from the earlier two-GPU smoke run (<code>results/smoke_a100_pcie_2gpu.json</code>), made while both GPUs were free. PyTorch copies a tensor from <code>cuda:0</code> to <code>cuda:1</code> with a peer-to-peer DMA when the driver reports peer access, and on our box it does: <code>torch.cuda.can_device_access_peer(0, 1)</code> is <code>True</code>, and <code>nvidia-smi topo -p2p r</code> and <code>w</code> both report <code>OK</code>. The peer copy saturates at 8.3 GB/s with a 44 μs fixed cost (wall clock, including the synchronisation of both devices), and at 16.6 GB/s when both directions run at once. Those numbers would have gone into the spec sheet had <code>p2p_bandwidth</code> not compared the destination with the source afterwards. The comparison fails: the destination holds zeros, for every size from 4 KiB to 256 MiB and in both directions, while the copy reports success. The reference code makes the comparison through host memory, since the device-to-device path is the one under test.</p>
+<p>The cause is the platform’s IOMMU, and NVIDIA documents it. <code>env.collect</code> reads each GPU’s IOMMU group from sysfs: both GPUs (groups 6 and 8) are of type <code>DMA-FQ</code>, meaning the IOMMU translates every device address, and the kernel command line does not set <code>iommu=pt</code>, the pass-through mode. NVIDIA’s NCCL troubleshooting guide states that CUDA and the driver do not support PCIe peer-to-peer through an enabled IOMMU on bare-metal Linux, that the IOMMU must be disabled or set to pass-through, and that otherwise transfers can be silently corrupted. A positive <code>nvidia-smi topo -p2p</code> is therefore necessary but not sufficient; only a data check is. (Two separate questions should not be confused here: whether the IOMMU translates peer addresses, the problem on this box, and whether the root complexes forward peer traffic between sockets at all, which only matters once translation is out of the way.) NVIDIA’s <code>simpleP2P</code> CUDA sample checks the copied data for exactly this reason. The consequences are concrete. Any code that moves activations between GPUs with <code>tensor.to("cuda:1")</code> (naive pipeline or model parallelism, for instance) computes silently wrong results on this box, and the suite now prints a warning whenever its peer check fails. NCCL is not affected: its topology detection does not use peer-to-peer DMA across a <code>SYS</code> path, and with <code>NCCL_DEBUG=INFO</code> it reports its channels “via SHM/direct”, shared host memory. In a two-process check made while both GPUs were free (now automated as <code>collectives.nccl_check</code> and a GPU acceptance test that runs when two GPUs are visible), an all-reduce and a send/receive returned the correct values, which is why the distributed labs of Chapter&nbsp;<span class="xref-unpub" title="Not published yet">24</span> work.</p>
+<p>That answers the fourth research question, and suggests the experiment that settles it: route the copy through host memory ourselves. <code>staged_bandwidth</code> splits the tensor into chunks and pipelines them through two pinned buffers: chunk <span class="math inline">\(i\)</span> goes device-to-host on GPU0’s stream while chunk <span class="math inline">\(i-1\)</span> goes host-to-device on GPU1’s stream, with events ordering the two:</p>
+<div id="lst:proj10:staged" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 6.3: </span></span>A GPU-to-GPU copy staged through pinned host memory (from <code>reference/bandwidth.py</code>).
+</div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(nch):</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    lo, hi <span class="op">=</span> i <span class="op">*</span> c, <span class="bu">min</span>(n, (i <span class="op">+</span> <span class="dv">1</span>) <span class="op">*</span> c)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    buf <span class="op">=</span> bufs[i <span class="op">%</span> <span class="dv">2</span>][: hi <span class="op">-</span> lo]                 <span class="co"># two pinned buffers, used alternately</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> torch.cuda.device(da), torch.cuda.stream(sa):</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> i <span class="op">&gt;=</span> <span class="dv">2</span>:</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>            sa.wait_event(h2d[i <span class="op">-</span> <span class="dv">2</span>])            <span class="co"># wait until GPU1 has drained this buffer</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        buf.copy_(x[lo:hi], non_blocking<span class="op">=</span><span class="va">True</span>)   <span class="co"># GPU0 -&gt; host</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        d2h[i].record(sa)</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> torch.cuda.device(db), torch.cuda.stream(sb):</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        sb.wait_event(d2h[i])                    <span class="co"># chunk has landed in host memory</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>        y[lo:hi].copy_(buf, non_blocking<span class="op">=</span><span class="va">True</span>)   <span class="co"># host -&gt; GPU1</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>        h2d[i].record(sb)</span></code></pre></div>
+</div>
+<p>With 8 MiB chunks the staged copy moves 256 MiB at 18.5 GB/s, correctly, 2.2 times faster than the broken peer copy. The pipeline model predicts it: with <span class="math inline">\(k\)</span> chunks of <span class="math inline">\(c\)</span> bytes and two stages each costing <span class="math inline">\(\alpha_s + c/\beta_s\)</span>, the total is <span class="xn" id="eq:proj10:pipeline"></span><span class="math display">\[\begin{equation}
+T(n, c) \approx \left(\frac{n}{c} + 1\right)\max_s\left(\alpha_s + \frac{c}{\beta_s}\right),
+\tag{6.7}
+\end{equation}\]</span> which for <span class="math inline">\(c = 8\)</span> MiB and the pinned fits of Table&nbsp;<a href="#tab:proj10:host">6.5</a> (the slower stage is H2D: <span class="math inline">\(6.3\ \mu\text{s} + 8.4\ \text{MB}/23.9\ \text{GB/s} = 0.36\)</span> ms per chunk) gives <span class="math inline">\(33\times0.36 = 11.8\)</span> ms for 256 MiB, 23 GB/s, against 18.5 GB/s measured in the two-GPU run, whose staging buffers were not placed on a chosen node. Small chunks pay <span class="math inline">\(\alpha\)</span> too often, large chunks pay the unpipelined first and last chunk; Section&nbsp;<a href="#sec:proj10:exercises">6.14</a> derives the optimum.</p>
+<div class="systemslens box">
+<p><strong>Systems Lens: What this means for two GPUs without NVLink</strong></p>
+<p>On this box the fastest correct way we measured to move a tensor between the GPUs runs at 18.5 GB/s, 1.4% of HBM bandwidth. NCCL, which the training code actually uses, is slower: its send/receive of a 256 MiB message, timed by <code>collectives.nccl_check</code> with both GPUs otherwise idle, runs at 15.4 GB/s. Moving one BF16 activation tensor of <span class="math inline">\(8\times4096\times4096\)</span> elements (256 MiB) costs 14.5 ms with our staged copy and 17.4 ms through NCCL. Split a 4096-wide transformer layer over the two GPUs with tensor parallelism and each GPU computes half of the layer’s forward pass on that batch (<span class="math inline">\(24d^2\)</span> FLOPs per token, 61 ms at the sustained 217 TFLOP/s, so about 30 ms each), but must all-reduce such a tensor twice per layer, which for two GPUs moves about one tensor per GPU each time: 29 ms of communication (35 ms through NCCL) for 30 ms of compute. Data parallelism, which communicates gradients once per step and overlaps them with backward, fares much better. Chapter&nbsp;<span class="xref-unpub" title="Not published yet">24</span> builds the cost models; the inputs come from this table, and they are a property of the box, not of the GPUs.</p>
+</div>
+</section>
+</section>
+<section id="sec:proj10:m2" class="level2">
+<h2><span class="xn"><span class="num">6.5&nbsp;&nbsp;</span></span>Milestone 2: compute ceilings</h2>
+<section id="matmul-peaks-per-data-type" class="level3">
+<h3><span class="xn"><span class="num">6.5.1&nbsp;&nbsp;</span></span>Matmul peaks per data type</h3>
+<p>Only one PyTorch operation reaches the tensor cores’ peak: a large dense matrix multiplication. We sweep square GEMMs of size 1,536, 3,072 and 6,144 (sizes deliberately different from every GEMM of the milestone-4 zoo, so that the zoo tests the model on shapes it was not calibrated on) in each format the A100 accelerates: FP32 with TF32 disabled, TF32, FP16, BF16, and INT8 through <code>torch._int_mm</code>. Each size is timed over 20 calls with CUDA events after the clock warm-up. FP8 is absent: its tensor-core instructions arrived with the Ada and Hopper generations, and <code>torch._scaled_mm</code> refuses to run on the A100’s compute capability 8.0 (Chapter&nbsp;<a href="ch04_numerics.html#ch:numerics">4</a> covers the format itself; an FP8 path for newer GPUs is an extension).</p>
+<div id="tab:proj10:matmul" class="table-float">
+<table style="width:99%;">
+<caption><span class="xn"><span class="num">Table 6.6: </span></span>Matmul throughput per format in TFLOP/s (INT8: TOP/s), square GEMMs on random normal (INT8: uniform) data, median of 20 calls, burst measurements after a clock warm-up; the last two rows come from the sustained run of Section&nbsp;<a href="#sec:proj10:power">6.5.2</a>. Measured on 2x A100-40GB (PCIe), GPU0.</caption>
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Format</th>
+<th style="text-align: right;"><span class="math inline">\(n\)</span> = 1,536</th>
+<th style="text-align: right;"><span class="math inline">\(n\)</span> = 3,072</th>
+<th style="text-align: right;"><span class="math inline">\(n\)</span> = 6,144</th>
+<th style="text-align: right;">Best</th>
+<th style="text-align: right;">Datasheet</th>
+<th style="text-align: right;">Fraction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">FP32 (CUDA cores)</td>
+<td style="text-align: right;">17.2</td>
+<td style="text-align: right;">18.0</td>
+<td style="text-align: right;">17.6</td>
+<td style="text-align: right;">18.0</td>
+<td style="text-align: right;">19.5</td>
+<td style="text-align: right;">92%</td>
+</tr>
+<tr>
+<td style="text-align: left;">TF32</td>
+<td style="text-align: right;">87.4</td>
+<td style="text-align: right;">116.3</td>
+<td style="text-align: right;">102.6</td>
+<td style="text-align: right;">116.3</td>
+<td style="text-align: right;">156</td>
+<td style="text-align: right;">75%</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP16</td>
+<td style="text-align: right;">166.5</td>
+<td style="text-align: right;">218.6</td>
+<td style="text-align: right;">229.8</td>
+<td style="text-align: right;">229.8</td>
+<td style="text-align: right;">312</td>
+<td style="text-align: right;">74%</td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16</td>
+<td style="text-align: right;">157.3</td>
+<td style="text-align: right;">233.0</td>
+<td style="text-align: right;">226.7</td>
+<td style="text-align: right;">233.0</td>
+<td style="text-align: right;">312</td>
+<td style="text-align: right;">75%</td>
+</tr>
+<tr>
+<td style="text-align: left;">INT8 (TOP/s)</td>
+<td style="text-align: right;">208.2</td>
+<td style="text-align: right;">353.9</td>
+<td style="text-align: right;">416.7</td>
+<td style="text-align: right;">416.7</td>
+<td style="text-align: right;">624</td>
+<td style="text-align: right;">67%</td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16, <span class="math inline">\(8192^3\)</span> for 10 s</td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;">217.2 sustained</td>
+<td style="text-align: right;">312</td>
+<td style="text-align: right;">70%</td>
+</tr>
+<tr>
+<td style="text-align: left;">same, scaled to 1,410 MHz</td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;">293.8</td>
+<td style="text-align: right;">312</td>
+<td style="text-align: right;">94%</td>
+</tr>
+</tbody>
+</table>
+</div>
+<figure id="fig:proj10:matmul">
+<img style="width: 1089px" src="figures/ch06_proj_machine-6.svg" class="fig fig-light" loading="lazy" alt="Matmul throughput against size for each format, with the datasheet peaks dashed. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1089px" src="figures/ch06_proj_machine-6-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Matmul throughput against size for each format, with the datasheet peaks dashed. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.6: </span></span>Matmul throughput against size for each format, with the datasheet peaks dashed. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+<p>The small sizes are slow for the reasons of Section&nbsp;<a href="ch03_machine.html#sec:machine:hides">3.6</a>: too few output tiles to fill 108 SMs in balanced waves, and a fixed cost that is a visible share of a short kernel. (Tile counts depend on the tile shape cuBLAS picks, which we do not control; with <span class="math inline">\(128\times128\)</span> tiles an <span class="math inline">\(n=1{,}024\)</span> GEMM has 64 of them.) The interesting entries are the largest: TF32 and BF16 are already <em>slower</em> at 6,144 than at 3,072. A 6,144 GEMM runs for 2 ms per call, and 25 of them are enough for the power limiter to act. Per-size clock readings cannot show this reliably: the driver refreshes its clock and power readings only about every 100 ms, longer than most of these measurements. A long run can.</p>
+</section>
+<section id="sec:proj10:power" class="level3">
+<h3><span class="xn"><span class="num">6.5.2&nbsp;&nbsp;</span></span>Burst and sustained: the power limit</h3>
+<p>The A100 PCIe card may draw at most 250 W. A GEMM that keeps the tensor cores busy needs more than that at 1,410 MHz, so the power manager lowers the clock until the card fits its budget. Figure&nbsp;<a href="#fig:proj10:sustained">6.7</a> records it: 10 s of back-to-back BF16 GEMMs of size 8,192, timed in groups of ten with CUDA events, while an independent <code>nvidia-smi</code> process samples clock, power and the active throttle reasons every 50 ms. Each sample carries <code>nvidia-smi</code>’s own timestamp, which <code>env.stop_clock_sampler</code> converts to the benchmark’s clock; counting samples from the moment the sampler was launched would misplace all of them, because the process takes a variable time to start. The first group runs at 258 TFLOP/s with the clock at 1,410 MHz. Within about 150 ms the clock reads 1,020–1,050 MHz, the board briefly draws 268 W, and the throttle reason is “software power cap”; just before one second the controller overcorrects to 870 MHz; from then on the card sits at about 250 W and 1,035–1,050 MHz, and the GEMMs at 217 TFLOP/s.</p>
+<figure id="fig:proj10:sustained">
+<img style="width: 1089px" src="figures/ch06_proj_machine-10.svg" class="fig fig-light" loading="lazy" alt="Burst versus sustained throughput. The first GEMMs run at the boost clock; the 250 W limit then pulls the SM clock to about 1,035 MHz and the throughput follows it. The green curve divides each throughput sample by its clock sample and scales to 1,410 MHz: it is flat at about 294 TFLOP/s, except where the clock readings, refreshed only every ~100 ms, lag the change. Measured on 2x A100-40GB (PCIe), GPU0, BF16 GEMM of size 8,192." /><img style="width: 1089px" src="figures/ch06_proj_machine-10-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Burst versus sustained throughput. The first GEMMs run at the boost clock; the 250 W limit then pulls the SM clock to about 1,035 MHz and the throughput follows it. The green curve divides each throughput sample by its clock sample and scales to 1,410 MHz: it is flat at about 294 TFLOP/s, except where the clock readings, refreshed only every ~100 ms, lag the change. Measured on 2x A100-40GB (PCIe), GPU0, BF16 GEMM of size 8,192." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.7: </span></span>Burst versus sustained throughput. The first GEMMs run at the boost clock; the 250 W limit then pulls the SM clock to about 1,035 MHz and the throughput follows it. The green curve divides each throughput sample by its clock sample and scales to 1,410 MHz: it is flat at about 294 TFLOP/s, except where the clock readings, refreshed only every ~100 ms, lag the change. Measured on 2x A100-40GB (PCIe), GPU0, BF16 GEMM of size 8,192.</figcaption>
+</figure>
+<p>The green curve answers the question the trace raises: does the GEMM lose more or less than the clock? Neither. Dividing every throughput sample by the clock at that moment and scaling to the boost clock gives 293.8 TFLOP/s throughout the steady state, 94% of the 312 TFLOP/s datasheet peak: at this shape the throughput is proportional to the clock, and the whole gap between the sustained 217 TFLOP/s and the datasheet is the clock. Section&nbsp;<a href="ch03_machine.html#sec:machine:empirical">3.5</a> found the same proportionality from the other side: with all-zero inputs, which toggle fewer bits and so draw less power, the same GEMM ran at 295 TFLOP/s with the clock near 1,380 MHz, which scales to about 301 TFLOP/s at 1,410 MHz.</p>
+<p>So the A100 PCIe has two BF16 peaks for this GEMM: about 294 TFLOP/s if the boost clock could be held, which it cannot for more than about 100 ms, and 217 TFLOP/s sustained, 70% of the datasheet. Smaller GEMMs are less efficient per clock: the 3,072 GEMM of Table&nbsp;<a href="#tab:proj10:matmul">6.6</a> reaches 233 TFLOP/s at the boost clock, 75%. Which figure is right depends on the workload: a training step that runs large GEMMs back to back for hours sees the sustained one, a decode step that alternates short GEMMs with memory-bound kernels may never trigger the limiter.</p>
+<p>A first version of this analysis paired each throughput sample with the clock sample whose index matched, ignoring the sampler’s start-up delay, and concluded that the throughput falls less than the clock. An exercise at the end asks why that conclusion was unphysical.</p>
+</section>
+<section id="sec:proj10:fma" class="level3">
+<h3><span class="xn"><span class="num">6.5.3&nbsp;&nbsp;</span></span>A FLOP-bound kernel for the CUDA cores</h3>
+<p>The CUDA-core ceiling needs a kernel whose arithmetic intensity we control. A chain of fused multiply–adds does it: compile <code>x = 0.999 * x + 0.001</code>, repeated <span class="math inline">\(k\)</span> times, into one kernel with <code>torch.compile</code>, and each element is read once, updated <span class="math inline">\(k\)</span> times in registers and written once. The kernel does <span class="math inline">\(2k\)</span> FLOPs per element and moves 8 bytes (FP32 in and out), so its intensity is <span class="math inline">\(k/4\)</span> FLOP/byte. The fixed point of the recurrence is 1, so values stay finite for any <span class="math inline">\(k\)</span>, and without fast-math flags no compiler reassociates floating-point FMAs, so all of them execute.</p>
+<div id="lst:proj10:fma" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 6.4: </span></span>The FMA chain: a kernel with a dial for arithmetic intensity (from <code>reference/compute.py</code>).
+</div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fma_chain(iters):</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> f(x):</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(iters):           <span class="co"># unrolled by torch.compile into one Triton kernel</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>            x <span class="op">=</span> x <span class="op">*</span> <span class="fl">0.999</span> <span class="op">+</span> <span class="fl">0.001</span>        <span class="co"># one FMA = 2 FLOPs per element per step</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> x</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> f</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>f <span class="op">=</span> torch.<span class="bu">compile</span>(fma_chain(<span class="dv">512</span>), dynamic<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>x <span class="op">=</span> torch.rand(<span class="dv">2</span><span class="op">**</span><span class="dv">26</span>, device<span class="op">=</span><span class="st">&quot;cuda&quot;</span>)     <span class="co"># 256 MiB in, 256 MiB out; intensity 512/4 = 128</span></span></code></pre></div>
+</div>
+<p>With <span class="math inline">\(k = 512\)</span> the chain runs at 19.0 TFLOP/s, 97% of the 19.5 TFLOP/s FP32 peak and more than the FP32 GEMM (92%), which spends part of its time on loads. With <span class="math inline">\(k = 1\)</span> and <span class="math inline">\(k = 8\)</span> (intensity 0.25 and 2) it streams at 1,358 GB/s, the HBM plateau; at <span class="math inline">\(k = 64\)</span> (intensity 16, just past the <em>measured</em> SIMT ridge of <span class="math inline">\(19.0/1.325 = 14\)</span> FLOP/byte, against 12.5 from the datasheet) it reaches 15.1 TFLOP/s and 941 GB/s, below both roofs, as the proposition of Section&nbsp;<a href="ch03_machine.html#sec:machine:oi">3.3</a> allows near the ridge. Figure&nbsp;<a href="#fig:proj10:roofline">6.8</a> places these points, and the whole kernel zoo of milestone 4, on the measured roofline.</p>
+<figure id="fig:proj10:roofline">
+<img style="width: 1089px" src="figures/ch06_proj_machine-7.svg" class="fig fig-light" loading="lazy" alt="The measured roofline: the HBM slope at 1,325 GB/s with the BF16, TF32 and FP32 CUDA-core roofs; the FMA chain (squares) walks up the slope and onto the FP32 roof; the 20 zoo kernels (open markers) at their analytic intensity and achieved rate. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1089px" src="figures/ch06_proj_machine-7-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The measured roofline: the HBM slope at 1,325 GB/s with the BF16, TF32 and FP32 CUDA-core roofs; the FMA chain (squares) walks up the slope and onto the FP32 roof; the 20 zoo kernels (open markers) at their analytic intensity and achieved rate. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.8: </span></span>The measured roofline: the HBM slope at 1,325 GB/s with the BF16, TF32 and FP32 CUDA-core roofs; the FMA chain (squares) walks up the slope and onto the FP32 roof; the 20 zoo kernels (open markers) at their analytic intensity and achieved rate. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+</section>
+</section>
+<section id="sec:proj10:m3" class="level2">
+<h2><span class="xn"><span class="num">6.6&nbsp;&nbsp;</span></span>Milestone 3: the fixed costs</h2>
+<p>The roofline describes steady streams; everything else on a GPU is a fixed cost, and for small kernels the fixed costs are the kernel. Milestone 3 measures each one with the timer that matches it (Figure&nbsp;<a href="#fig:proj10:latency">6.9</a>).</p>
+<figure id="fig:proj10:latency">
+<img style="width: 1089px" src="figures/ch06_proj_machine-8.svg" class="fig fig-light" loading="lazy" alt="The fixed costs of the box, median of 20–500 samples each. Blue: device-side costs; grey: host-side round trips; purple: transfers. Measured on 2x A100-40GB (PCIe), driver 595.91.07, torch 2.14.1." /><img style="width: 1089px" src="figures/ch06_proj_machine-8-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The fixed costs of the box, median of 20–500 samples each. Blue: device-side costs; grey: host-side round trips; purple: transfers. Measured on 2x A100-40GB (PCIe), driver 595.91.07, torch 2.14.1." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.9: </span></span>The fixed costs of the box, median of 20–500 samples each. Blue: device-side costs; grey: host-side round trips; purple: transfers. Measured on 2x A100-40GB (PCIe), driver 595.91.07, torch 2.14.1.</figcaption>
+</figure>
+<p>Reading the ladder from the top: a kernel inside a CUDA graph costs the device 1.27 μs; the event pair that every event-timed benchmark wraps around a kernel costs 2.0 μs; the smallest real kernel, timed with the queue ahead, 5.1 μs. Then the host: PyTorch needs 7.4 μs of CPU time to enqueue one eager elementwise operation (argument checking, dispatch, allocation, the driver call), so an eager stream of tiny kernels runs at one per 7.6 μs no matter how small they are. A synchronisation with nothing to wait for costs 10.1 μs, and <code>.item()</code>, a 4-byte copy plus a wait, 9.2 μs: less than the bare synchronisation, plausibly because <code>.item()</code> waits only for its own stream while <code>torch.cuda.synchronize()</code> waits for the whole device. A 4-byte host-to-device copy with synchronisation costs 18.3 μs from pinned memory and 22.4 μs from pageable memory. The peer copy’s 44 μs “fixed cost” (from the two-GPU run, and wall clock with two device synchronisations inside, so not comparable with the device-side numbers) tops the list.</p>
+<div id="tab:proj10:graph" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.7: </span></span>Tiny kernels (an in-place multiply on 1,024 floats) back to back, eager versus replayed from a CUDA graph; median of 20 bursts. Measured on 2x A100-40GB (PCIe).</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: right;">Kernels per burst</th>
+<th style="text-align: right;">Eager (μs per kernel)</th>
+<th style="text-align: right;">Graph replay (μs per kernel)</th>
+<th style="text-align: right;">Ratio</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">8.70</td>
+<td style="text-align: right;">1.74</td>
+<td style="text-align: right;">5.0</td>
+</tr>
+<tr>
+<td style="text-align: right;">100</td>
+<td style="text-align: right;">7.55</td>
+<td style="text-align: right;">1.32</td>
+<td style="text-align: right;">5.7</td>
+</tr>
+<tr>
+<td style="text-align: right;">1,000</td>
+<td style="text-align: right;">7.44</td>
+<td style="text-align: right;">1.29</td>
+<td style="text-align: right;">5.8</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="napkinmath box">
+<p><strong>Napkin Math: Why serving engines capture the decode step</strong></p>
+<p>Section&nbsp;<a href="ch03_machine.html#sec:machine:async">3.7</a> estimated that decoding one token of a 0.6B-parameter model launches several hundred kernels. Take 420 (28 layers of 15). Eager, the host enqueues them at 7.4 μs each: 3.1 ms per token. Replayed from a CUDA graph, the device runs them at about 1.3 μs of gap each plus their work: 0.55 ms of gaps. The bandwidth floor, reading 1.2 GB of BF16 weights at 1.33 TB/s, is 0.9 ms. Eager decoding is therefore overhead-bound by a factor of about 3.4 on this box, and a graph brings it within reach of the memory roof. This is the arithmetic behind CUDA graphs in the serving engines of Chapters&nbsp;<span class="xref-unpub" title="Not published yet">45</span> and <span class="xref-unpub" title="Not published yet">46</span>, with the constants measured rather than assumed.</p>
+</div>
+</section>
+<section id="sec:proj10:m4" class="level2">
+<h2><span class="xn"><span class="num">6.7&nbsp;&nbsp;</span></span>Milestone 4: a predictive model and its validation</h2>
+<section id="the-model" class="level3">
+<h3><span class="xn"><span class="num">6.7.1&nbsp;&nbsp;</span></span>The model</h3>
+<p>The machine model combines the measured ceilings with the measured fixed costs. A kernel with <span class="math inline">\(F\)</span> FLOPs on compute class <span class="math inline">\(c\)</span> (a matmul format, or “simt” for CUDA-core arithmetic), <span class="math inline">\(Q\)</span> bytes of compulsory HBM traffic and <span class="math inline">\(L\)</span> launches is predicted to take <span class="xn" id="eq:proj10:model"></span><span class="math display">\[\begin{equation}
+t \;=\; s_0\bigl(t_0 + (L-1)\,g\bigr) \;+\;
+\left[\left(\frac{F}{\eta_c\,\pi_c}\right)^{p} + \left(\frac{Q}{\eta_m\,\beta}\right)^{p}\right]^{1/p},
+\tag{6.8}
+\end{equation}\]</span> where <span class="math inline">\(\pi_c\)</span> is the measured burst peak of the class, <span class="math inline">\(\beta\)</span> the measured copy plateau, <span class="math inline">\(t_0 = 5.1\)</span> μs the event-timed cost of one tiny kernel and <span class="math inline">\(g = 1.27\)</span> μs the gap per further kernel. None of the calibration probes coincides with a zoo kernel: the GEMM peaks come from sizes 1,536–6,144, the zoo’s square GEMMs are 1,024, 4,096 and 8,192; the copy plateau comes from buffers of <span class="math inline">\(1.5\times2^k\)</span> bytes, the zoo’s copy is <span class="math inline">\(2^{28}\)</span> bytes; and <span class="math inline">\(t_0\)</span> comes from a one-element <code>add_</code> that the zoo does not contain. <code>suite.calibration_overlap</code> checks this, and the acceptance tests check that it finds nothing, so every error below is out of sample. The bracket is a smooth maximum: <span class="math inline">\(p\to\infty\)</span> gives the roofline’s <span class="math inline">\(\max(F/\pi, Q/\beta)\)</span>, and <span class="math inline">\(p = 1\)</span> the sum, the no-overlap upper bound of the proposition in Section&nbsp;<a href="ch03_machine.html#sec:machine:oi">3.3</a>. With <span class="math inline">\(s_0 = \eta_c = \eta_m = 1\)</span> and <span class="math inline">\(p = \infty\)</span> the model has no free parameters; that is the honest prediction, made before any zoo kernel is timed. We compare four variants:</p>
+<ul>
+<li><strong>datasheet</strong>: datasheet <span class="math inline">\(\pi\)</span> and <span class="math inline">\(\beta\)</span>, no fixed costs (the model of Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a>);</li>
+<li><strong>roofline</strong>: measured <span class="math inline">\(\pi_c\)</span> and <span class="math inline">\(\beta\)</span>, no fixed costs (the empirical roofline of Lab&nbsp;<a href="ch03_machine.html#sec:machine:lab">3</a>);</li>
+<li><strong>roofline + launch</strong>: (<a href="#eq:proj10:model">6.8</a>) with no free parameters;</li>
+<li><strong>fitted, leave-one-out</strong>: <span class="math inline">\(s_0, \eta_c, \eta_m, p\)</span> fitted by minimising the mean squared <span class="math inline">\(\log(t_{\text{pred}}/t_{\text{meas}})\)</span>, each kernel predicted by the model fitted to the other
+19. A fitted model’s error on its own training data says nothing; leave-one-out is the cheapest honest alternative.</li>
+</ul>
+<p>The fit uses a Nelder–Mead simplex in log-parameters (<code>model.nelder_mead</code>, 40 lines of NumPy), so the suite needs no optimisation library. The acceptance tests check it on synthetic kernels generated from known parameters, which it recovers to within 5% for <span class="math inline">\(\eta_c\)</span> and <span class="math inline">\(\eta_m\)</span> and 15% for <span class="math inline">\(s_0\)</span>.</p>
+<div id="lst:proj10:predict" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 6.5: </span></span>The prediction (from <code>reference/model.py</code>).
+</div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> combine(tc, tm, p):                          <span class="co"># smooth maximum of compute and memory time</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> math.isinf(p):</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="bu">max</span>(tc, tm)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    hi <span class="op">=</span> <span class="bu">max</span>(tc, tm)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">0.0</span> <span class="cf">if</span> hi <span class="op">==</span> <span class="dv">0</span> <span class="cf">else</span> hi <span class="op">*</span> ((tc <span class="op">/</span> hi) <span class="op">**</span> p <span class="op">+</span> (tm <span class="op">/</span> hi) <span class="op">**</span> p) <span class="op">**</span> (<span class="dv">1</span> <span class="op">/</span> p)</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> predict(machine, k, params<span class="op">=</span>Params(), launch<span class="op">=</span><span class="va">True</span>):</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    t <span class="op">=</span> combine(k.flops <span class="op">/</span> (machine.peak_flops[k.compute] <span class="op">*</span> params.eta_c),</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>                k.<span class="bu">bytes</span> <span class="op">/</span> (machine.hbm_bw <span class="op">*</span> params.eta_m), params.p)</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> launch:</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>        t <span class="op">+=</span> (machine.launch_s <span class="op">+</span> (k.launches <span class="op">-</span> <span class="dv">1</span>) <span class="op">*</span> machine.gap_s) <span class="op">*</span> params.t0_scale</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> t</span></code></pre></div>
+</div>
+</section>
+<section id="the-zoo" class="level3">
+<h3><span class="xn"><span class="num">6.7.2&nbsp;&nbsp;</span></span>The zoo</h3>
+<p>Twenty kernels span the shapes an LLM runs (Table&nbsp;<a href="#tab:proj10:zoo">6.8</a>). Each comes with costs written from the operation’s definition, not read from a profiler, because the question is whether the definition-level model predicts the machine. FLOPs of the GEMMs and attention are checked in the acceptance tests against PyTorch’s <code>FlopCounterMode</code>. Bytes are the compulsory traffic, except for the two deliberately unfused kernels, whose intermediates are part of their cost. Eager RMSNorm is the instructive one. Written as <code>xf = x.float(); y = (xf * rsqrt(xf.pow(2).mean(-1) + eps)) .to(BF16) * w</code>, converting to FP32 once, it launches eight kernels, and per element of a BF16 input it moves <span class="math inline">\((2+4)\)</span> bytes to convert to FP32, <span class="math inline">\((4+4)\)</span> to square, 4 to average, <span class="math inline">\((4+4)\)</span> to scale, <span class="math inline">\((4+2)\)</span> to convert back and <span class="math inline">\((2+2)\)</span> to apply the weight: 36 bytes, against the 4 bytes of the fused kernel <code>torch.compile</code> produces. The prediction is a factor of nine in time, and the measurement gives 9.9.</p>
+<div id="tab:proj10:zoo" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.8: </span></span>The validation zoo: analytic FLOPs <span class="math inline">\(F\)</span>, compulsory bytes <span class="math inline">\(Q\)</span>, intensity <span class="math inline">\(I\)</span>, launches <span class="math inline">\(L\)</span>, the measured time (median of 20 cold calls) and the signed error of two models. Bold: outside the <span class="math inline">\(\pm20\%\)</span> band (the LOO errors of the <span class="math inline">\(4096^3\)</span> and <span class="math inline">\(1024^3\)</span> GEMMs and of the 16 KiB add are within it, but only just). Measured on 2x A100-40GB (PCIe), GPU0.</caption>
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Kernel</th>
+<th style="text-align: right;"><span class="math inline">\(F\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(Q\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(I\)</span></th>
+<th style="text-align: right;"><span class="math inline">\(L\)</span></th>
+<th style="text-align: right;">Measured (μs)</th>
+<th style="text-align: right;">Roofline + launch</th>
+<th style="text-align: right;">Fitted, LOO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">copy, BF16, <span class="math inline">\(2^{27}\)</span></td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">537 MB</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">394</td>
+<td style="text-align: right;">+4.1%</td>
+<td style="text-align: right;">+8.8%</td>
+</tr>
+<tr>
+<td style="text-align: left;">add, BF16, <span class="math inline">\(2^{27}\)</span></td>
+<td style="text-align: right;">134 M</td>
+<td style="text-align: right;">805 MB</td>
+<td style="text-align: right;">0.17</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">605</td>
+<td style="text-align: right;">+1.4%</td>
+<td style="text-align: right;">+6.7%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GELU (tanh), BF16</td>
+<td style="text-align: right;">1.07 G</td>
+<td style="text-align: right;">537 MB</td>
+<td style="text-align: right;">2.0</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">411</td>
+<td style="text-align: right;">−0.2%</td>
+<td style="text-align: right;">+17.8%</td>
+</tr>
+<tr>
+<td style="text-align: left;">scale, FP32, 4 MiB</td>
+<td style="text-align: right;">1.0 M</td>
+<td style="text-align: right;">8.4 MB</td>
+<td style="text-align: right;">0.13</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">12.3</td>
+<td style="text-align: right;">−6.8%</td>
+<td style="text-align: right;">+6.5%</td>
+</tr>
+<tr>
+<td style="text-align: left;">add, FP32, 16 KiB</td>
+<td style="text-align: right;">4.1 K</td>
+<td style="text-align: right;">49 KB</td>
+<td style="text-align: right;">0.08</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">6.1</td>
+<td style="text-align: right;">−16.1%</td>
+<td style="text-align: right;">+16.3%</td>
+</tr>
+<tr>
+<td style="text-align: left;">sum, FP32, <span class="math inline">\(2^{27}\)</span></td>
+<td style="text-align: right;">134 M</td>
+<td style="text-align: right;">537 MB</td>
+<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">400</td>
+<td style="text-align: right;">+2.5%</td>
+<td style="text-align: right;">+8.7%</td>
+</tr>
+<tr>
+<td style="text-align: left;">softmax, BF16, <span class="math inline">\(16384\times4096\)</span></td>
+<td style="text-align: right;">336 M</td>
+<td style="text-align: right;">268 MB</td>
+<td style="text-align: right;">1.25</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">373</td>
+<td style="text-align: right;"><strong>−44.3%</strong></td>
+<td style="text-align: right;"><strong>−40.5%</strong></td>
+</tr>
+<tr>
+<td style="text-align: left;">LayerNorm, BF16</td>
+<td style="text-align: right;">537 M</td>
+<td style="text-align: right;">268 MB</td>
+<td style="text-align: right;">2.0</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">235</td>
+<td style="text-align: right;">−11.6%</td>
+<td style="text-align: right;">+3.3%</td>
+</tr>
+<tr>
+<td style="text-align: left;">RMSNorm, eager</td>
+<td style="text-align: right;">268 M</td>
+<td style="text-align: right;">2.42 GB</td>
+<td style="text-align: right;">0.11</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: right;">1,955</td>
+<td style="text-align: right;">−6.0%</td>
+<td style="text-align: right;">−2.3%</td>
+</tr>
+<tr>
+<td style="text-align: left;">RMSNorm, compiled</td>
+<td style="text-align: right;">268 M</td>
+<td style="text-align: right;">268 MB</td>
+<td style="text-align: right;">1.0</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">198</td>
+<td style="text-align: right;">+5.1%</td>
+<td style="text-align: right;">+17.5%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMM BF16 <span class="math inline">\(1024^3\)</span></td>
+<td style="text-align: right;">2.15 G</td>
+<td style="text-align: right;">6.3 MB</td>
+<td style="text-align: right;">341</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">23.6</td>
+<td style="text-align: right;"><strong>−39.1%</strong></td>
+<td style="text-align: right;">−18.5%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMM BF16 <span class="math inline">\(4096^3\)</span></td>
+<td style="text-align: right;">137 G</td>
+<td style="text-align: right;">101 MB</td>
+<td style="text-align: right;">1,365</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">549</td>
+<td style="text-align: right;">+8.3%</td>
+<td style="text-align: right;">+19.0%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMM BF16 <span class="math inline">\(8192^3\)</span></td>
+<td style="text-align: right;">1.10 T</td>
+<td style="text-align: right;">403 MB</td>
+<td style="text-align: right;">2,731</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">4,904</td>
+<td style="text-align: right;">−3.7%</td>
+<td style="text-align: right;">−4.1%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMM FP32 <span class="math inline">\(4096^3\)</span></td>
+<td style="text-align: right;">137 G</td>
+<td style="text-align: right;">201 MB</td>
+<td style="text-align: right;">683</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">7,889</td>
+<td style="text-align: right;">−3.0%</td>
+<td style="text-align: right;">−8.9%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMM TF32 <span class="math inline">\(4096^3\)</span></td>
+<td style="text-align: right;">137 G</td>
+<td style="text-align: right;">201 MB</td>
+<td style="text-align: right;">683</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">1,127</td>
+<td style="text-align: right;">+5.3%</td>
+<td style="text-align: right;">+15.1%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMV BF16, <span class="math inline">\(8192\times8192\)</span></td>
+<td style="text-align: right;">134 M</td>
+<td style="text-align: right;">134 MB</td>
+<td style="text-align: right;">1.0</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">120</td>
+<td style="text-align: right;">−11.5%</td>
+<td style="text-align: right;">−8.0%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMM BF16, <span class="math inline">\(16\times4096\to14336\)</span></td>
+<td style="text-align: right;">1.88 G</td>
+<td style="text-align: right;">118 MB</td>
+<td style="text-align: right;">15.9</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">108</td>
+<td style="text-align: right;">−12.4%</td>
+<td style="text-align: right;">−1.6%</td>
+</tr>
+<tr>
+<td style="text-align: left;">GEMM BF16, <span class="math inline">\(4096\times4096\to14336\)</span></td>
+<td style="text-align: right;">481 G</td>
+<td style="text-align: right;">268 MB</td>
+<td style="text-align: right;">1,792</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">2,036</td>
+<td style="text-align: right;">+1.7%</td>
+<td style="text-align: right;">+6.6%</td>
+</tr>
+<tr>
+<td style="text-align: left;">SDPA (flash), <span class="math inline">\(4\times16\times2048\times128\)</span></td>
+<td style="text-align: right;">137 G</td>
+<td style="text-align: right;">134 MB</td>
+<td style="text-align: right;">1,024</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">755</td>
+<td style="text-align: right;"><strong>−21.2%</strong></td>
+<td style="text-align: right;">−13.9%</td>
+</tr>
+<tr>
+<td style="text-align: left;">attention, naive, <span class="math inline">\(T=1024\)</span></td>
+<td style="text-align: right;">34.7 G</td>
+<td style="text-align: right;">604 MB</td>
+<td style="text-align: right;">57</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">591</td>
+<td style="text-align: right;"><strong>−21.6%</strong></td>
+<td style="text-align: right;">+5.3%</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="results" class="level3">
+<h3><span class="xn"><span class="num">6.7.3&nbsp;&nbsp;</span></span>Results</h3>
+<div id="tab:proj10:errors" class="table-float">
+<table style="width:99%;">
+<caption><span class="xn"><span class="num">Table 6.9: </span></span>How well each model predicts the 20 kernels, none of which was a calibration probe. Bias is <span class="math inline">\(\exp(\overline{\log(t_{\text{pred}}/t_{\text{meas}})})\)</span>: below 1 the model is optimistic. Measured on 2x A100-40GB (PCIe).</caption>
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Model</th>
+<th style="text-align: right;">Free parameters</th>
+<th style="text-align: right;">Within 20%</th>
+<th style="text-align: right;">Mean abs. error</th>
+<th style="text-align: right;">Worst</th>
+<th style="text-align: right;">Geometric-mean bias</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">datasheet roofline</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">7 / 20</td>
+<td style="text-align: right;">32%</td>
+<td style="text-align: right;">−99%</td>
+<td style="text-align: right;">0.54</td>
+</tr>
+<tr>
+<td style="text-align: left;">measured roofline</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">14 / 20</td>
+<td style="text-align: right;">19%</td>
+<td style="text-align: right;">−99%</td>
+<td style="text-align: right;">0.66</td>
+</tr>
+<tr>
+<td style="text-align: left;">measured roofline + fixed costs</td>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">16 / 20</td>
+<td style="text-align: right;">11%</td>
+<td style="text-align: right;">−44%</td>
+<td style="text-align: right;">0.90</td>
+</tr>
+<tr>
+<td style="text-align: left;">fitted, leave-one-out</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: right;">19 / 20</td>
+<td style="text-align: right;">11%</td>
+<td style="text-align: right;">−40%</td>
+<td style="text-align: right;">1.00</td>
+</tr>
+</tbody>
+</table>
+</div>
+<figure id="fig:proj10:pred">
+<img style="width: 1089px" src="figures/ch06_proj_machine-9.svg" class="fig fig-light" loading="lazy" alt="Predicted against measured time for the 20 kernels under four models; the grey band is \pm20\%. Predictions below the axis (a zero-cost roofline for launch-bound kernels) are drawn at its edge. Measured on 2x A100-40GB (PCIe)." /><img style="width: 1089px" src="figures/ch06_proj_machine-9-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Predicted against measured time for the 20 kernels under four models; the grey band is \pm20\%. Predictions below the axis (a zero-cost roofline for launch-bound kernels) are drawn at its edge. Measured on 2x A100-40GB (PCIe)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 6.10: </span></span>Predicted against measured time for the 20 kernels under four models; the grey band is <span class="math inline">\(\pm20\%\)</span>. Predictions below the axis (a zero-cost roofline for launch-bound kernels) are drawn at its edge. Measured on 2x A100-40GB (PCIe).</figcaption>
+</figure>
+<p>The third research question has a two-part answer (Table&nbsp;<a href="#tab:proj10:errors">6.9</a>, Figure&nbsp;<a href="#fig:proj10:pred">6.10</a>). The datasheet roofline is optimistic by nearly a factor of two on average and predicts only seven kernels within 20%; replacing its two numbers with measured ones gets 14, and adding the measured fixed costs gets 16, with a mean absolute error of 11% and <em>no fitted parameter</em>, on kernels it was not calibrated on. A fitted model, evaluated honestly, gets 19. The large streaming kernels (copy, add, GELU, sum, both RMSNorms) land within 6%: for bandwidth-bound work with long, simple streams, compulsory bytes over the measured copy bandwidth is a quantitatively correct model. Streaming kernels that are short (the 4 MiB scale, 7%) or that read with less parallelism (GEMV and the decode GEMM, 12%) do worse. The misses are where the interest lies, and each points at a mechanism the model lacks.</p>
+<ul>
+<li><strong>Softmax</strong> (<span class="math inline">\(-45\%\)</span>) runs at 720 GB/s, half the copy bandwidth. It is not moving more bytes: Section&nbsp;<a href="ch03_machine.html#sec:machine:empirical">3.5</a> counted its traffic with Nsight Compute and found the compulsory amount. The missing half is time spent not streaming: a row-wise reduction with barriers keeps too few loads in flight (Little’s law, Section&nbsp;<a href="ch03_machine.html#sec:machine:hides">3.6</a>). LayerNorm, the same pattern with more arithmetic, loses 12%.</li>
+<li><strong>Flash attention</strong> (<span class="math inline">\(-21\%\)</span>) runs at 182 TFLOP/s, 58% of the A100’s 312 TFLOP/s peak and 78% of our calibrated GEMM peak. Dao (2023) reports 50–73% of the 312 TFLOP/s peak for FlashAttention-2’s forward pass on an A100 (an SXM card, with a higher power limit than ours), and we sit inside that range. The exponentials, the running max and the rescaling are non-matmul instructions a GEMM does not issue, so a GEMM roof is the wrong roof.</li>
+<li><strong>The naive attention</strong> (<span class="math inline">\(-22\%\)</span>) spends a third of its time in a softmax over the score matrix, which inherits the softmax miss above.</li>
+<li><strong>The <span class="math inline">\(1024^3\)</span> GEMM</strong> (<span class="math inline">\(-39\%\)</span>) has too few output tiles for 108 SMs: wave quantisation, not bandwidth or FLOPs.</li>
+<li><strong>GEMV and the 16-token decode GEMM</strong> (<span class="math inline">\(-12\%\)</span>, inside the band) stream their weights at 1.1 TB/s, 83% of the copy bandwidth, the same fraction Section&nbsp;<a href="ch03_machine.html#sec:machine:empirical">3.5</a> measured.</li>
+<li><strong>The 16 KiB add</strong> (<span class="math inline">\(-16\%\)</span>, inside the band) is all fixed cost, and a two-input kernel costs a little more than the one-element <code>add_</code> that defined <span class="math inline">\(t_0\)</span>.</li>
+<li><strong>The <span class="math inline">\(8192^3\)</span> GEMM</strong> (<span class="math inline">\(-4\%\)</span>) is closer than the <span class="math inline">\(4096^3\)</span> one (<span class="math inline">\(+8\%\)</span>) partly by coincidence: the calibration peak, 233 TFLOP/s at 3,072, happens to be close to what the power-limited 8,192 GEMM sustains during its 20 calls.</li>
+</ul>
+<p>The fitted parameters are as instructive as the errors. Fitted to all 20 kernels, <span class="math inline">\(\eta_m = 0.97\)</span> (the measured bandwidth was almost right), <span class="math inline">\(s_0 = 1.24\)</span> (real small kernels cost more than the tiny probe), <span class="math inline">\(p = 1.0\)</span>, the boundary of its range, and <span class="math inline">\(\eta_c = 1.07\)</span>, <em>above</em> one. The last two trade against each other. <span class="math inline">\(p = 1\)</span> adds the memory time to the compute time of every GEMM, 7% (at 8,192) to 14% (at 4,096) longer, and <span class="math inline">\(\eta_c &gt; 1\)</span> takes it back by declaring the GEMMs faster than the calibration said; the pair fits the slower small and power-limited GEMMs and the faster mid-sized ones a little better than either parameter alone, and pays with +19% on the 4,096 GEMM. That is not a discovery about overlap. A fitted parameter is a summary of the residuals, not a physical constant, and a write-up should say which is which. The leave-one-out errors also show what fitting cannot fix: softmax remains far outside the band, because no global parameter makes one kernel slow without making its neighbours slow too.</p>
+<div class="keyidea box">
+<p><strong>Key Idea: What the roofline is for</strong></p>
+<p>With measured ceilings and measured fixed costs, the roofline predicts four in five of a mixed set of kernels it was not calibrated on within 20%, with no free parameters. Where it fails, it fails by under-predicting, and the size of the miss is a measurement of something specific: latency-bound reductions, non-matmul work inside attention, too few tiles, a power-limited clock. That makes the roofline most useful exactly where it is wrong: the ratio of measured time to predicted time is the first number to compute for any kernel worth optimising.</p>
+</div>
+</section>
+</section>
+<section id="sec:proj10:m5" class="level2">
+<h2><span class="xn"><span class="num">6.8&nbsp;&nbsp;</span></span>Milestone 5: the spec sheet and the write-up</h2>
+<section id="the-spec-sheet" class="level3">
+<h3><span class="xn"><span class="num">6.8.1&nbsp;&nbsp;</span></span>The spec sheet</h3>
+<p><code>report.render_markdown</code> turns a results file into the machine’s spec sheet; Table&nbsp;<a href="#tab:proj10:spec">6.10</a> is the one for our box, from the smoke configuration. It is the table to copy into the front of every later experiment log.</p>
+<div id="tab:proj10:spec" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.10: </span></span>The spec sheet of one A100-40GB PCIe in our box: smoke configuration on GPU0, 47 s of GPU time, median of 20 repetitions (200 for host round trips); <code>results/smoke_a100_pcie.md</code> adds the p10–p90 range of every row. Measured on 2x A100-40GB (PCIe), driver 595.91.07, CUDA 13.0 (PyTorch build; the driver supports 13.2), torch 2.14.1, Triton 3.8.0.</caption>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Quantity</th>
+<th style="text-align: right;">Measured</th>
+<th style="text-align: right;">Datasheet</th>
+<th style="text-align: right;">Fraction</th>
+<th style="text-align: left;">How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">HBM, copy / read / write</td>
+<td style="text-align: right;">1,325 / 1,326 / 1,498 GB/s</td>
+<td style="text-align: right;">1,555 GB/s</td>
+<td style="text-align: right;">85 / 85 / 96%</td>
+<td style="text-align: left;">cold, three largest sizes</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2, copy (warm)</td>
+<td style="text-align: right;"><span class="math inline">\(\ge\)</span> 3,103 GB/s (about 4,050 gap-corrected)</td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;">graph burst, 16 MiB working set</td>
+</tr>
+<tr>
+<td style="text-align: left;">L2 effective capacity</td>
+<td style="text-align: right;">24 MiB</td>
+<td style="text-align: right;">40 MiB</td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;">knee of the warm copy</td>
+</tr>
+<tr>
+<td style="text-align: left;">H2D / D2H, pinned, local node</td>
+<td style="text-align: right;">23.9 / 23.5 GB/s (best 24.2 / 24.3)</td>
+<td style="text-align: right;">31.5 GB/s</td>
+<td style="text-align: right;">76 / 75%</td>
+<td style="text-align: left;">plateau</td>
+</tr>
+<tr>
+<td style="text-align: left;">H2D, pinned, remote node</td>
+<td style="text-align: right;">20.1 GB/s</td>
+<td style="text-align: right;">31.5 GB/s</td>
+<td style="text-align: right;">64%</td>
+<td style="text-align: left;">256 MiB, own process</td>
+</tr>
+<tr>
+<td style="text-align: left;">H2D / D2H, pageable</td>
+<td style="text-align: right;">10.1 / 8.1 GB/s (best 14.6 / 14.5)</td>
+<td style="text-align: right;">31.5 GB/s</td>
+<td style="text-align: right;">32 / 26%</td>
+<td style="text-align: left;">plateau</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPU0 <span class="math inline">\(\to\)</span> GPU1</td>
+<td style="text-align: right;">18.5 GB/s staged; peer copy wrong</td>
+<td style="text-align: right;">31.5 GB/s</td>
+<td style="text-align: right;">59%</td>
+<td style="text-align: left;">8 MiB chunks (two-GPU run)</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPU0 <span class="math inline">\(\to\)</span> GPU1, NCCL send/receive</td>
+<td style="text-align: right;">15.4 GB/s</td>
+<td style="text-align: right;">31.5 GB/s</td>
+<td style="text-align: right;">49%</td>
+<td style="text-align: left;">256 MiB, two processes</td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16 matmul, burst / sustained</td>
+<td style="text-align: right;">233 / 217 TFLOP/s</td>
+<td style="text-align: right;">312 TFLOP/s</td>
+<td style="text-align: right;">75 / 70%</td>
+<td style="text-align: left;"><span class="math inline">\(3072^3\)</span>; <span class="math inline">\(8192^3\)</span> for 10 s</td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16 <span class="math inline">\(8192^3\)</span> per clock, scaled to 1,410 MHz</td>
+<td style="text-align: right;">294 TFLOP/s</td>
+<td style="text-align: right;">312 TFLOP/s</td>
+<td style="text-align: right;">94%</td>
+<td style="text-align: left;">sustained run</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP16 / TF32 / INT8 matmul</td>
+<td style="text-align: right;">230 / 116 / 417</td>
+<td style="text-align: right;">312 / 156 / 624</td>
+<td style="text-align: right;">74 / 75 / 67%</td>
+<td style="text-align: left;">best square GEMM</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP32: GEMM / FMA chain</td>
+<td style="text-align: right;">18.0 / 19.0 TFLOP/s</td>
+<td style="text-align: right;">19.5 TFLOP/s</td>
+<td style="text-align: right;">92 / 97%</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">kernel in a CUDA graph / tiny kernel / host enqueue</td>
+<td style="text-align: right;">1.27 / 5.1 / 7.4 μs</td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>synchronize()</code> / <code>.item()</code> / 4-byte pinned H2D</td>
+<td style="text-align: right;">10.1 / 9.2 / 18.3 μs</td>
+<td style="text-align: right;"></td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;">wall clock</td>
+</tr>
+<tr>
+<td style="text-align: left;">SM clock: idle / boost / sustained GEMM</td>
+<td style="text-align: right;">765 / 1,410 / 1,035 MHz</td>
+<td style="text-align: right;">1,410 MHz</td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;"><code>nvidia-smi</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="reproducing-a-published-number" class="level3">
+<h3><span class="xn"><span class="num">6.8.2&nbsp;&nbsp;</span></span>Reproducing a published number</h3>
+<p>Milestone 5 includes a deliberate reproduction of numbers from the microbenchmarking literature, chosen so that the comparison says something even though our GPU is a generation newer than the paper’s. Jia et al. (2018) measured, with a copy probe, sustained global-memory bandwidth at 83.3% of the theoretical figure on a V100 (and 69.6% on a P100), and host transfers over PCIe 3.0 x16 at 12.15 GB/s (H2D) and 12.88 GB/s (D2H), 77% and 82% of the 15.75 GB/s line rate per direction. Table&nbsp;<a href="#tab:proj10:repro">6.11</a> puts our numbers next to theirs as fractions of the respective theoretical peaks, which is the only comparison that survives a change of generation.</p>
+<div id="tab:proj10:repro" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.11: </span></span>Reproducing published ratios. Measured on 2x A100-40GB (PCIe), GPU0.</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Quantity</th>
+<th style="text-align: right;">Published</th>
+<th style="text-align: right;">This suite, A100 PCIe</th>
+<th style="text-align: left;">Agreement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">copy bandwidth / theoretical (Jia et al., V100)</td>
+<td style="text-align: right;">83.3%</td>
+<td style="text-align: right;">85.2% (1,325 of 1,555 GB/s)</td>
+<td style="text-align: left;">within 2 points</td>
+</tr>
+<tr>
+<td style="text-align: left;">H2D, pinned / PCIe line rate (Jia et al., Gen3)</td>
+<td style="text-align: right;">77%</td>
+<td style="text-align: right;">76% (Gen4, local node)</td>
+<td style="text-align: left;">within 1 point</td>
+</tr>
+<tr>
+<td style="text-align: left;">D2H, pinned / PCIe line rate (Jia et al., Gen3)</td>
+<td style="text-align: right;">82%</td>
+<td style="text-align: right;">75% (Gen4, local node)</td>
+<td style="text-align: left;">7 points lower</td>
+</tr>
+<tr>
+<td style="text-align: left;">GPU-to-GPU over PCIe (Jia et al.)</td>
+<td style="text-align: right;">10.63 GB/s</td>
+<td style="text-align: right;">no correct direct path</td>
+<td style="text-align: left;">not comparable</td>
+</tr>
+<tr>
+<td style="text-align: left;">FlashAttention-2 forward / 312 TFLOP/s (Dao, 2023, A100 SXM)</td>
+<td style="text-align: right;">50–73%</td>
+<td style="text-align: right;">58%</td>
+<td style="text-align: left;">inside the range</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two of the ratios reproduce closely across a generation of HBM and of PCIe, which supports treating “about 85% of theoretical for a copy” and “about three quarters of the PCIe line rate for pinned DMA” as properties of the memory and the link rather than of one card. The D2H gap is a finding to chase: our D2H plateau sits 7 points below the paper’s ratio and slightly below our own H2D, the opposite of their ordering. The peer row shows why ratios alone are not enough: the number we would have reported, 8.3 GB/s, compares plausibly with their 10.63 GB/s and is meaningless, because the bytes never arrived.</p>
+<p>The headline compute gap is a reproduction of the vendor’s number. Per clock cycle, a BF16 GEMM of a shape that fills the machine runs at 94% of the datasheet’s 312 TFLOP/s (Section&nbsp;<a href="#sec:proj10:power">6.5.2</a>); the power limit lowers the sustained clock to 1,035 MHz; and the clock-scaled prediction, <span class="math inline">\(0.94\times312\times1{,}035/1{,}410 = 215\)</span> TFLOP/s, matches the 217 measured. On the bandwidth side the explanation of the gap is still a hypothesis: the read probe ruled out read–write turnaround as the main cause, and latency-bound reads remain to be tested.</p>
+<div class="deepdive box">
+<p><strong>Deeper Dive: Reading the research: Jia, Maggioni, Staiger and Scarpazza (2018), “Dissecting the NVIDIA Volta GPU Architecture via Microbenchmarking”</strong></p>
+<p><strong>The cost model, in our notation.</strong> The paper treats each level of the memory hierarchy as a resource with a latency <span class="math inline">\(\lambda_\ell\)</span>, a capacity <span class="math inline">\(C_\ell\)</span> and a throughput <span class="math inline">\(\beta_\ell\)</span>, and measures each with a dedicated probe. Latency comes from pointer chasing: a chain of dependent loads keeps one request in flight, so time per load is <span class="math inline">\(\lambda_\ell\)</span>. Capacity comes from sweeping the chase’s footprint: the latency steps up when the footprint exceeds <span class="math inline">\(C_\ell\)</span>, which is the latency analogue of our bandwidth knee. Throughput comes from many independent streams. The same method, applied to instructions with dependent and independent chains, gives instruction latencies and issue rates, and the paper goes further than any datasheet by decoding the instruction encoding and the register-bank structure of the Volta SM. It also measures the paths off the chip: host transfers and peer-to-peer copies over PCIe and NVLink.</p>
+<p><strong>What our code reproduces.</strong> Our milestone 1 is the throughput half of the method, run a generation later, and Table&nbsp;<a href="#tab:proj10:repro">6.11</a> lists the numbers. The copy-bandwidth ratio (83.3% on the V100, 85.2% on our A100) and the pinned H2D ratio (77% against 76%) reproduce within two points; the D2H ratio does not (82% against 75%). The capacity sweep is where the two cards differ: the paper’s latency probe finds the V100’s L2 at 6,144 KiB, exactly the documented size, while our bandwidth knee sits at 24 MiB on a card documented at 40 MiB, a difference our partitioned-L2 hypothesis has to explain and a pointer-chasing probe could test.</p>
+<p><strong>What the evaluation leaves out.</strong> The paper runs its benchmarks at the highest graphics clock the card offers, which makes its numbers reproducible but sets aside how clocks behave under a power limit; on our card that behaviour moves the sustained compute ceiling by 25%. It reports transfer bandwidths, but a bandwidth says nothing about whether the data arrived, and on a platform like ours a peer path would have looked healthy. It does not consider where host memory lives, and it characterises rather than predicts: the step from measured ceilings to a validated model of real kernels, our milestone 4, is left to the reader.</p>
+</div>
+</section>
+<section id="sec:proj10:writeup" class="level3">
+<h3><span class="xn"><span class="num">6.8.3&nbsp;&nbsp;</span></span>The write-up and its rubric</h3>
+<p>The write-up is a short paper: the research questions; the setup (Table&nbsp;<a href="#tab:proj10:spec">6.10</a>’s caption is the model for how much context to give); one section per milestone with a figure, a table and an explanation of every gap; the model, its validation and an error analysis that names a mechanism for every miss; and a limitations section. Every number comes from a results JSON produced by <code>run.py</code> and every figure from <code>figures.py</code>, so a reader with the same box can regenerate both.</p>
+<div id="tab:proj10:rubric" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.12: </span></span>Rubric for the Project 10 write-up.</caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Criterion</th>
+<th style="text-align: right;">Weight</th>
+<th style="text-align: left;">Full marks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">Spec sheet</td>
+<td style="text-align: right;">20%</td>
+<td style="text-align: left;">every ceiling of Table&nbsp;<a href="#tab:proj10:spec">6.10</a> with median and spread, repeated across processes, environment recorded</td>
+</tr>
+<tr>
+<td style="text-align: left;">Datasheet gaps</td>
+<td style="text-align: right;">20%</td>
+<td style="text-align: left;">each gap derived from the datasheet arithmetic and explained by a mechanism, with a measurement supporting it</td>
+</tr>
+<tr>
+<td style="text-align: left;">Model and validation</td>
+<td style="text-align: right;">25%</td>
+<td style="text-align: left;">prediction made before timing; parameter-free and fitted variants; leave-one-out or held-out error; bias reported</td>
+</tr>
+<tr>
+<td style="text-align: left;">Error analysis</td>
+<td style="text-align: right;">15%</td>
+<td style="text-align: left;">a mechanism for every kernel outside the band, with evidence (a second measurement, a counter, a citation)</td>
+</tr>
+<tr>
+<td style="text-align: left;">Correctness and reproducibility</td>
+<td style="text-align: right;">10%</td>
+<td style="text-align: left;">outputs of transfers and kernels checked; host-memory placement verified; calibration disjoint from validation; configs, results JSON and figure scripts regenerate everything</td>
+</tr>
+<tr>
+<td style="text-align: left;">Writing</td>
+<td style="text-align: right;">10%</td>
+<td style="text-align: left;">claims proportional to evidence; surprises reported and investigated rather than smoothed over</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="sec:proj10:baselines" class="level2">
+<h2><span class="xn"><span class="num">6.9&nbsp;&nbsp;</span></span>Baselines</h2>
+<p>A suite is only credible next to the alternatives it replaces. Table&nbsp;<a href="#tab:proj10:baselines">6.13</a> lists the baselines we compared against on the same box.</p>
+<div id="tab:proj10:baselines" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.13: </span></span>Baselines on 2x A100-40GB (PCIe), GPU0, from <code>side.py</code> (<code>baselines</code>, single runs) and the smoke run.</caption>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Baseline</th>
+<th style="text-align: right;">BF16 GEMM</th>
+<th style="text-align: right;">Copy bandwidth</th>
+<th style="text-align: left;">What it misses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">datasheet</td>
+<td style="text-align: right;">312 TFLOP/s</td>
+<td style="text-align: right;">1,555 GB/s</td>
+<td style="text-align: left;">everything below the peak</td>
+</tr>
+<tr>
+<td style="text-align: left;">raw <code>triton.testing.do_bench</code>, after 2 s idle</td>
+<td style="text-align: right;">147 TFLOP/s (<span class="math inline">\(4096^3\)</span>)</td>
+<td style="text-align: right;">1,357 GB/s</td>
+<td style="text-align: left;">its 25 ms warm-up cannot ramp an idle clock</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>llmsys.perf.bench</code> (do_bench after a 0.5 s fixed-time warm-up)</td>
+<td style="text-align: right;">217 TFLOP/s (<span class="math inline">\(4096^3\)</span>)</td>
+<td style="text-align: right;">1,365 GB/s</td>
+<td style="text-align: left;">sustained versus burst not distinguished</td>
+</tr>
+<tr>
+<td style="text-align: left;">Lab&nbsp;<a href="ch03_machine.html#sec:machine:lab">3</a> empirical roofline (best of a sweep)</td>
+<td style="text-align: right;">215 TFLOP/s (best of 1,024–8,192)</td>
+<td style="text-align: right;">1,328 GB/s</td>
+<td style="text-align: left;">fixed costs, spread, placement</td>
+</tr>
+<tr>
+<td style="text-align: left;">this suite, burst (calibration)</td>
+<td style="text-align: right;">233 TFLOP/s (<span class="math inline">\(3072^3\)</span>)</td>
+<td style="text-align: right;">1,325 GB/s</td>
+<td style="text-align: left;">sustained behaviour (reported separately)</td>
+</tr>
+<tr>
+<td style="text-align: left;">this suite, zoo kernel, burst</td>
+<td style="text-align: right;">250 TFLOP/s (<span class="math inline">\(4096^3\)</span>)</td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr>
+<td style="text-align: left;">this suite, 10 s sustained</td>
+<td style="text-align: right;">217 TFLOP/s (<span class="math inline">\(8192^3\)</span>)</td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;"></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The spread of the first column is the lesson: GEMMs on the same GPU measure 147, 217, 218, 233, 250 or 217 TFLOP/s depending on the shape, on how long the GPU had been busy before and on how long the measurement ran. None of these numbers is wrong; each answers a different question, and a benchmark that does not say which question it answers is not finished. External tools are the other baseline: NVIDIA’s <code>nvbandwidth</code> and the CUDA samples’ <code>bandwidthTest</code>, <code>p2pBandwidthLatencyTest</code> and <code>simpleP2P</code> (which also checks the data) measure the transfer paths independently of PyTorch, and running them is part of the full study.</p>
+</section>
+<section id="sec:proj10:budget" class="level2">
+<h2><span class="xn"><span class="num">6.10&nbsp;&nbsp;</span></span>Compute budget</h2>
+<div id="tab:proj10:budget" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 6.14: </span></span>Compute budget on 2x A100-40GB (PCIe). Only the smoke row has been measured.</caption>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Item</th>
+<th style="text-align: right;">GPU time</th>
+<th style="text-align: left;">Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">smoke configuration, all milestones</td>
+<td style="text-align: right;">47 s</td>
+<td style="text-align: left;">measured (<code>results/smoke_a100_pcie.json</code>)</td>
+</tr>
+<tr>
+<td style="text-align: left;">side experiments (<code>make side</code>)</td>
+<td style="text-align: right;">about 1.5 min</td>
+<td style="text-align: left;">measured, in two parts</td>
+</tr>
+<tr>
+<td style="text-align: left;">one full run (<code>configs/full.json</code>: finer sweeps, 50 repetitions, 300 s sustained GEMM)</td>
+<td style="text-align: right;">about 12 min</td>
+<td style="text-align: left;">estimate</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>make full</code>: five repeats on GPU0, one on GPU1</td>
+<td style="text-align: right;">about 1.2 h</td>
+<td style="text-align: left;">estimate</td>
+</tr>
+<tr>
+<td style="text-align: left;">extension experiments (NUMA, chunk sizes, clocks, external tools)</td>
+<td style="text-align: right;">about 1 h</td>
+<td style="text-align: left;">estimate</td>
+</tr>
+<tr>
+<td style="text-align: left;">debugging and reruns</td>
+<td style="text-align: right;">about 0.8 h</td>
+<td style="text-align: left;">estimate</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>total</strong></td>
+<td style="text-align: right;"><strong>about 3 GPU-h</strong></td>
+<td style="text-align: left;">estimate, to calibrate</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The project fits on any single NVIDIA GPU; the peer-path experiments need two. On a consumer card the same suite runs unchanged except for the INT8 path; on another datacentre GPU, set <code>datasheet</code> in the config to one of the entries of <code>report.DATASHEETS</code> (A100 PCIe, H100 SXM, MI300X) or add one, and check <code>flush_bytes</code> against its largest cache. On a laptop without a GPU the CPU configuration runs every code path and produces a spec sheet of the CPU, which is a fair warm-up for reasoning about a second kind of machine.</p>
+</section>
+<section id="sec:proj10:extensions" class="level2">
+<h2><span class="xn"><span class="num">6.11&nbsp;&nbsp;</span></span>Extensions</h2>
+<ol type="1">
+<li><strong>Latency, not just bandwidth.</strong> Pointer-chasing probes for the L1, L2 and HBM latencies and the TLB reach, written as a CUDA kernel (<span class="xref-missing">??</span>) or in Triton (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">A</span>); then test the L2-partition hypothesis of Section&nbsp;<a href="#sec:proj10:m1">6.4</a> by controlling which SMs touch which addresses.</li>
+<li><strong>Counters instead of inferences.</strong> Use Nsight Compute (<span class="xref-missing">??</span>) to read the DRAM bytes and achieved occupancy of every zoo kernel, and replace the analytic <span class="math inline">\(Q\)</span> by the counted one: which misses of Table&nbsp;<a href="#tab:proj10:errors">6.9</a> disappear?</li>
+<li><strong>A hierarchical roofline.</strong> Add an L2 roof (Yang, Kurth and Williams, 2020) to the model and validate it on kernels whose working set fits in L2 (run warm, without the flush).</li>
+<li><strong>A clock-aware model.</strong> Make <span class="math inline">\(\pi_c\)</span> proportional to the clock, as Section&nbsp;<a href="#sec:proj10:power">6.5.2</a> found, and the clock a function of power and recent history; predict the <span class="math inline">\(8192^3\)</span> GEMM from the trace of Figure&nbsp;<a href="#fig:proj10:sustained">6.7</a>. A sampler on NVML directly (or <code>amd-smi</code> on AMD GPUs) would remove the 100 ms granularity of <code>nvidia-smi</code>.</li>
+<li><strong>The interconnect, properly.</strong> Repeat the peer measurements with the IOMMU in pass-through mode (an administrator’s change), measure NCCL all-reduce bus bandwidth across sizes (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">24</span>), and compare with the staged copy.</li>
+<li><strong>Energy.</strong> Integrate <code>nvidia-smi</code> power over each zoo kernel and build an energy roofline (Choi et al., 2013): joules per FLOP and per byte on this card.</li>
+<li><strong>Another machine.</strong> Run the suite on a different GPU (an H100, an MI300X, a consumer card, an Apple silicon GPU through <code>mps</code>) and explain which ratios carry over. On the H100, add an FP8 path (<code>torch._scaled_mm</code>) to milestone 2; on the MI300X, extend <code>find_knee</code> to two cache levels (L2 and the 256 MB Infinity Cache).</li>
+<li><strong>Latency-bound reads.</strong> Test the hypothesis of Section&nbsp;<a href="#sec:proj10:m1">6.4</a> that reads stop at 85% because too few are in flight: a Triton or CUDA read kernel whose loads per thread are a parameter, swept until the bandwidth stops rising (Appendix&nbsp;<span class="xref-unpub" title="Not published yet">A</span>, <span class="xref-missing">??</span>).</li>
+</ol>
+</section>
+<section id="sec:proj10:frontier" class="level2">
+<h2><span class="xn"><span class="num">6.12&nbsp;&nbsp;</span></span>Research frontier</h2>
+<section id="open-problems" class="level3">
+<h3><span class="xn"><span class="num">6.12.1&nbsp;&nbsp;</span></span>Open problems</h3>
+<p>Performance prediction for deep-learning kernels is unsolved in a precise sense: analytical models like ours reach 10–20% mean error on simple kernels and degrade on fused and irregular ones, while learned predictors need training data from the very hardware they are meant to predict. Clocks make it harder. On power-limited parts the throughput of a kernel depends on its data, on its neighbours in the schedule and on the temperature, and no published model of a training step treats the clock as a state variable. Variability across nominally identical GPUs is a third gap: large clusters show systematic per-device differences in sustained performance, which microbenchmarks of one card cannot reveal. And interconnect characterisation lags the hardware: peer paths, IOMMU behaviour, NUMA placement and the software that chooses between them change faster than the studies that measure them, as the silent peer-copy failure of this chapter shows.</p>
+</section>
+<section id="the-works-that-define-the-area" class="level3">
+<h3><span class="xn"><span class="num">6.12.2&nbsp;&nbsp;</span></span>The works that define the area</h3>
+<ul>
+<li><strong>Williams, Waterman and Patterson (2009)</strong>, Roofline: the two-number machine model and the ceilings beneath it; every chapter of this book uses it.</li>
+<li><strong>McCalpin (1995)</strong>, STREAM: sustained rather than peak bandwidth, the byte-counting conventions we use, and machine balance as the ratio that matters.</li>
+<li><strong>Hockney (1994)</strong>: the <span class="math inline">\(\alpha\)</span>–<span class="math inline">\(\beta\)</span> (<span class="math inline">\(r_\infty\)</span>, <span class="math inline">\(n_{1/2}\)</span>) model of communication, still the first model fitted to any transfer path.</li>
+<li><strong>Volkov and Demmel (2008)</strong>: microbenchmarking GPUs (launch overhead, transfer costs, pipeline latency) to design dense linear algebra; the template for “measure, then model, then tune”.</li>
+<li><strong>Jia et al. (2018)</strong>: dissecting a GPU generation by microbenchmarks, from cache geometry to instruction encoding; successors have done the same for Turing, Ampere and Hopper (Luo et al., 2024, for Hopper).</li>
+<li><strong>Hoefler and Belli (2015)</strong>: rules for reporting performance (non-parametric statistics, confidence intervals, variability) that most systems papers still break.</li>
+<li><strong>Yang, Kurth and Williams (2020)</strong>: the hierarchical roofline for GPUs, one roof per memory level and per instruction class.</li>
+<li><strong>Li et al. (2020)</strong>: a systematic evaluation of GPU interconnects (PCIe, NVLink, NVSwitch, GPUDirect) and of how topology shapes peer-to-peer performance.</li>
+<li><strong>Yu et al. (2021)</strong>, Habitat: predicting a training step’s time on one GPU from measurements on another, by scaling kernels with ratios of measured ceilings plus learned models for the rest.</li>
+<li><strong>Sinha et al. (2022)</strong>: performance variability across thousands of GPUs of one type in production clusters, driven largely by power and thermal management.</li>
+</ul>
+</section>
+<section id="assumptions-that-are-likely-to-break" class="level3">
+<h3><span class="xn"><span class="num">6.12.3&nbsp;&nbsp;</span></span>Assumptions that are likely to break</h3>
+<p>The roofline assumes one compute roof per format; Hopper and Blackwell add asynchronous tensor memory accelerators, distributed shared memory across SMs and sub-byte formats whose throughput depends on block scaling, so the “roof” becomes a function of how a kernel is written. It assumes a fixed clock; every recent datacentre part is power-limited, and the burst–sustained gap we measured will widen as tensor-core throughput grows faster than power budgets. It assumes one memory; unified CPU–GPU memory over NVLink-C2C (Grace Hopper) blurs the line between HBM and host transfers that our milestone 1 draws. And it assumes that a transfer that reports success has happened, an assumption our box has already broken.</p>
+</section>
+<section id="how-to-recognise-the-next-variant" class="level3">
+<h3><span class="xn"><span class="num">6.12.4&nbsp;&nbsp;</span></span>How to recognise the next variant</h3>
+<p>New papers in this area vary along a few axes; placing a paper on them takes a minute. <em>What is measured</em>: throughput, latency, capacity, energy, variability, or correctness of a path. <em>At which level</em>: instruction, kernel, operator, step, job. <em>With what model</em>: analytical (roofline-style ceilings), empirical tables, learned predictors, or simulation. <em>Under which conditions</em>: burst or sustained, locked or free clocks, one device or a fleet, synthetic or real workloads. <em>How validated</em>: held-out kernels or hardware, or only in-sample fit. A paper that reports a new peak without its conditions, or a predictor without held-out error, has told you less than it seems to.</p>
+</section>
+</section>
+<section id="sec:proj10:summary" class="level2">
+<h2><span class="xn"><span class="num">6.13&nbsp;&nbsp;</span></span>Summary</h2>
+<ul>
+<li>A microbenchmark suite answers research questions: what the ceilings are, why they sit where they do, and whether they predict real work. Each needs its own timer: wall clock for host round trips, CUDA events with a flushed L2 and a queue kept ahead for device time, graph-replayed bursts for per-kernel gaps.</li>
+<li>On our 2x A100-40GB PCIe box: HBM 1,325 GB/s for a copy or a read and 1,498 GB/s for a write (85% and 96% of 1,555); L2 at least 3.1 TB/s with an effective capacity near 24 MiB; pinned PCIe about 24 GB/s from the GPU’s own NUMA node and 20 GB/s from the other, pageable less than half; BF16 233 TFLOP/s in bursts and 217 TFLOP/s sustained; FP32 19.0 TFLOP/s on CUDA cores; 1.3 μs per kernel in a CUDA graph against 7.4 μs of host time per eager launch.</li>
+<li>The clock is a variable: idle 765 MHz, boost 1,410 MHz after a fraction of a second of load, and about 1,035 MHz under sustained GEMMs at the 250 W limit, where GEMM throughput is proportional to the clock. A benchmark that does not control the clock measures the GPU’s recent history.</li>
+<li>Peer-to-peer copies between our GPUs report 8.3 GB/s and deliver zeros, because the IOMMU translates peer addresses, an unsupported configuration; a pipelined copy through pinned host memory runs at 18.5 GB/s and is correct. Check the output of every benchmark, and the placement of every buffer.</li>
+<li>With measured ceilings and fixed costs and no fitted parameters, the roofline predicts 16 of 20 kernels it was not calibrated on within 20% (mean error 11%); the misses (softmax, flash attention, the attention that materialises its scores, a small GEMM) each name a mechanism the model lacks.</li>
+</ul>
+</section>
+<section id="sec:proj10:exercises" class="level2">
+<h2><span class="xn"><span class="num">6.14&nbsp;&nbsp;</span></span>Exercises</h2>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.1</span></span></strong> (<em>Peaks from first principles</em>).</p>
+<p>The H100 SXM has 132 SMs and a dense BF16 peak of 989 TFLOP/s, with 4,096 dense BF16 FLOPs per SM per clock. Use (<a href="#eq:proj10:peak">6.1</a>) to compute the clock the datasheet assumes. On a box you can access, compare it with the maximum clock <code>nvidia-smi -q -d CLOCK</code> reports, and predict the burst-to-sustained ratio from the power limit.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.2</span></span></strong> (<em>Half-bandwidth sizes</em>).</p>
+<p>From the pinned H2D fit of Table&nbsp;<a href="#tab:proj10:host">6.5</a> (<span class="math inline">\(\alpha = 6.3\)</span> μs, <span class="math inline">\(\beta = 23.9\)</span> GB/s), compute <span class="math inline">\(n_{1/2}\)</span> and the transfer size that reaches 90% of <span class="math inline">\(\beta\)</span>. A data loader sends one batch of <span class="math inline">\(8\times2048\)</span> int64 token ids per step. What bandwidth does it see, and would sending the ids as int32 change the transfer time noticeably?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.3</span></span></strong> (<em>Pageable as two stages</em>).</p>
+<p>Using (<a href="#eq:proj10:pageable">6.6</a>) and the D2H plateaus of Table&nbsp;<a href="#tab:proj10:host">6.5</a> (pinned 23.5, pageable 8.1 GB/s), infer the host copy bandwidth. Is it consistent with the H2D estimate of Section&nbsp;<a href="#sec:proj10:m1">6.4</a>? Propose a measurement that tests the two-stage model directly.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.4</span></span></strong> (<em>The best chunk size</em>).</p>
+<p>For the staged copy, model each chunk’s stage time as <span class="math inline">\(\alpha + c/\beta\)</span> with the pinned D2H and H2D fits of Table&nbsp;<a href="#tab:proj10:host">6.5</a>, and minimise (<a href="#eq:proj10:pipeline">6.7</a>) over <span class="math inline">\(c\)</span> for <span class="math inline">\(n = 256\)</span> MiB. Then measure <code>staged_bandwidth</code> for chunks of 1, 4, 16 and 64 MiB and compare.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.5</span></span></strong> (<em>How many repetitions?</em>).</p>
+<p>A kernel’s timings have a coefficient of variation of 3%. Using (<a href="#eq:proj10:ci">6.4</a>) and a Gaussian approximation, how many samples give a 95% confidence interval for the median no wider than <span class="math inline">\(\pm1\%\)</span>? Check your answer with <code>stats.bootstrap_ci</code> on synthetic log-normal samples.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.6</span></span></strong> (<em>Overhead-bound decoding</em>).</p>
+<p>A decode step of Qwen3-0.6B launches about 420 kernels and reads 1.2 GB of BF16 weights. Using the fixed costs of Figure&nbsp;<a href="#fig:proj10:latency">6.9</a>, predict the step time eager, eager with half the kernels fused away, and replayed from a CUDA graph. At what batch size does the eager step stop being overhead-bound on this box?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.7</span></span></strong> (<em>The sawtooth</em>).</p>
+<p>In Figure&nbsp;<a href="#fig:proj10:bw">6.4</a> the warm copy runs about 19% slower at the half-octave working sets of 5.7 and 11.3 MiB than at the next smaller power of two (in an earlier run, 2.8 MiB did too). Propose two mechanisms (one about how the copy kernel divides work among SMs, one about how addresses map to L2 slices or partitions), and design a sweep with the suite that distinguishes them.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.8</span></span></strong> (<em>Two clocks, one GEMM, one mistake</em>).</p>
+<p>A first analysis of the sustained run paired throughput samples with clock samples by index, ignoring the sampler’s start-up delay, and obtained a burst of 261 TFLOP/s at 1,410 MHz and a sustained 217 TFLOP/s at 1,035 MHz. Fit <span class="math inline">\(t = W_{\text{SM}}/f + W_{\text{mem}}\)</span> (a part that scales with the SM clock <span class="math inline">\(f\)</span> and a part that does not) to these two points for the <span class="math inline">\(8192^3\)</span> BF16 GEMM, and predict the throughput at 765 MHz. Compare the prediction with the clock-scaled peak <span class="math inline">\(312\times765/1{,}410\)</span> TFLOP/s and explain why the fit must be wrong. Which assumption about the “burst” point fails, and how does the correctly timestamped trace of Figure&nbsp;<a href="#fig:proj10:sustained">6.7</a> settle the question?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.9</span></span></strong> (<em>Research: Habitat on one box</em>).</p>
+<p>Habitat (Yu et al., 2021) predicts kernel times on a target GPU from measurements on an origin GPU by scaling each kernel with the ratio of the two GPUs’ ceilings. Our box offers two “GPUs” with different ceilings: the A100 at its boost clock and the same A100 at its power-limited clock. Predict, then measure, the zoo’s times in the power-limited state from their burst times, scaling compute-bound kernels by the clock ratio and memory-bound ones not at all. Which kernels does the rule mispredict, and why?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.10</span></span></strong> (<em>Research: predict the spec sheet of another GPU</em>).</p>
+<p>Before running the suite on a different GPU (an H100, an L4, a consumer card), write down your predicted spec sheet: datasheet numbers times the fractions measured here, with the burst–sustained gap scaled by the ratio of tensor throughput to power limit. Then measure. Which fractions transfer, which do not, and which part of the model of (<a href="#eq:proj10:model">6.8</a>) needs a new term?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 6.11</span></span></strong> (<em>A test that would have caught it</em>).</p>
+<p>Write a pytest test, suitable for the CI of a pipeline-parallel training framework, that would have caught the silent peer-copy failure of Section&nbsp;<a href="#sec:proj10:p2p">6.4.5</a> on a new machine before any training run. Why does NCCL not need such a test, and what in its design makes it robust to this failure?</p>
+</div>
+</section>
+</section>
+
+    </article>
+    <nav class="pager"><a class="prev" href="ch05_quant.html">&larr; Scaling, Quantisation and Mixed Precision</a> <a class="next" href="ch07_proj_lowprec.html">Project 11: A Low-Precision Training Study &rarr;</a></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#sec:proj10:glance" id="toc-sec:proj10:glance"><span class="num">6.1&nbsp;&nbsp;</span>The project at a glance</a>
+<ul>
+<li><a href="#research-questions" id="toc-research-questions"><span class="num">7.1.1&nbsp;&nbsp;</span>Research questions</a></li>
+<li><a href="#prerequisites" id="toc-prerequisites"><span class="num">7.1.2&nbsp;&nbsp;</span>Prerequisites</a></li>
+<li><a href="#milestones-and-acceptance-tests" id="toc-milestones-and-acceptance-tests"><span class="num">7.1.3&nbsp;&nbsp;</span>Milestones and acceptance tests</a></li>
+<li><a href="#the-kit" id="toc-the-kit"><span class="num">7.1.4&nbsp;&nbsp;</span>The kit</a></li>
+</ul></li>
+<li><a href="#sec:proj10:box" id="toc-sec:proj10:box"><span class="num">6.2&nbsp;&nbsp;</span>The machine under test</a>
+<ul>
+<li><a href="#what-the-datasheet-promises-and-where-the-numbers-come-from" id="toc-what-the-datasheet-promises-and-where-the-numbers-come-from"><span class="num">6.2.1&nbsp;&nbsp;</span>What the datasheet promises, and where the numbers come from</a></li>
+<li><a href="#recording-the-environment" id="toc-recording-the-environment"><span class="num">6.2.2&nbsp;&nbsp;</span>Recording the environment</a></li>
+</ul></li>
+<li><a href="#sec:proj10:method" id="toc-sec:proj10:method"><span class="num">6.3&nbsp;&nbsp;</span>Measuring honestly</a>
+<ul>
+<li><a href="#three-timers-for-three-questions" id="toc-three-timers-for-three-questions"><span class="num">6.3.1&nbsp;&nbsp;</span>Three timers for three questions</a></li>
+<li><a href="#the-clock-is-a-variable" id="toc-the-clock-is-a-variable"><span class="num">6.3.2&nbsp;&nbsp;</span>The clock is a variable</a></li>
+<li><a href="#statistics-what-to-report-and-how-many-samples" id="toc-statistics-what-to-report-and-how-many-samples"><span class="num">6.3.3&nbsp;&nbsp;</span>Statistics: what to report and how many samples</a></li>
+</ul></li>
+<li><a href="#sec:proj10:m1" id="toc-sec:proj10:m1"><span class="num">6.4&nbsp;&nbsp;</span>Milestone 1: the bandwidth suite</a>
+<ul>
+<li><a href="#streams-through-hbm" id="toc-streams-through-hbm"><span class="num">6.4.1&nbsp;&nbsp;</span>Streams through HBM</a></li>
+<li><a href="#l2-capacity-bandwidth-and-a-knee-in-the-wrong-place" id="toc-l2-capacity-bandwidth-and-a-knee-in-the-wrong-place"><span class="num">6.4.2&nbsp;&nbsp;</span>L2: capacity, bandwidth and a knee in the wrong place</a></li>
+<li><a href="#host-and-device-pinned-pageable-and-the-alphabeta-model" id="toc-host-and-device-pinned-pageable-and-the-alphabeta-model"><span class="num">6.4.3&nbsp;&nbsp;</span>Host and device: pinned, pageable, and the <span class="math inline">\(\alpha\)</span>–<span class="math inline">\(\beta\)</span> model</a></li>
+<li><a href="#sec:proj10:numa" id="toc-sec:proj10:numa"><span class="num">6.4.4&nbsp;&nbsp;</span>Which socket’s memory?</a></li>
+<li><a href="#sec:proj10:p2p" id="toc-sec:proj10:p2p"><span class="num">6.4.5&nbsp;&nbsp;</span>Between the GPUs: a bandwidth that delivers zeros</a></li>
+</ul></li>
+<li><a href="#sec:proj10:m2" id="toc-sec:proj10:m2"><span class="num">6.5&nbsp;&nbsp;</span>Milestone 2: compute ceilings</a>
+<ul>
+<li><a href="#matmul-peaks-per-data-type" id="toc-matmul-peaks-per-data-type"><span class="num">6.5.1&nbsp;&nbsp;</span>Matmul peaks per data type</a></li>
+<li><a href="#sec:proj10:power" id="toc-sec:proj10:power"><span class="num">6.5.2&nbsp;&nbsp;</span>Burst and sustained: the power limit</a></li>
+<li><a href="#sec:proj10:fma" id="toc-sec:proj10:fma"><span class="num">6.5.3&nbsp;&nbsp;</span>A FLOP-bound kernel for the CUDA cores</a></li>
+</ul></li>
+<li><a href="#sec:proj10:m3" id="toc-sec:proj10:m3"><span class="num">6.6&nbsp;&nbsp;</span>Milestone 3: the fixed costs</a></li>
+<li><a href="#sec:proj10:m4" id="toc-sec:proj10:m4"><span class="num">6.7&nbsp;&nbsp;</span>Milestone 4: a predictive model and its validation</a>
+<ul>
+<li><a href="#the-model" id="toc-the-model"><span class="num">6.7.1&nbsp;&nbsp;</span>The model</a></li>
+<li><a href="#the-zoo" id="toc-the-zoo"><span class="num">6.7.2&nbsp;&nbsp;</span>The zoo</a></li>
+<li><a href="#results" id="toc-results"><span class="num">6.7.3&nbsp;&nbsp;</span>Results</a></li>
+</ul></li>
+<li><a href="#sec:proj10:m5" id="toc-sec:proj10:m5"><span class="num">6.8&nbsp;&nbsp;</span>Milestone 5: the spec sheet and the write-up</a>
+<ul>
+<li><a href="#the-spec-sheet" id="toc-the-spec-sheet"><span class="num">6.8.1&nbsp;&nbsp;</span>The spec sheet</a></li>
+<li><a href="#reproducing-a-published-number" id="toc-reproducing-a-published-number"><span class="num">6.8.2&nbsp;&nbsp;</span>Reproducing a published number</a></li>
+<li><a href="#sec:proj10:writeup" id="toc-sec:proj10:writeup"><span class="num">6.8.3&nbsp;&nbsp;</span>The write-up and its rubric</a></li>
+</ul></li>
+<li><a href="#sec:proj10:baselines" id="toc-sec:proj10:baselines"><span class="num">6.9&nbsp;&nbsp;</span>Baselines</a></li>
+<li><a href="#sec:proj10:budget" id="toc-sec:proj10:budget"><span class="num">6.10&nbsp;&nbsp;</span>Compute budget</a></li>
+<li><a href="#sec:proj10:extensions" id="toc-sec:proj10:extensions"><span class="num">6.11&nbsp;&nbsp;</span>Extensions</a></li>
+<li><a href="#sec:proj10:frontier" id="toc-sec:proj10:frontier"><span class="num">6.12&nbsp;&nbsp;</span>Research frontier</a>
+<ul>
+<li><a href="#open-problems" id="toc-open-problems"><span class="num">7.12.1&nbsp;&nbsp;</span>Open problems</a></li>
+<li><a href="#the-works-that-define-the-area" id="toc-the-works-that-define-the-area"><span class="num">7.12.2&nbsp;&nbsp;</span>The works that define the area</a></li>
+<li><a href="#assumptions-that-are-likely-to-break" id="toc-assumptions-that-are-likely-to-break"><span class="num">7.12.3&nbsp;&nbsp;</span>Assumptions that are likely to break</a></li>
+<li><a href="#how-to-recognise-the-next-variant" id="toc-how-to-recognise-the-next-variant"><span class="num">7.12.4&nbsp;&nbsp;</span>How to recognise the next variant</a></li>
+</ul></li>
+<li><a href="#sec:proj10:summary" id="toc-sec:proj10:summary"><span class="num">6.13&nbsp;&nbsp;</span>Summary</a></li>
+<li><a href="#sec:proj10:exercises" id="toc-sec:proj10:exercises"><span class="num">6.14&nbsp;&nbsp;</span>Exercises</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Numbers on the Machine: Formats, Rounding and Stable Algorithms · Big Book of LLMs</title>
+<script>
+  // Restore reader settings before first paint (theme, font, size, panels).
+  (function () {
+    var r = document.documentElement;
+    function g(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    var t = g("theme");
+    if (!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    r.setAttribute("data-theme", t);
+    r.setAttribute("data-font", g("font") || "serif");
+    r.setAttribute("data-nav", g("nav") || "open");
+    r.setAttribute("data-toc", g("toc") || "open");
+    var fs = g("fs"); if (fs) r.style.setProperty("--fs", fs + "px");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "none" },
+    chtml: { scale: 1.0, matchFontHeight: true },
+    options: { enableMenu: false }
+  };
+</script>
+<script defer src="mathjax/tex-chtml-full.js"></script>
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="nav-toggle" aria-label="Show or hide the chapter list" title="Chapters ( [ )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <a class="brand" href="index.html">Big Book <span>of LLMs</span></a>
+  <div class="topbar-spacer"></div>
+  <button class="search-btn" id="search-open" aria-label="Search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span>Search</span><kbd>/</kbd>
+  </button>
+  <div class="btn-group hide-mobile" role="group" aria-label="Text size">
+    <button class="icon-btn" id="fs-down" title="Smaller text" aria-label="Smaller text">A&minus;</button>
+    <button class="icon-btn" id="fs-up" title="Larger text" aria-label="Larger text">A+</button>
+  </div>
+  <button class="icon-btn hide-mobile" id="font-toggle" title="Switch serif / sans-serif" aria-label="Switch serif or sans-serif text">Aa</button>
+  <button class="icon-btn" id="theme-toggle" title="Theme: light, sepia, dark" aria-label="Change colour theme">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18V3z" fill="currentColor"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    <span class="theme-label hide-mobile" id="theme-label"></span>
+  </button>
+  <button class="icon-btn" id="toc-toggle" aria-label="Show or hide the page contents" title="On this page ( ] )">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 4l2 2-2 2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Chapters">
+<ul class="nav-front">
+<li><a href="preface.html" data-page="preface.html"><span class="num"></span>Preface</a></li>
+<li><a href="roadmap.html" data-page="roadmap.html"><span class="num"></span>Roadmap</a></li>
+</ul>
+<div class="nav-part" data-part="p0"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Foundations</span></button><ul>
+<li><a href="ch01_landscape.html" data-page="ch01_landscape.html"><span class="num">1&nbsp; </span>The Landscape: LLMs, Reasoning Models, and the Systems View</a></li>
+<li><a href="ch02_pytorch.html" data-page="ch02_pytorch.html"><span class="num">2&nbsp; </span>PyTorch Essentials</a></li>
+<li><a href="ch03_machine.html" data-page="ch03_machine.html"><span class="num">3&nbsp; </span>The Machine Underneath: GPUs, Rooflines and Measurement</a></li>
+<li><a href="ch04_numerics.html" data-page="ch04_numerics.html"><span class="num">4&nbsp; </span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</a></li>
+<li><a href="ch05_quant.html" data-page="ch05_quant.html"><span class="num">5&nbsp; </span>Scaling, Quantisation and Mixed Precision</a></li>
+<li><a href="ch06_proj_machine.html" data-page="ch06_proj_machine.html"><span class="num">6&nbsp; </span>Project 10: Know Your Machine, a Microbenchmark and Roofline Suite</a></li>
+<li><a href="ch07_proj_lowprec.html" data-page="ch07_proj_lowprec.html"><span class="num">7&nbsp; </span>Project 11: A Low-Precision Training Study</a></li>
+</ul></div>
+<div class="nav-part" data-part="p1"><button class="part-toggle" type="button"><svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg><span>Appendices</span></button><ul>
+<li><a href="appF_references.html" data-page="appF_references.html"><span class="num">F&nbsp; </span>References and Further Reading</a></li>
+<li><a href="appH_solutions.html" data-page="appH_solutions.html"><span class="num">H&nbsp; </span>Solutions to Exercises</a></li>
+</ul></div>
+  </nav>
+
+  <main class="content" id="content">
+    <article class="chapter">
+
+<section id="ch:numerics" class="level1">
+<h1><span class="xn"><span class="num">Chapter 4&nbsp;&nbsp;</span></span>Numbers on the Machine: Formats, Rounding and Stable Algorithms</h1>
+<p>Every tensor in this book is a block of bits, and how many bits we spend on each number is one of the largest levers a systems engineer has. Halve the bytes per parameter and a model needs half the memory, a decode step moves half the bytes across the HBM bus, and the tensor cores run up to twice as many multiply-adds per second. Most of the speedups of the past decade of LLM training and inference—BF16 training, FP8 GEMMs, 4-bit weights, quantised KV caches, the FP4 tensor cores of the newest GPUs—are, at bottom, decisions about number formats. They are also the source of a whole class of failures that look like modelling problems: losses that diverge for no visible reason, updates that silently do nothing, attention logits that overflow, gradients that underflow to zero.</p>
+<p>This chapter treats number formats and numerical algorithms as a first-class systems topic. We start from integers and the bit-level definition of IEEE 754 floating point, and build the 8-, 6- and 4-bit formats that modern accelerators add. We then study what arithmetic does to them: rounding (including stochastic rounding, the weight update that silently vanishes, and compensated summation), the precision of the accumulators inside matrix multiplication (from the FP32 sums of tensor cores to the limited-precision FP8 accumulators of Hopper and the promotion that repairs them), and finally the numerically stable one-pass algorithms (logsumexp, online softmax, Welford) that make fused kernels such as FlashAttention possible.</p>
+<p>Chapter&nbsp;<a href="ch02_pytorch.html#ch:pytorch">2</a> introduced dtypes and Chapter&nbsp;<a href="ch03_machine.html#ch:machine">3</a> the roofline; this chapter and the next are the complete treatment of formats and numerics that the training chapters (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">20</span>, Chapter&nbsp;<span class="xref-unpub" title="Not published yet">23</span>) and the inference chapters (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">48</span>, <span class="xref-missing">??</span>) build on. Here we look at one number and one operation at a time; Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a> adds the scales that let a narrow format hold a whole tensor (block scaling, MX and NVFP4), the mathematics of quantisation, and the mixed-precision recipes assembled from both. All code lives in <code>llmsys/numerics.py</code>, a bit-exact simulator of every format discussed, which we test against PyTorch’s own casts; the lab (Lab&nbsp;<a href="#sec:numerics:lab">4</a>) re-implements its core and measures what precision does on the A100.</p>
+<figure id="fig:numerics:roadmap">
+<img style="width: 1596px" src="figures/ch04_numerics-1.svg" class="fig fig-light" loading="lazy" alt="Roadmap of : the formats, from integers to FP4 (1–4), the arithmetic of rounding and accumulation (5–6), and the stable streaming algorithms behind fused kernels (7). Scales, quantisation and mixed precision follow in ." /><img style="width: 1596px" src="figures/ch04_numerics-1-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Roadmap of : the formats, from integers to FP4 (1–4), the arithmetic of rounding and accumulation (5–6), and the stable streaming algorithms behind fused kernels (7). Scales, quantisation and mixed precision follow in ." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 4.1: </span></span>Roadmap of Chapter&nbsp;<a href="#ch:numerics">4</a>: the formats, from integers to FP4 (1–4), the arithmetic of rounding and accumulation (5–6), and the stable streaming algorithms behind fused kernels (7). Scales, quantisation and mixed precision follow in Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a>.</figcaption>
+</figure>
+<section id="sec:numerics:why" class="level2">
+<h2><span class="xn"><span class="num">4.1&nbsp;&nbsp;</span></span>Why numbers are a systems topic</h2>
+<p>A model with <span class="math inline">\(N\)</span> parameters stored at <span class="math inline">\(b\)</span> bits each occupies <span class="math inline">\(Nb/8\)</span> bytes. Three resources scale with <span class="math inline">\(b\)</span>:</p>
+<ul>
+<li><p><strong>Capacity.</strong> An 8B-parameter model needs 32 GB in FP32, 16 GB in BF16, 8 GB in FP8 and about 4.3 GB in a 4-bit format with group scales. Only the last three fit next to a KV cache on one A100-40GB.</p></li>
+<li><p><strong>Bandwidth.</strong> A memory-bound kernel’s time is bytes divided by bandwidth (Section&nbsp;<a href="ch03_machine.html#sec:machine:roofline">3.2</a>). Halving <span class="math inline">\(b\)</span> halves the time of every decode step whose cost is dominated by reading weights.</p></li>
+<li><p><strong>Compute.</strong> Tensor cores process narrower operands at proportionally higher rates, because a multiplier’s area grows roughly with the square of the mantissa width and the same datapath can be split into more, narrower lanes.</p></li>
+</ul>
+<p>Table&nbsp;<a href="#tab:numerics:peaks">4.1</a> collects the datasheet peaks of the GPUs this book refers to, together with what we measure on our A100.</p>
+<div id="tab:numerics:peaks" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 4.1: </span></span>Dense tensor-core peaks in TFLOP/s (TOPS for INT8) from NVIDIA’s datasheets, and our measurement of <code>torch.mm</code>/<code>torch._int_mm</code> on one A100-40GB PCIe (median of 50 runs; measured on 2x A100-40GB (PCIe); <code>bench.py --only throughput</code>). The A100 has no FP8 or FP4 tensor cores.</caption>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Format</th>
+<th style="text-align: right;">A100 datasheet</th>
+<th style="text-align: right;">A100 measured (8192<span class="math inline">\(^3\)</span> GEMM)</th>
+<th style="text-align: right;">H100 SXM datasheet</th>
+<th style="text-align: right;">B200 datasheet</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">FP32 (CUDA cores)</td>
+<td style="text-align: right;">19.5</td>
+<td style="text-align: right;">18.1</td>
+<td style="text-align: right;">67</td>
+<td style="text-align: right;">–</td>
+</tr>
+<tr>
+<td style="text-align: left;">TF32</td>
+<td style="text-align: right;">156</td>
+<td style="text-align: right;">102</td>
+<td style="text-align: right;">495</td>
+<td style="text-align: right;">1,100</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP16 / BF16</td>
+<td style="text-align: right;">312</td>
+<td style="text-align: right;">210 / 217</td>
+<td style="text-align: right;">989</td>
+<td style="text-align: right;">2,250</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP8</td>
+<td style="text-align: right;">–</td>
+<td style="text-align: right;">–</td>
+<td style="text-align: right;">1,979</td>
+<td style="text-align: right;">4,500</td>
+</tr>
+<tr>
+<td style="text-align: left;">INT8 (TOPS)</td>
+<td style="text-align: right;">624</td>
+<td style="text-align: right;">335 (B column-major) / 58 (row-major)</td>
+<td style="text-align: right;">1,979</td>
+<td style="text-align: right;">4,500</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP4</td>
+<td style="text-align: right;">–</td>
+<td style="text-align: right;">–</td>
+<td style="text-align: right;">–</td>
+<td style="text-align: right;">9,000</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two things in the measured column deserve a comment. The PCIe A100 reaches about 70% of its BF16 peak on a large GEMM; the card is power-limited to 250 W and lowers its clock under sustained tensor-core load, so the datasheet number is a ceiling, not a target. And the INT8 result depends almost entirely on memory layout.</p>
+<div class="systemslens box">
+<p><strong>Systems Lens: A peak needs a kernel that exists</strong></p>
+<p><code>torch._int_mm</code> on two row-major 8192$$8192 INT8 matrices runs at 58 TOPS on our A100, <em>slower than BF16</em>. Storing the second operand column-major (<code>b.t().contiguous().t()</code>) gives 335 TOPS. The integer tensor-core GEMMs in cuBLASLt are built for the “TN” layout in which both operands are contiguous along <span class="math inline">\(K\)</span>; for other layouts the library falls back to a much slower path or inserts transposes. Every low-precision format has such fine print: alignment of <span class="math inline">\(K\)</span> to 16 or 32 elements, scale-factor layouts, which operand may be transposed. A format is only as fast as the kernels that implement it, which is why the chapters on kernels (<span class="xref-missing">??</span>, <span class="xref-missing">??</span>) spend so much time on layouts.</p>
+</div>
+<div class="napkinmath box">
+<p><strong>Napkin Math: What the format of the weights buys a decode step</strong></p>
+<p>Decoding one token of an 8B-parameter dense model at batch 1 reads every weight once. At the A100’s 1.555 TB/s the floor is <span class="math inline">\(16\text{ GB}/1.555\text{ TB/s}\approx10.3\)</span> ms in BF16, 5.1 ms in FP8 and 2.7 ms in a 4-bit format with one FP16 scale and one FP16 zero point per 128 weights (4.25 bits per weight, 4.25 GB). The arithmetic is identical in all three cases; only the bytes change. Prefill at a few thousand tokens per sequence is compute-bound instead, and there the format matters through the tensor-core rate: FP8 doubles the H100’s peak over BF16, FP4 doubles the B200’s again.</p>
+</div>
+<p>The price of fewer bits is error, and the rest of the chapter is about controlling it. Error enters in three ways that we treat separately: <em>representation</em> (a number is replaced by its nearest neighbour on the format’s grid), <em>range</em> (numbers too large overflow, numbers too small underflow to zero), and <em>arithmetic</em> (every operation rounds its result, and errors compound along long sums). This chapter treats representation and arithmetic, where careful rounding and wide accumulation keep errors from compounding; Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a> treats range, which scaling fixes. Representation error is what is left: the irreducible cost we pay for the bytes we save.</p>
+</section>
+<section id="sec:numerics:int" class="level2">
+<h2><span class="xn"><span class="num">4.2&nbsp;&nbsp;</span></span>Integers and fixed point</h2>
+<p>An unsigned <span class="math inline">\(b\)</span>-bit integer with bits <span class="math inline">\(d_{b-1}\dots d_0\)</span> has the value <span class="math inline">\(\sum_i d_i 2^i\)</span>, a range of <span class="math inline">\([0, 2^b-1]\)</span>. <em>Two’s complement</em> gives the most significant bit the weight <span class="math inline">\(-2^{b-1}\)</span>: <span class="xn" id="eq:numerics:twos"></span><span class="math display">\[v = -d_{b-1}2^{b-1} + \sum_{i=0}^{b-2} d_i 2^i, \qquad v\in[-2^{b-1},\,2^{b-1}-1].
+\tag{4.1}\]</span> Its virtue is that addition, subtraction and multiplication of signed numbers use exactly the same circuits as unsigned arithmetic modulo <span class="math inline">\(2^b\)</span>; negation is “invert the bits and add one”. INT8 covers <span class="math inline">\([-128, 127]\)</span>, INT4 <span class="math inline">\([-8, 7]\)</span>. The range is asymmetric, so quantisers often use the <em>narrow</em> range <span class="math inline">\([-127, 127]\)</span> to keep <span class="math inline">\(\pm\)</span> symmetric.</p>
+<p>When a result leaves the range there are two policies. Hardware adders <em>wrap around</em>: the result is reduced modulo <span class="math inline">\(2^b\)</span>, so <span class="math inline">\(127+1=-128\)</span> in INT8, the largest positive number becoming the most negative one. Quantisers and digital signal processors <em>saturate</em>: the result is clamped to the nearest representable value. A wraparound in a quantised network is a catastrophic, silent sign flip, so every conversion into a narrow integer type saturates, and every accumulator is made wide enough that it cannot wrap.</p>
+<div class="napkinmath box">
+<p><strong>Napkin Math: How wide must an integer accumulator be?</strong></p>
+<p>An INT8<span class="math inline">\(\times\)</span>INT8 product has magnitude at most <span class="math inline">\(128\cdot128=2^{14}\)</span>. A dot product of length <span class="math inline">\(K\)</span> is at most <span class="math inline">\(K\cdot2^{14}\)</span>, which stays below <span class="math inline">\(2^{31}\)</span> for <span class="math inline">\(K&lt;2^{17}=131{,}072\)</span>. That is why INT8 tensor cores accumulate in INT32: no realistic <span class="math inline">\(K\)</span> can overflow it, and integer addition is <em>exact</em>, so INT8 GEMMs have no accumulation error at all. Floating-point accumulators, as we will see in Section&nbsp;<a href="#sec:numerics:accum">4.6</a>, are a different story.</p>
+</div>
+<p><em>Fixed point</em> reinterprets an integer <span class="math inline">\(k\)</span> as <span class="math inline">\(k\cdot2^{-f}\)</span>: a Q<span class="math inline">\(m\)</span>.<span class="math inline">\(f\)</span> number has <span class="math inline">\(m\)</span> integer and <span class="math inline">\(f\)</span> fractional bits and a uniform spacing of <span class="math inline">\(2^{-f}\)</span>. Its absolute error is constant, <span class="math inline">\(2^{-f-1}\)</span> for round-to-nearest, but its relative error is not: a number near <span class="math inline">\(2^{-f}\)</span> is represented to one bit, a number near <span class="math inline">\(2^m\)</span> to <span class="math inline">\(m+f\)</span> bits. Integer quantisation (Section&nbsp;<a href="ch05_quant.html#sec:quant:quant">5.4</a>) is fixed point with a per-tensor or per-block choice of where to put the binary point.</p>
+<div id="lst:numerics:int" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 4.1: </span></span>Wraparound, saturation and fixed point (from <code>llmsys/numerics.py</code>).
+</div>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> int_wrap(x, bits, signed<span class="op">=</span><span class="va">True</span>):          <span class="co"># what an integer adder does</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    m <span class="op">=</span> <span class="dv">1</span> <span class="op">&lt;&lt;</span> bits</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    r <span class="op">=</span> torch.remainder(x.to(torch.int64), m)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> torch.where(r <span class="op">&gt;=</span> m <span class="op">//</span> <span class="dv">2</span>, r <span class="op">-</span> m, r) <span class="cf">if</span> signed <span class="cf">else</span> r</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> int_saturate(x, bits, signed<span class="op">=</span><span class="va">True</span>):      <span class="co"># what a quantiser does</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    lo, hi <span class="op">=</span> (<span class="op">-</span>(<span class="dv">1</span> <span class="op">&lt;&lt;</span> (bits <span class="op">-</span> <span class="dv">1</span>)), (<span class="dv">1</span> <span class="op">&lt;&lt;</span> (bits <span class="op">-</span> <span class="dv">1</span>)) <span class="op">-</span> <span class="dv">1</span>) <span class="cf">if</span> signed <span class="cf">else</span> (<span class="dv">0</span>, (<span class="dv">1</span> <span class="op">&lt;&lt;</span> bits) <span class="op">-</span> <span class="dv">1</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> x.to(torch.int64).clamp(lo, hi)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> to_fixed(x, int_bits, frac_bits, signed<span class="op">=</span><span class="va">True</span>, rounding<span class="op">=</span><span class="st">&quot;rne&quot;</span>):</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    k <span class="op">=</span> round_scaled(x.double() <span class="op">*</span> <span class="fl">2.0</span> <span class="op">**</span> frac_bits, rounding).to(torch.int64)</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> int_saturate(k, <span class="bu">int</span>(signed) <span class="op">+</span> int_bits <span class="op">+</span> frac_bits, signed) <span class="op">*</span> <span class="fl">2.0</span> <span class="op">**</span> <span class="op">-</span>frac_bits</span></code></pre></div>
+</div>
+<p>Neural-network tensors span many orders of magnitude: weights near <span class="math inline">\(10^{-2}\)</span>, activations from <span class="math inline">\(10^{-3}\)</span> to <span class="math inline">\(10^{3}\)</span>, gradients down to <span class="math inline">\(10^{-8}\)</span>. A fixed grid fine enough for the smallest values would need far too many bits for the largest. Floating point solves this by letting the binary point float: it spends some bits on an exponent so that the <em>relative</em> spacing is constant.</p>
+</section>
+<section id="sec:numerics:ieee" class="level2">
+<h2><span class="xn"><span class="num">4.3&nbsp;&nbsp;</span></span>IEEE 754 from the bit level</h2>
+<p>A binary floating-point format with <span class="math inline">\(e\)</span> exponent bits and <span class="math inline">\(m\)</span> fraction (mantissa) bits stores a sign bit <span class="math inline">\(s\)</span>, a biased exponent field <span class="math inline">\(E\in[0,2^e-1]\)</span> and a fraction field <span class="math inline">\(F\in[0,2^m-1]\)</span>. With the <em>bias</em> <span class="math inline">\(\beta=2^{e-1}-1\)</span> the value is <span class="xn" id="eq:numerics:ieee"></span><span class="math display">\[x = \begin{cases}
+(-1)^s\,\big(1 + F/2^m\big)\,2^{E-\beta} &amp; 1\le E\le 2^e-2 \quad\text{(normal)}\\
+(-1)^s\,\big(F/2^m\big)\,2^{1-\beta} &amp; E=0 \quad\text{(subnormal, including } \pm0)\\
+\pm\infty \text{ if } F=0,\ \text{NaN otherwise} &amp; E = 2^e-1 .
+\end{cases}
+\tag{4.2}\]</span> Normal numbers have an implicit leading 1, so they carry <span class="math inline">\(m+1\)</span> significant bits. The exponent range of normal numbers is <span class="math inline">\([e_{\min}, e_{\max}] = [1-\beta,\ 2^e-2-\beta]\)</span>. The largest finite number is <span class="math inline">\((2-2^{-m})\,2^{e_{\max}}\)</span>, the smallest normal <span class="math inline">\(2^{e_{\min}}\)</span> and the smallest subnormal <span class="math inline">\(2^{e_{\min}-m}\)</span>. Figure&nbsp;<a href="#fig:numerics:bits">4.2</a> draws the layouts of every format in this chapter.</p>
+<figure id="fig:numerics:bits">
+<img style="width: 1609px" src="figures/ch04_numerics-2.svg" class="fig fig-light" loading="lazy" alt="Bit layouts of the formats used for LLMs, drawn to scale, with the largest finite value, the machine epsilon 2^{-m} and the smallest normal number. TF32 is a tensor-core input mode stored in 32-bit words; E8M0 is the exponent-only scale of the MX formats." /><img style="width: 1609px" src="figures/ch04_numerics-2-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Bit layouts of the formats used for LLMs, drawn to scale, with the largest finite value, the machine epsilon 2^{-m} and the smallest normal number. TF32 is a tensor-core input mode stored in 32-bit words; E8M0 is the exponent-only scale of the MX formats." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 4.2: </span></span>Bit layouts of the formats used for LLMs, drawn to scale, with the largest finite value, the machine epsilon <span class="math inline">\(2^{-m}\)</span> and the smallest normal number. TF32 is a tensor-core input mode stored in 32-bit words; E8M0 is the exponent-only scale of the MX formats.</figcaption>
+</figure>
+<section id="worked-encodings" class="level3">
+<h3><span class="xn"><span class="num">4.3.1&nbsp;&nbsp;</span></span>Worked encodings</h3>
+<p>Take <span class="math inline">\(x=0.1\)</span> in FP32 (<span class="math inline">\(e=8\)</span>, <span class="math inline">\(m=23\)</span>, <span class="math inline">\(\beta=127\)</span>). Since <span class="math inline">\(2^{-4}\le0.1&lt;2^{-3}\)</span>, the exponent is <span class="math inline">\(-4\)</span> and <span class="math inline">\(E=123=\)</span> <code>01111011</code>. The significand is <span class="math inline">\(0.1\cdot2^4=1.6\)</span>, so the fraction is <span class="math inline">\(0.6\)</span>, whose binary expansion <span class="math inline">\(0.1001\,1001\,1001\dots\)</span> repeats. Rounding <span class="math inline">\(0.6\cdot2^{23}=5{,}033{,}164.8\)</span> to the nearest integer gives <span class="math inline">\(F=5{,}033{,}165\)</span> = <code>0x4CCCCD</code>, and the word is <code>0x3DCCCCCD</code>, the value <span class="math inline">\(0.100000001490116\)</span>. The rounding error, <span class="math inline">\(1.5\times10^{-9}\)</span>, is <span class="math inline">\(1.5\times10^{-8}\)</span> relative, below the bound <span class="math inline">\(u=2^{-24}\approx6\times10^{-8}\)</span> that we derive next. The same number in the other formats:</p>
+<div id="tab:numerics:worked" class="table-float">
+<table>
+<caption><span class="xn"><span class="num">Table 4.2: </span></span>The decimal 0.1 in five formats, computed with <code>numerics.encode</code>. BF16 is exactly the top 16 bits of the FP32 word after rounding, which is why converting between the two is nearly free.</caption>
+<thead>
+<tr>
+<th style="text-align: left;">Format</th>
+<th style="text-align: left;">code</th>
+<th style="text-align: right;">stored value</th>
+<th style="text-align: right;">relative error</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">FP32</td>
+<td style="text-align: left;"><code>0x3DCCCCCD</code></td>
+<td style="text-align: right;">0.10000000149</td>
+<td style="text-align: right;"><span class="math inline">\(1.5\times10^{-8}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16</td>
+<td style="text-align: left;"><code>0x3DCD</code></td>
+<td style="text-align: right;">0.10009765625</td>
+<td style="text-align: right;"><span class="math inline">\(9.8\times10^{-4}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">FP16</td>
+<td style="text-align: left;"><code>0x2E66</code></td>
+<td style="text-align: right;">0.09997558594</td>
+<td style="text-align: right;"><span class="math inline">\(2.4\times10^{-4}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">FP8 E4M3</td>
+<td style="text-align: left;"><code>0x1D</code></td>
+<td style="text-align: right;">0.1015625</td>
+<td style="text-align: right;"><span class="math inline">\(1.6\times10^{-2}\)</span></td>
+</tr>
+<tr>
+<td style="text-align: left;">FP8 E5M2</td>
+<td style="text-align: left;"><code>0x2E</code></td>
+<td style="text-align: right;">0.09375</td>
+<td style="text-align: right;"><span class="math inline">\(6.3\times10^{-2}\)</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The simulator computes these codes with the recipe of Listing&nbsp;<a href="#lst:numerics:round">4.2</a>: find the binade exponent <span class="math inline">\(\lfloor\log_2|x|\rfloor\)</span> exactly with <code>frexp</code>, clamp it below at <span class="math inline">\(e_{\min}\)</span> so that subnormals share the spacing of the smallest binade, divide by the spacing, round to an integer, multiply back, and handle overflow.</p>
+<div id="lst:numerics:round" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 4.2: </span></span>Rounding to any binary float format, bit-exact (simplified from <code>round_to_format</code>).
+</div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> round_to_format(x, fmt, rounding<span class="op">=</span><span class="st">&quot;rne&quot;</span>, saturate<span class="op">=</span><span class="va">None</span>, generator<span class="op">=</span><span class="va">None</span>):</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    sat <span class="op">=</span> fmt.saturate <span class="cf">if</span> saturate <span class="kw">is</span> <span class="va">None</span> <span class="cf">else</span> saturate</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    a <span class="op">=</span> x.double().<span class="bu">abs</span>()                                      <span class="co"># exact for every format here</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    e <span class="op">=</span> (torch.frexp(a).exponent <span class="op">-</span> <span class="dv">1</span>).clamp(<span class="bu">min</span><span class="op">=</span>fmt.emin)     <span class="co"># binade; subnormals use emin</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    step <span class="op">=</span> torch.ldexp(torch.ones_like(a), e <span class="op">-</span> fmt.mbits)     <span class="co"># the ulp of that binade</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    mag <span class="op">=</span> round_scaled(a <span class="op">/</span> step, rounding, generator) <span class="op">*</span> step  <span class="co"># RNE, RTZ, stochastic, ...</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    over <span class="op">=</span> mag <span class="op">&gt;</span> fmt.max_finite</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> rounding <span class="op">==</span> <span class="st">&quot;rtz&quot;</span> <span class="kw">or</span> sat:</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        mag <span class="op">=</span> torch.where(over, fmt.max_finite, mag)          <span class="co"># clamp</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>        mag <span class="op">=</span> torch.where(over, math.inf <span class="cf">if</span> fmt.has_inf <span class="cf">else</span> math.nan, mag)</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> torch.copysign(mag, x.double())                    <span class="co"># (inf/NaN inputs elided)</span></span></code></pre></div>
+</div>
+<p>Every value of every format in this chapter has at most 24 significant bits and is exact in float64, so simulating in float64 and rounding once per operation is bit-exact; the lab’s tests confirm this against <code>torch.float16</code>, <code>torch.bfloat16</code>, <code>torch.float8_e4m3fn</code> and <code>torch.float8_e5m2</code> over all 65,536 (or 256) codes, every rounding tie and 20,000 random inputs.</p>
+</section>
+<section id="machine-epsilon-ulp-and-the-standard-model" class="level3">
+<h3><span class="xn"><span class="num">4.3.2&nbsp;&nbsp;</span></span>Machine epsilon, ulp and the standard model</h3>
+<p>Inside one binade <span class="math inline">\([2^k, 2^{k+1})\)</span> the representable numbers are evenly spaced with spacing <span class="math inline">\(\operatorname{ulp}=2^{k-m}\)</span>, the <em>unit in the last place</em>. The spacing doubles from one binade to the next, so the <em>relative</em> spacing <span class="math inline">\(\operatorname{ulp}(x)/x\)</span> stays between <span class="math inline">\(2^{-m-1}\)</span> and <span class="math inline">\(2^{-m}\)</span> for all normal <span class="math inline">\(x\)</span> (Figure&nbsp;<a href="#fig:numerics:relspacing">4.3</a>). <em>Machine epsilon</em> <span class="math inline">\(\varepsilon=2^{-m}\)</span> is the gap between 1 and the next number; the <em>unit roundoff</em> <span class="math inline">\(u=\varepsilon/2\)</span> bounds the relative error of round-to-nearest. For any real <span class="math inline">\(x\)</span> in the normal range, <span class="xn" id="eq:numerics:model"></span><span class="math display">\[\operatorname{fl}(x) = x(1+\delta),\qquad |\delta|\le u = 2^{-(m+1)} ,
+\tag{4.3}\]</span> and IEEE 754 requires the basic operations to be <em>correctly rounded</em>: <span class="math inline">\(\operatorname{fl}(a\circ b) = (a\circ b)(1+\delta)\)</span> with the same bound. This “standard model” is the basis of every error analysis in this chapter (Higham, 2002). It says that one operation loses at most half a unit in the last place; trouble only comes from many operations, from cancellation when nearly equal numbers are subtracted, and from leaving the normal range.</p>
+<figure id="fig:numerics:relspacing">
+<img style="width: 998px" src="figures/ch04_numerics-3.svg" class="fig fig-light" loading="lazy" alt="Relative spacing of representable numbers against magnitude (analytic). Within the normal range it saw-tooths between 2^{-m-1} and 2^{-m}; below the smallest normal it grows as numbers lose significant bits; the curve ends at the largest finite value. BF16 gives up three bits of FP16’s precision for about 67 more decades of range (78.6 against 12.0)." /><img style="width: 998px" src="figures/ch04_numerics-3-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Relative spacing of representable numbers against magnitude (analytic). Within the normal range it saw-tooths between 2^{-m-1} and 2^{-m}; below the smallest normal it grows as numbers lose significant bits; the curve ends at the largest finite value. BF16 gives up three bits of FP16’s precision for about 67 more decades of range (78.6 against 12.0)." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 4.3: </span></span>Relative spacing of representable numbers against magnitude (analytic). Within the normal range it saw-tooths between <span class="math inline">\(2^{-m-1}\)</span> and <span class="math inline">\(2^{-m}\)</span>; below the smallest normal it grows as numbers lose significant bits; the curve ends at the largest finite value. BF16 gives up three bits of FP16’s precision for about 67 more decades of range (78.6 against 12.0).</figcaption>
+</figure>
+</section>
+<section id="subnormals-infinities-and-nan" class="level3">
+<h3><span class="xn"><span class="num">4.3.3&nbsp;&nbsp;</span></span>Subnormals, infinities and NaN</h3>
+<p>Without subnormals the numbers would jump from <span class="math inline">\(2^{e_{\min}}\)</span> straight to 0, and <span class="math inline">\(x-y\)</span> could round to 0 although <span class="math inline">\(x\ne y\)</span>. Subnormals fill the gap with the spacing of the smallest binade (Figure&nbsp;<a href="#fig:numerics:numberline">4.4</a>): <em>gradual underflow</em>. They have fewer significant bits (a subnormal <span class="math inline">\(F/2^m\cdot2^{e_{\min}}\)</span> has as many bits as <span class="math inline">\(F\)</span> has), so relative precision degrades smoothly toward zero rather than collapsing. CPUs have historically handled subnormals in slow microcode, which is why “flush to zero” modes exist; on NVIDIA GPUs single-precision arithmetic treats them at full speed unless the code is compiled with flush-to-zero (which <code>nvcc --use_fast_math</code> implies).</p>
+<figure id="fig:numerics:numberline">
+<img style="width: 1596px" src="figures/ch04_numerics-4.svg" class="fig fig-light" loading="lazy" alt="Every value of two tiny formats on a linear axis. FP6 E3M2: the subnormals (red) and the first normal binade share the spacing 0.0625; each further binade doubles the spacing and holds the same four values. FP4 E2M1 has only eight non-negative values." /><img style="width: 1596px" src="figures/ch04_numerics-4-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Every value of two tiny formats on a linear axis. FP6 E3M2: the subnormals (red) and the first normal binade share the spacing 0.0625; each further binade doubles the spacing and holds the same four values. FP4 E2M1 has only eight non-negative values." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 4.4: </span></span>Every value of two tiny formats on a linear axis. FP6 E3M2: the subnormals (red) and the first normal binade share the spacing 0.0625; each further binade doubles the spacing and holds the same four values. FP4 E2M1 has only eight non-negative values.</figcaption>
+</figure>
+<p>The all-ones exponent encodes <span class="math inline">\(\pm\infty\)</span> (fraction 0), produced by overflow or division by zero, and NaN (any other fraction), produced by <span class="math inline">\(0/0\)</span>, <span class="math inline">\(\infty-\infty\)</span> or any operation with a NaN operand. NaN compares unequal to everything including itself, which is how <code>torch.isnan</code> and loss scalers detect it. One NaN in a gradient poisons every parameter it touches in the next all-reduce, so training loops check for non-finite values before applying an update.</p>
+</section>
+<section id="fp32-tf32-fp16-and-bf16" class="level3">
+<h3><span class="xn"><span class="num">4.3.4&nbsp;&nbsp;</span></span>FP32, TF32, FP16 and BF16</h3>
+<div id="tab:numerics:formats" class="table-float">
+<table style="width:99%;">
+<caption><span class="xn"><span class="num">Table 4.3: </span></span>The formats of this chapter, from <code>numerics.format_info</code>. “Decades” is <span class="math inline">\(\log_{10}(\text{max}/\text{min subnormal})\)</span>, the dynamic range. The FP16, BF16 and FP8 rows agree exactly with <code>torch.finfo</code> (checked in the lab’s tests).</caption>
+<colgroup>
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+<col style="width: 11%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Format</th>
+<th style="text-align: right;">bits</th>
+<th style="text-align: center;"><span class="math inline">\(e\)</span>/<span class="math inline">\(m\)</span></th>
+<th style="text-align: right;">bias</th>
+<th style="text-align: right;">max</th>
+<th style="text-align: right;">min normal</th>
+<th style="text-align: right;">min subnormal</th>
+<th style="text-align: right;"><span class="math inline">\(\varepsilon\)</span></th>
+<th style="text-align: right;">decades</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">FP32</td>
+<td style="text-align: right;">32</td>
+<td style="text-align: center;">8/23</td>
+<td style="text-align: right;">127</td>
+<td style="text-align: right;"><span class="math inline">\(3.4\times10^{38}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(1.2\times10^{-38}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(1.4\times10^{-45}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2^{-23}\)</span></td>
+<td style="text-align: right;">83.4</td>
+</tr>
+<tr>
+<td style="text-align: left;">TF32</td>
+<td style="text-align: right;">19</td>
+<td style="text-align: center;">8/10</td>
+<td style="text-align: right;">127</td>
+<td style="text-align: right;"><span class="math inline">\(3.4\times10^{38}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(1.2\times10^{-38}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(1.1\times10^{-41}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2^{-10}\)</span></td>
+<td style="text-align: right;">79.5</td>
+</tr>
+<tr>
+<td style="text-align: left;">BF16</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: center;">8/7</td>
+<td style="text-align: right;">127</td>
+<td style="text-align: right;"><span class="math inline">\(3.4\times10^{38}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(1.2\times10^{-38}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(9.2\times10^{-41}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2^{-7}\)</span></td>
+<td style="text-align: right;">78.6</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP16</td>
+<td style="text-align: right;">16</td>
+<td style="text-align: center;">5/10</td>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">65,504</td>
+<td style="text-align: right;"><span class="math inline">\(6.1\times10^{-5}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(6.0\times10^{-8}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2^{-10}\)</span></td>
+<td style="text-align: right;">12.0</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP8 E5M2</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: center;">5/2</td>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">57,344</td>
+<td style="text-align: right;"><span class="math inline">\(6.1\times10^{-5}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(1.5\times10^{-5}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2^{-2}\)</span></td>
+<td style="text-align: right;">9.6</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP8 E4M3</td>
+<td style="text-align: right;">8</td>
+<td style="text-align: center;">4/3</td>
+<td style="text-align: right;">7</td>
+<td style="text-align: right;">448</td>
+<td style="text-align: right;"><span class="math inline">\(1.6\times10^{-2}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2.0\times10^{-3}\)</span></td>
+<td style="text-align: right;"><span class="math inline">\(2^{-3}\)</span></td>
+<td style="text-align: right;">5.4</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP6 E3M2</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: center;">3/2</td>
+<td style="text-align: right;">3</td>
+<td style="text-align: right;">28</td>
+<td style="text-align: right;">0.25</td>
+<td style="text-align: right;">0.0625</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-2}\)</span></td>
+<td style="text-align: right;">2.7</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP6 E2M3</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: center;">2/3</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">7.5</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.125</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-3}\)</span></td>
+<td style="text-align: right;">1.8</td>
+</tr>
+<tr>
+<td style="text-align: left;">FP4 E2M1</td>
+<td style="text-align: right;">4</td>
+<td style="text-align: center;">2/1</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">0.5</td>
+<td style="text-align: right;"><span class="math inline">\(2^{-1}\)</span></td>
+<td style="text-align: right;">1.1</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>FP32</strong> is the reference format: master weights, optimiser states and reductions. <strong>TF32</strong> is not a storage format but a tensor-core <em>input mode</em>: an A100 reads FP32 operands, rounds them to 10 fraction bits, multiplies exactly and accumulates in FP32, at 8<span class="math inline">\(\times\)</span> the FP32 CUDA-core rate. It keeps FP32’s range, so code needs no changes; it is off by default for matmuls in PyTorch (<code>torch.backends.cuda.matmul.allow_tf32</code>). <strong>FP16</strong> has three more fraction bits than BF16 but a range of only twelve decades. <strong>BF16</strong> is the top half of an FP32 word: the same eight exponent bits, seven fraction bits (Kalamkar et al., 2019).</p>
+<div class="keyidea box">
+<p><strong>Key Idea: Why BF16 won for training</strong></p>
+<p>Training needs <em>range</em> more than <em>precision</em>. Gradients, activations and their products span far more than FP16’s twelve decades, while SGD-style optimisers are robust to relative errors of <span class="math inline">\(10^{-2}\)</span> in individual values as long as errors do not systematically accumulate. BF16 keeps FP32’s 78-decade range, so it essentially never overflows or underflows in a well-behaved network and needs no loss scaling; converting from FP32 is rounding off 16 bits; and the narrow mantissa costs little because every <em>accumulation</em> is kept in FP32 (tensor-core accumulators, reductions, optimiser updates). The price is the precision of individual values: BF16’s unit roundoff <span class="math inline">\(2^{-8}=0.4\%\)</span> is eight times FP16’s, which matters precisely where values are accumulated in place, as in weight updates (Section&nbsp;<a href="#sec:numerics:rounding">4.5</a>).</p>
+</div>
+<p>FP16 fails at both ends. It <em>overflows</em> above 65,504: <span class="math inline">\(e^x\)</span> overflows for <span class="math inline">\(x&gt;\ln 65{,}504=11.09\)</span>, so a softmax computed without subtracting the maximum (Section&nbsp;<a href="#sec:numerics:online">4.7</a>) overflows on perfectly ordinary attention logits; squares of activations above 256 overflow in a norm’s mean of squares; and large models develop “massive activations” thousands of times the median value in a few hidden dimensions (Sun et al., 2024). It <em>underflows</em> below <span class="math inline">\(6\times10^{-8}\)</span>: gradients of deep networks are often <span class="math inline">\(10^{-6}\)</span> to <span class="math inline">\(10^{-9}\)</span>, and in the subnormal range they keep only a few significant bits. Loss scaling (Section&nbsp;<a href="ch05_quant.html#sec:quant:mixed">5.6</a>) shifts the gradients up into range; BF16 makes it unnecessary.</p>
+</section>
+</section>
+<section id="sec:numerics:lowfp" class="level2">
+<h2><span class="xn"><span class="num">4.4&nbsp;&nbsp;</span></span>Low-precision floats: FP8, FP6 and FP4</h2>
+<p>Eight bits leave room for two sensible splits, and both are in use (Micikevicius et al., 2022; Open Compute Project, 2023). <strong>E5M2</strong> follows the IEEE conventions exactly: it is FP16 with the low eight fraction bits removed, keeps infinities and NaNs, and spans 9.6 decades up to 57,344. <strong>E4M3</strong> spends one more bit on precision. With IEEE conventions the top binade (exponent field 1111) would be reserved for inf and NaN, giving a maximum of <span class="math inline">\(1.875\cdot2^7=240\)</span>. The OCP format instead gives up infinities and keeps a single NaN pattern per sign, <code>S.1111.111</code>, so the top binade holds seven ordinary numbers and the maximum becomes <span class="math inline">\(1.75\cdot2^8=448\)</span>: almost one binade more range (17.8 instead of 16.9 binades between the largest value and the smallest subnormal) for the cost of two codes. PyTorch calls this format <code>float8_e4m3fn</code> (“finite, NaN”); conversions to it <em>saturate</em>: we measure <code>torch.tensor([1e6, inf]).to(torch.float8_e4m3fn)</code> <span class="math inline">\(\to[448, 448]\)</span>, while E5M2 overflows to inf like any IEEE format. Our <code>FloatFormat</code> dataclass records these conventions as data (<code>specials="ieee"|"fn"|"none"</code>, <code>saturate</code>), so one rounding routine serves every format.</p>
+<div id="lst:numerics:specs" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 4.3: </span></span>Formats as data: the specs used throughout the chapter.
+</div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span>(frozen<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> FloatFormat:</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    name: <span class="bu">str</span><span class="op">;</span> ebits: <span class="bu">int</span><span class="op">;</span> mbits: <span class="bu">int</span><span class="op">;</span> bias: <span class="bu">int</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    specials: <span class="bu">str</span> <span class="op">=</span> <span class="st">&quot;ieee&quot;</span>      <span class="co"># &quot;ieee&quot;: inf+NaN; &quot;fn&quot;: NaN only (all ones); &quot;none&quot;: finite only</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    saturate: <span class="bu">bool</span> <span class="op">=</span> <span class="va">False</span>      <span class="co"># default overflow policy of conversions</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># derived: emax, emin, max_finite, min_normal, min_subnormal, eps, unit_roundoff, decades</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>FP16 <span class="op">=</span> FloatFormat(<span class="st">&quot;fp16&quot;</span>, <span class="dv">5</span>, <span class="dv">10</span>, <span class="dv">15</span>)</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>BF16 <span class="op">=</span> FloatFormat(<span class="st">&quot;bf16&quot;</span>, <span class="dv">8</span>, <span class="dv">7</span>, <span class="dv">127</span>)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>E4M3 <span class="op">=</span> FloatFormat(<span class="st">&quot;fp8_e4m3&quot;</span>, <span class="dv">4</span>, <span class="dv">3</span>, <span class="dv">7</span>, <span class="st">&quot;fn&quot;</span>, saturate<span class="op">=</span><span class="va">True</span>)    <span class="co"># OCP; max 448</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>E5M2 <span class="op">=</span> FloatFormat(<span class="st">&quot;fp8_e5m2&quot;</span>, <span class="dv">5</span>, <span class="dv">2</span>, <span class="dv">15</span>)                         <span class="co"># IEEE-like; max 57344</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>E2M1 <span class="op">=</span> FloatFormat(<span class="st">&quot;fp4_e2m1&quot;</span>, <span class="dv">2</span>, <span class="dv">1</span>, <span class="dv">1</span>, <span class="st">&quot;none&quot;</span>, saturate<span class="op">=</span><span class="va">True</span>)   <span class="co"># {0, .5, 1, 1.5, 2, 3, 4, 6}</span></span></code></pre></div>
+</div>
+<p>The usual division of labour, proposed by Micikevicius et al. (2022) and earlier by Sun et al. (2019), is E4M3 for weights and activations (which need precision and have moderate range) and E5M2 for gradients (which need range). The reason is visible in a measurement. We take a gradient-like tensor, Gaussian values multiplied by a log-normal magnitude (<span class="math inline">\(\sigma_{\log}=2.5\)</span>, so the values span about ten decades), divide it by one scale for the whole tensor, chosen so that its largest magnitude lands on the format’s maximum (scales are the subject of Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a>), and cast it to FP8. E4M3 flushes 59% of the elements to zero; E5M2 flushes 0.1%. With one FP32 scale per <span class="math inline">\(1\times128\)</span> tile instead, E4M3 flushes only 2.2% and has a lower median relative error than E5M2 (2.4% against 4.3%), because each tile’s scale moves its own range into the format’s window (<code>bench.py --only formats</code>; with <span class="math inline">\(128\times128\)</span> blocks E4M3 still flushes 18%). Fine-grained scaling is what lets DeepSeek-V3 use E4M3 for every tensor (Section&nbsp;<a href="ch05_quant.html#sec:quant:deepseek">5.7</a>).</p>
+<p>Below eight bits the OCP formats drop all special values. <strong>FP6</strong> comes as E2M3 (maximum 7.5) and E3M2 (maximum 28); <strong>FP4 E2M1</strong> has the eight magnitudes <span class="math inline">\(\{0, 0.5, 1, 1.5, 2, 3, 4, 6\}\)</span> (Figure&nbsp;<a href="#fig:numerics:numberline">4.4</a>): one decade of dynamic range and one fraction bit. A 4-bit float is less a floating-point number than a tiny non-uniform grid, denser near zero, and is only usable with a scale per small block of values, which is the subject of Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a>.</p>
+<div class="deepdive box">
+<p><strong>Deeper Dive: Reading the research: FP8 Formats for Deep Learning (Micikevicius et al., 2022)</strong></p>
+<p><strong>What it proposes.</strong> Two 8-bit encodings: E5M2 with IEEE conventions, and E4M3 with the “no infinities, one NaN pattern” convention that raises its maximum from 240 to 448. Tensors are scaled per tensor before casting; GEMMs take FP8 inputs and accumulate at higher precision; some operations (softmax, normalisation, residuals, the optimiser) stay in 16 or 32 bits. The paper trains image and language models, up to a 175B-parameter GPT-3-style model, with FP8 GEMMs and reports quality matching the 16-bit baselines, and shows post-training FP8 quantisation of 16-bit models.</p>
+<p><strong>Cost model in our notation.</strong> A GEMM with FP8 inputs moves half the bytes of BF16 and runs at twice the tensor-core rate (1,979 against 989 TFLOP/s on an H100 SXM). The added cost is one amax reduction per scaled tensor (a read of the tensor, or a few instructions in the epilogue of the kernel that produced it) and the multiplication by two scales in the GEMM epilogue. The error model: per-tensor scaling maps <span class="math inline">\(\max|x|\)</span> to the format maximum; relative representation error per element is then at most <span class="math inline">\(u=2^{-4}\)</span> (E4M3) or <span class="math inline">\(2^{-3}\)</span> (E5M2) inside the normal range, and elements more than 17.8 (or 31.8) binades below the maximum are lost.</p>
+<p><strong>What our code reproduces.</strong> The format constants exactly (448, 57,344, <span class="math inline">\(2^{-9}\)</span>, <span class="math inline">\(2^{-16}\)</span>, and 240 for the IEEE-style E4M3), with encode/decode bit-exact against PyTorch. With per-tensor scaling on a Gaussian tensor, <code>numerics.fake_quantize</code> gives a signal-to-quantisation-noise ratio of 31.6 dB for E4M3 and 25.6 dB for E5M2: the six decibels per mantissa bit that the uniform-noise model predicts. On the heavy-tailed gradient-like tensor above, E4M3 loses 59% of the elements and E5M2 0.1%, which is the paper’s argument for E5M2 gradients. The emulated per-tensor E4M3 GEMM of Section&nbsp;<a href="ch05_quant.html#sec:quant:mx">5.1</a> has a relative error of 3.7%, dominated by input representation.</p>
+<p><strong>What is out of reach, and what the reproduction covers.</strong> None of the paper’s end-to-end quality numbers can be reproduced on our machine. Its training results need FP8 tensor cores, which the A100 does not have (FP8 GEMMs can only be emulated in FP32, which reproduces the numerics but not the speed), and a compute budget of large GPU clusters for weeks for the bigger models. Its post-training results need the paper’s pretrained checkpoints and evaluation suites, which the lab does not download. Our reproduction therefore covers exactly the parts that do not depend on a trained model: the encodings and their constants (bit for bit), the per-element error model (the 6 dB per mantissa bit above), the range argument for E5M2 gradients under per-tensor scaling, and the representation error of a per-tensor-scaled FP8 GEMM. Small-model training studies in emulated FP8 are the subject of the low-precision capstone (Chapter&nbsp;<a href="ch07_proj_lowprec.html#ch:proj11">7</a>).</p>
+<p><strong>What its evaluation leaves out.</strong> It assumes the higher-precision accumulation is effectively FP32; on Hopper the FP8 tensor-core accumulator keeps only about 14 bits, which DeepSeek-V3 had to work around (Section&nbsp;<a href="#sec:numerics:accum">4.6</a>). Per-tensor scaling with a scale taken from previous iterations is fragile when activations spike, and outlier features grow with training length: Fishman et al. (2025) find instabilities in FP8 training only after hundreds of billions of tokens, far beyond the paper’s runs. And the cost of the amax reductions and casts, which on small tensors can eat the GEMM speedup, is not measured.</p>
+</div>
+</section>
+<section id="sec:numerics:rounding" class="level2">
+<h2><span class="xn"><span class="num">4.5&nbsp;&nbsp;</span></span>Rounding</h2>
+<p>Every operation ends by choosing one of the two representable neighbours <span class="math inline">\(\ell &lt; x &lt; h\)</span> of its exact result. IEEE 754 defines several rules, and accelerators add one more:</p>
+<ul>
+<li><strong>Round to nearest, ties to even</strong> (RNE, the default): pick the nearer neighbour; on an exact tie pick the one whose last bit is 0. Ties go up and down equally often, so RNE is unbiased on average.</li>
+<li><strong>Round to nearest, ties away from zero</strong> (RNA): used by some conversion instructions, for example PTX’s FP32-to-TF32 conversion <code>cvt.rna.tf32.f32</code>. Biased upward in magnitude on ties.</li>
+<li><strong>Round toward zero</strong> (RTZ, truncation): drop the extra bits. Cheapest in hardware, and biased: on average it shrinks magnitudes by half an ulp, so a long sum of positive values drifts down.</li>
+<li><strong>Stochastic rounding</strong> (SR): round up with probability equal to the distance from <span class="math inline">\(\ell\)</span>, in units of the gap.</li>
+</ul>
+<section id="stochastic-rounding-is-unbiased" class="level3">
+<h3><span class="xn"><span class="num">4.5.1&nbsp;&nbsp;</span></span>Stochastic rounding is unbiased</h3>
+<p>Write <span class="math inline">\(x = \ell + f\,q\)</span> with <span class="math inline">\(q=h-\ell\)</span> the local ulp and <span class="math inline">\(f\in[0,1)\)</span>. Stochastic rounding returns <span class="math inline">\(h\)</span> with probability <span class="math inline">\(f\)</span> and <span class="math inline">\(\ell\)</span> with probability <span class="math inline">\(1-f\)</span>, which is <span class="math inline">\(\lfloor x/q + U\rfloor q\)</span> for <span class="math inline">\(U\sim\mathcal{U}[0,1)\)</span>. Then <span class="xn" id="eq:numerics:sr"></span><span class="math display">\[\mathbb{E}[\operatorname{SR}(x)] = (1-f)\,\ell + f\,(\ell+q) = \ell + fq = x,\qquad
+\operatorname{Var}[\operatorname{SR}(x)] = q^2 f(1-f) \le \frac{q^2}{4} .
+\tag{4.4}\]</span> SR is <em>exactly unbiased</em> for every input, not merely on average over inputs, at the price of a variance of up to <span class="math inline">\(q^2/4\)</span>, the square of RNE’s worst-case error <span class="math inline">\(q/2\)</span>; averaged over inputs whose fractions <span class="math inline">\(f\)</span> are uniform, SR’s mean squared error is <span class="math inline">\(q^2/6\)</span>, twice RNE’s <span class="math inline">\(q^2/12\)</span>. Its error is a random walk: a sum of <span class="math inline">\(n\)</span> stochastically rounded terms has an error that grows like <span class="math inline">\(\sqrt{n}\)</span>, with high probability (Connolly et al., 2021), where round-to-nearest can lose entire addends systematically.</p>
+</section>
+<section id="the-update-smaller-than-half-an-ulp-vanishes" class="level3">
+<h3><span class="xn"><span class="num">4.5.2&nbsp;&nbsp;</span></span>The update smaller than half an ulp vanishes</h3>
+<p>In-place accumulation is where rounding bites hardest. Consider a weight <span class="math inline">\(w\)</span> stored in BF16 and an update <span class="math inline">\(\delta\)</span> with <span class="math inline">\(|\delta| &lt; \operatorname{ulp}(w)/2\)</span>. The exact sum <span class="math inline">\(w+\delta\)</span> lies closer to <span class="math inline">\(w\)</span> than to either neighbour, so RNE returns <span class="math inline">\(w\)</span>: <em>the update is lost, every step, forever</em>. For a typical LLM weight of magnitude 0.02, <span class="math inline">\(\operatorname{ulp}=2^{-13}\)</span> and the threshold is <span class="math inline">\(6.1\times10^{-5}\)</span>; Adam-style updates are of the order of the learning rate, <span class="math inline">\(10^{-5}\)</span> to <span class="math inline">\(10^{-4}\)</span>, so late in training most updates fall below it. For a weight of magnitude 1 the threshold is <span class="math inline">\(2^{-8}\approx0.004\)</span> (and <span class="math inline">\(2^{-9}\)</span> for updates that move it below 1, into the finer binade).</p>
+<p>Figure&nbsp;<a href="#fig:numerics:sr">4.5</a> measures this on a million weights drawn from <span class="math inline">\(\mathcal{N}(0, 0.02^2)\)</span>, with updates <span class="math inline">\(10^{-5}(0.5+\xi)\)</span>, <span class="math inline">\(\xi\sim\mathcal{N}(0,1)\)</span>, over 10,000 steps. Storing the weights in BF16 and adding updates with RNE leaves 87% of the weights unchanged at the first step, and after 10,000 steps 91.5% of the accumulated displacement is missing. Stochastic rounding of the same BF16 weights tracks the exact trajectory with a relative error of 7.3%, unbiased noise that shrinks relative to the signal as updates accumulate. FP32 master weights, rounded to BF16 only for use, have an error of 0.18%, which is just the final rounding.</p>
+<figure id="fig:numerics:sr">
+<img style="width: 1058px" src="figures/ch04_numerics-5.svg" class="fig fig-light" loading="lazy" alt="Left: stochastic rounding of x between neighbours \ell and h. Right: relative error of the accumulated update for BF16 weights updated in place with RNE, with stochastic rounding, and with FP32 master weights; measured on 2x A100-40GB (PCIe) with bench.py --only updates." /><img style="width: 1058px" src="figures/ch04_numerics-5-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Left: stochastic rounding of x between neighbours \ell and h. Right: relative error of the accumulated update for BF16 weights updated in place with RNE, with stochastic rounding, and with FP32 master weights; measured on 2x A100-40GB (PCIe) with bench.py --only updates." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 4.5: </span></span>Left: stochastic rounding of <span class="math inline">\(x\)</span> between neighbours <span class="math inline">\(\ell\)</span> and <span class="math inline">\(h\)</span>. Right: relative error of the accumulated update for BF16 weights updated in place with RNE, with stochastic rounding, and with FP32 master weights; measured on 2x A100-40GB (PCIe) with <code>bench.py --only updates</code>.</figcaption>
+</figure>
+<p>This is why mixed-precision training keeps FP32 master weights (Micikevicius et al., 2018), and why stochastic rounding is the alternative when memory is tight: Gupta et al. (2015) trained networks with 16-bit fixed point using SR, and Zamirai et al. (2020) showed that pure BF16 training with SR or Kahan-compensated weight updates matches FP32. SR also needs no extra storage, while a master copy costs 4 bytes per parameter.</p>
+<div id="lst:numerics:srbf16" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 4.4: </span></span>FP32 to BF16 with stochastic rounding: add 16 random bits below the BF16 fraction, then truncate.
+</div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> stochastic_round_bf16(x, generator<span class="op">=</span><span class="va">None</span>):</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    bits <span class="op">=</span> x.<span class="bu">float</span>().contiguous().view(torch.int32)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    r <span class="op">=</span> torch.randint(<span class="dv">0</span>, <span class="dv">1</span> <span class="op">&lt;&lt;</span> <span class="dv">16</span>, x.shape, dtype<span class="op">=</span>torch.int32, device<span class="op">=</span>x.device,</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>                      generator<span class="op">=</span>generator)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    out <span class="op">=</span> ((bits <span class="op">+</span> r) <span class="op">&amp;</span> <span class="op">~</span><span class="bn">0xFFFF</span>).view(torch.float32)   <span class="co"># carry into bit 16 with prob. f</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> torch.where(torch.isfinite(x), out, x.<span class="bu">float</span>()).to(torch.bfloat16)</span></code></pre></div>
+</div>
+<p>The integer trick in Listing&nbsp;<a href="#lst:numerics:srbf16">4.4</a> is how kernels implement SR: adding a uniform random integer to the bits that will be discarded produces a carry into the kept bits with probability equal to their value. Hardware SR units use the same idea with fewer random bits, and the number of bits matters. With <span class="math inline">\(r\)</span> random bits the rounding probability is quantised to multiples of <span class="math inline">\(2^{-r}\)</span>, so fractions below <span class="math inline">\(2^{-r}\)</span> never round up and the bias returns. Our test of the library checks this: with two random bits, values <span class="math inline">\(1/8\)</span> of an ulp above a grid point always round down (<code>sr_bits=2</code>), while sixteen bits are unbiased to within sampling error.</p>
+</section>
+<section id="compensated-summation" class="level3">
+<h3><span class="xn"><span class="num">4.5.3&nbsp;&nbsp;</span></span>Compensated summation</h3>
+<p>Kahan’s algorithm (Kahan, 1965) recovers the rounding error of each addition and feeds it into the next one:</p>
+<div id="lst:numerics:kahan" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 4.5: </span></span>Kahan summation in a simulated precision <code>fmt</code> (each op rounded with <code>rnd</code>).
+</div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> kahan_sum(x, fmt):</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    s <span class="op">=</span> c <span class="op">=</span> <span class="fl">0.0</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> t <span class="kw">in</span> x:</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        y <span class="op">=</span> rnd(t <span class="op">-</span> c, fmt)           <span class="co"># the addend, corrected by the last step&#39;s error</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        u <span class="op">=</span> rnd(s <span class="op">+</span> y, fmt)           <span class="co"># big + small: the low bits of y are lost here</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        c <span class="op">=</span> rnd(rnd(u <span class="op">-</span> s, fmt) <span class="op">-</span> y, fmt)   <span class="co"># (u - s) is what was actually added; minus y = -error</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        s <span class="op">=</span> u</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> s</span></code></pre></div>
+</div>
+<p>When <span class="math inline">\(|s|\ge|y|\)</span>, the difference <span class="math inline">\(u-s\)</span> is computed exactly (the Fast2Sum property of round-to-nearest binary arithmetic), so <span class="math inline">\(c\)</span> is exactly the negated rounding error of <span class="math inline">\(s+y\)</span>. The result satisfies <span class="math inline">\(|\hat S - S| \le (2u + O(nu^2))\sum_i|x_i|\)</span>, independent of <span class="math inline">\(n\)</span> to first order (Higham, 2002). Adding <span class="math inline">\(10^{-3}\)</span> ten thousand times in BF16 gives 0.5 with a plain accumulator (the sum stops growing once half its ulp exceeds the addend), 9.94 with Kahan and 10.0 with pairwise summation; in FP16 the plain sum stalls at 4.0. Neumaier’s variant (Neumaier, 1974) also handles addends larger than the running sum (<code>sum_kahan(..., neumaier=True)</code>).</p>
+</section>
+</section>
+<section id="sec:numerics:accum" class="level2">
+<h2><span class="xn"><span class="num">4.6&nbsp;&nbsp;</span></span>Accumulation precision</h2>
+<section id="error-bounds-for-summation" class="level3">
+<h3><span class="xn"><span class="num">4.6.1&nbsp;&nbsp;</span></span>Error bounds for summation</h3>
+<p>Summing <span class="math inline">\(n\)</span> numbers left to right with the standard model (<a href="#eq:numerics:model">4.3</a>), the first addend passes through <span class="math inline">\(n-1\)</span> roundings and the last through one. Expanding the products of <span class="math inline">\((1+\delta_i)\)</span> terms gives the classic bound <span class="xn" id="eq:numerics:sumbound"></span><span class="math display">\[\Big|\hat S - \sum_i x_i\Big| \le \gamma_{n-1}\sum_i |x_i|,\qquad \gamma_k=\frac{ku}{1-ku}\approx ku .
+\tag{4.5}\]</span> The bound grows linearly in <span class="math inline">\(n\)</span>. Pairwise (tree) summation adds neighbours in <span class="math inline">\(\lceil\log_2
+n\rceil\)</span> levels, and each element passes through only that many roundings, giving <span class="math inline">\(\gamma_{\lceil\log_2 n\rceil}\)</span>. These are worst cases; with errors of random sign the typical growth is <span class="math inline">\(\sqrt{n}\,u\)</span> for recursive and <span class="math inline">\(\sqrt{\log n}\,u\)</span> for pairwise summation. The worst case is not academic, though: when all addends are positive and the sum grows past the point where <span class="math inline">\(\operatorname{ulp}(S)/2\)</span> exceeds the addends, the sum <em>stagnates</em>, which is the update problem of Section&nbsp;<a href="#sec:numerics:rounding">4.5</a> in another guise.</p>
+<p>For <span class="math inline">\(n=4096\)</span> in FP16 (<span class="math inline">\(u=2^{-11}\)</span>) the naive bound’s <span class="math inline">\(4095u\approx2\)</span> exceeds 1 and says nothing; in FP32 (<span class="math inline">\(u=2^{-24}\)</span>) it is <span class="math inline">\(2.4\times10^{-4}\)</span>; pairwise in FP16 gives <span class="math inline">\(12u=0.6\%\)</span>. This is the whole argument for <em>accumulating in FP32</em>: inputs can be narrow, because one rounding per input is harmless, but the running sum of a long reduction must be wide.</p>
+</section>
+<section id="dot-products-on-tensor-cores" class="level3">
+<h3><span class="xn"><span class="num">4.6.2&nbsp;&nbsp;</span></span>Dot products on tensor cores</h3>
+<p>A tensor core multiplies FP16 or BF16 inputs and accumulates in FP32. The products are exact (two 11-bit significands give at most 22 bits, which fit FP32’s 24), so the error comes from the accumulator only. The lab’s <code>matmul_sim</code> simulates a GEMM with any accumulator format: products of each <code>mma_k</code>-wide chunk are combined exactly, then added into an accumulator rounded to <code>acc_fmt</code>.</p>
+<div id="lst:numerics:matmulsim" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 4.6: </span></span>A GEMM with a limited-precision accumulator, chunked MMAs, promotion and split-K (simplified).
+</div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> matmul_sim(a, b, acc_fmt, mma_k<span class="op">=</span><span class="dv">1</span>, promote_interval<span class="op">=</span><span class="va">None</span>, split_k<span class="op">=</span><span class="dv">1</span>):</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    A, B <span class="op">=</span> a.double(), b.double()<span class="op">;</span> K <span class="op">=</span> A.shape[<span class="dv">1</span>]</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    total <span class="op">=</span> torch.zeros(A.shape[<span class="dv">0</span>], B.shape[<span class="dv">1</span>], dtype<span class="op">=</span>torch.float64)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> lo, hi <span class="kw">in</span> k_slices(K, split_k):                     <span class="co"># split-K: independent slices</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>        out <span class="op">=</span> torch.zeros_like(total)</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>        P <span class="op">=</span> promote_interval <span class="kw">or</span> (hi <span class="op">-</span> lo)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> w0 <span class="kw">in</span> <span class="bu">range</span>(lo, hi, P):                          <span class="co"># one accumulation window</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>            acc <span class="op">=</span> torch.zeros_like(total)</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> k0 <span class="kw">in</span> <span class="bu">range</span>(w0, <span class="bu">min</span>(w0 <span class="op">+</span> P, hi), mma_k):     <span class="co"># one MMA instruction</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>                k1 <span class="op">=</span> <span class="bu">min</span>(k0 <span class="op">+</span> mma_k, w0 <span class="op">+</span> P, hi)</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>                acc <span class="op">=</span> rnd(acc <span class="op">+</span> A[:, k0:k1] <span class="op">@</span> B[k0:k1, :], acc_fmt)</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>            out <span class="op">=</span> rnd(out <span class="op">+</span> acc, FP32) <span class="cf">if</span> promote_interval <span class="cf">else</span> acc</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>        total <span class="op">=</span> rnd(total <span class="op">+</span> out, FP32) <span class="cf">if</span> split_k <span class="op">&gt;</span> <span class="dv">1</span> <span class="cf">else</span> out</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> total</span></code></pre></div>
+</div>
+<p>Figure&nbsp;<a href="#fig:numerics:accum">4.6</a> (left) shows the relative error of a <span class="math inline">\(64\times K\)</span> by <span class="math inline">\(K\times64\)</span> product of FP16 inputs drawn from <span class="math inline">\(\mathcal{U}[0,1)\)</span>, the worst case because every partial sum grows. With an FP16 accumulator the error grows from <span class="math inline">\(4.8\times10^{-4}\)</span> at <span class="math inline">\(K=256\)</span> to <span class="math inline">\(3.6\times10^{-3}\)</span> at <span class="math inline">\(K=16{,}384\)</span>; with a BF16 accumulator from <span class="math inline">\(3.8\times10^{-3}\)</span> to 0.5, when the sum stagnates; with an FP32 accumulator it stays below <span class="math inline">\(5\times10^{-7}\)</span>. Splitting <span class="math inline">\(K\)</span> into eight independent slices summed at the end (split-K) cuts the FP16 accumulator’s error by a factor of eight, because each running sum is eight times shorter: split-K is a two-level pairwise summation.</p>
+<figure id="fig:numerics:accum">
+<img style="width: 1058px" src="figures/ch04_numerics-6.svg" class="fig fig-light" loading="lazy" alt="Left: relative error of AB against K for simulated FP16, BF16 and FP32 accumulators, split-K, and cuBLAS FP16 and BF16 GEMMs with FP32 output on the A100 (the BF16 curve uses the same inputs rounded to BF16). Right: accumulation error of an E4M3 GEMM with a 14-bit accumulator against the promotion interval, K=8192. Simulated (and, for cuBLAS, measured) on 2x A100-40GB (PCIe) with bench.py --only accum promotion." /><img style="width: 1058px" src="figures/ch04_numerics-6-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="Left: relative error of AB against K for simulated FP16, BF16 and FP32 accumulators, split-K, and cuBLAS FP16 and BF16 GEMMs with FP32 output on the A100 (the BF16 curve uses the same inputs rounded to BF16). Right: accumulation error of an E4M3 GEMM with a 14-bit accumulator against the promotion interval, K=8192. Simulated (and, for cuBLAS, measured) on 2x A100-40GB (PCIe) with bench.py --only accum promotion." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 4.6: </span></span>Left: relative error of <span class="math inline">\(AB\)</span> against <span class="math inline">\(K\)</span> for simulated FP16, BF16 and FP32 accumulators, split-K, and cuBLAS FP16 and BF16 GEMMs with FP32 output on the A100 (the BF16 curve uses the same inputs rounded to BF16). Right: accumulation error of an E4M3 GEMM with a 14-bit accumulator against the promotion interval, <span class="math inline">\(K=8192\)</span>. Simulated (and, for cuBLAS, measured) on 2x A100-40GB (PCIe) with <code>bench.py --only accum promotion</code>.</figcaption>
+</figure>
+<p>The real cuBLAS GEMMs (FP32 output via <code>torch.mm(..., out_dtype=torch.float32)</code>) tell a more interesting story. On these FP16 inputs the FP16 GEMM has a relative error of <span class="math inline">\(1\)</span>–<span class="math inline">\(5\times10^{-6}\)</span>, about ten times our FP32 round-to-nearest model and almost independent of <span class="math inline">\(K\)</span> (<span class="math inline">\(2.4\times10^{-6}\)</span> at both <span class="math inline">\(K=256\)</span> and <span class="math inline">\(K=4096\)</span>); the BF16 GEMM on the same values rounded to BF16 has <span class="math inline">\(1.3\times10^{-7}\)</span> at <span class="math inline">\(K=4096\)</span>, <em>below</em> the model. To separate the tensor cores from the kernels we ran two further experiments (<code>bench.py --only tcprobe</code>). First, probes in the style of Fasi et al. (2021): inputs chosen so that the exact sum falls between two FP32 numbers. The FP32 SGEMM rounds to nearest; the FP16 and BF16 tensor-core GEMMs return <span class="math inline">\(1\)</span> for <span class="math inline">\(1+0.75\)</span> ulp, <span class="math inline">\(1+7\)</span> ulp for <span class="math inline">\(1+7.5\)</span> ulp, and the lower neighbour for a negative sum that is an exact tie, that is, they round toward <span class="math inline">\(-\infty\)</span>, identically for both input formats. Fasi et al. reported round-toward-zero on the V100, and a later formal model (Valpey et al., 2025) concludes that the accumulation is not round-toward-zero; our negative probe agrees with the latter. Second, the same BF16-representable data through both kernels: the profiler shows a CUTLASS kernel (<code>cutlass_80_tensorop_s16816gemm_f16</code>) for FP16 and a cuBLAS kernel (<code>ampere_s16816gemm_bf16</code>) for BF16, both with a split-K reduction, and the FP16 kernel’s error is <span class="math inline">\(5.1\times10^{-7}\)</span> against <span class="math inline">\(1.4\times10^{-7}\)</span>. Since the MMA rounding is the same for both, the difference comes from the kernels (their blocking and split-K), and the rest of the FP16 kernel’s error comes from the inputs’ extra significant bits; we could not attribute it further. What the evidence supports: “FP32 accumulation” on a tensor core is not IEEE round-to-nearest summation, its error depends on which kernel the library picks for a shape and dtype, and results are not bit-reproducible across GPU generations or GEMM kernels.</p>
+<div class="pitfall box">
+<p><strong>Pitfall: Floating-point addition is not associative</strong></p>
+<p><span class="math inline">\((a+b)+c\)</span> and <span class="math inline">\(a+(b+c)\)</span> round differently, so any change in summation order changes the low bits of the result: a different GEMM tile size, a split-K that uses atomics, a different number of GPUs in an all-reduce, a different batch size in a fused kernel. Bitwise reproducibility therefore needs fixed reduction orders (deterministic algorithms, <code>torch.use_deterministic_algorithms(True)</code>), and “the loss differs in the fifth digit after I changed the parallelism” is expected, not a bug.</p>
+</div>
+</section>
+<section id="fp8-accumulation-on-hopper-and-promotion" class="level3">
+<h3><span class="xn"><span class="num">4.6.3&nbsp;&nbsp;</span></span>FP8 accumulation on Hopper and promotion</h3>
+<p>DeepSeek-AI (2024) report that the accumulation inside H800 FP8 GEMMs “is limited to retaining around 14 bits”, and that for <span class="math inline">\(K=4096\)</span> this gives a maximum relative error of nearly 2%. Their fix is <em>promotion</em>: after every <span class="math inline">\(N_C=128\)</span> elements of <span class="math inline">\(K\)</span> (four WGMMA instructions of depth 32), the partial sum is copied to FP32 registers on the CUDA cores and added there, and the tensor-core accumulator restarts from zero. We model the accumulator as a float with 13 fraction bits that truncates (<code>ACC_E8M13</code>, <code>acc_rounding="rtz"</code>); this is a model consistent with the report, not a documented hardware format.</p>
+<p>With per-tensor E4M3 scaling and no promotion (<code>bench.py --only promotion</code>), our model’s accumulation error (against the exact product of the dequantised FP8 inputs) grows linearly with <span class="math inline">\(K\)</span>: <span class="math inline">\(3.0\times10^{-4}\)</span> at <span class="math inline">\(K=512\)</span>, <span class="math inline">\(3.5\times10^{-3}\)</span> at 4096 and <span class="math inline">\(6.6\times10^{-3}\)</span> at 8192 in relative Frobenius norm. The largest elementwise relative error among outputs above the median magnitude is 1.1% at <span class="math inline">\(K=4096\)</span> and 2.1% at <span class="math inline">\(K=8192\)</span>, the same order as the reported “nearly 2%”. Promotion every 128 elements makes the error independent of <span class="math inline">\(K\)</span>, <span class="math inline">\(1.2\times10^{-4}\)</span> (0.05% maximum). The right panel of Figure&nbsp;<a href="#fig:numerics:accum">4.6</a> shows the error against the interval: <span class="math inline">\(4.6\times10^{-5}\)</span> at 32, <span class="math inline">\(1.2\times10^{-4}\)</span> at 128 (2.5 times more for 4 times the interval), then almost exactly linear from 128 up, doubling with every doubling to <span class="math inline">\(6.5\times10^{-3}\)</span> without promotion. In the linear regime truncation adds a <em>bias</em> of about half an accumulator ulp per addition, which grows with the number of additions in a window rather than like a random walk; at short intervals the partial sums are small and their ulp is fine, so the growth is slower. Promotion every 128 costs a few CUDA-core instructions per 128-deep slice, which DeepSeek hide by overlapping the promotion of one warpgroup with the MMAs of another.</p>
+</section>
+</section>
+<section id="sec:numerics:online" class="level2">
+<h2><span class="xn"><span class="num">4.7&nbsp;&nbsp;</span></span>Numerically stable online algorithms</h2>
+<section id="logsumexp-and-stable-cross-entropy" class="level3">
+<h3><span class="xn"><span class="num">4.7.1&nbsp;&nbsp;</span></span>Logsumexp and stable cross-entropy</h3>
+<p><span class="math inline">\(\log\sum_i e^{x_i}\)</span> overflows as soon as one <span class="math inline">\(x_i\)</span> exceeds 88.7 in FP32 (11.09 in FP16), and underflows to <span class="math inline">\(\log 0\)</span> if all <span class="math inline">\(x_i\)</span> are very negative. Shifting by the maximum <span class="math inline">\(m=\max_i x_i\)</span> fixes both: <span class="xn" id="eq:numerics:lse"></span><span class="math display">\[\log\sum_i e^{x_i} = m + \log\sum_i e^{x_i-m},
+\tag{4.6}\]</span> because every exponent is now <span class="math inline">\(\le0\)</span> (no overflow) and at least one term equals 1 (no underflow of the sum). Softmax is <span class="math inline">\(e^{x_i-\operatorname{lse}(\mathbf{x})}\)</span>, and cross-entropy for target <span class="math inline">\(t\)</span> is <span class="math inline">\(\operatorname{lse}(\mathbf{z})-z_t\)</span>, which never forms a probability that could round to zero and then be logged. With a 150k-entry vocabulary and BF16 logits this computation must be done in FP32: the sum has 150,000 terms (Section&nbsp;<a href="#sec:numerics:accum">4.6</a>), and <code>numerics.cross_entropy_stable</code> casts first.</p>
+</section>
+<section id="online-softmax" class="level3">
+<h3><span class="xn"><span class="num">4.7.2&nbsp;&nbsp;</span></span>Online softmax</h3>
+<p>The shifted form needs the maximum before the sum, which suggests two passes over <span class="math inline">\(\mathbf{x}\)</span>: one for <span class="math inline">\(m\)</span>, one for <span class="math inline">\(\sum e^{x_i-m}\)</span>. When <span class="math inline">\(\mathbf{x}\)</span> is a row of attention scores that is computed block by block and never stored, a second pass means recomputing it. The <em>online</em> softmax (Milakov and Gimelshein, 2018) keeps a running maximum <span class="math inline">\(m\)</span> and a running sum <span class="math inline">\(\ell\)</span> relative to it, and corrects the sum whenever the maximum grows. After processing blocks <span class="math inline">\(1..j\)</span>, the invariant is <span class="math inline">\(\ell_j=\sum_{i\in1..j} e^{x_i-m_j}\)</span> with <span class="math inline">\(m_j\)</span> the maximum so far. A new block <span class="math inline">\(B\)</span> gives <span class="math inline">\(m_{j+1}=\max(m_j,\max_{i\in B}x_i)\)</span> and, by the <em>rescaling identity</em> <span class="math inline">\(e^{x-m_j}=e^{x-m_{j+1}}e^{m_{j+1}-m_j}\)</span>, <span class="xn" id="eq:numerics:online"></span><span class="math display">\[\ell_{j+1} = e^{m_j-m_{j+1}}\,\ell_j + \sum_{i\in B} e^{x_i-m_{j+1}} .
+\tag{4.7}\]</span> The invariant holds by induction, with <span class="math inline">\(m_0=-\infty\)</span>, <span class="math inline">\(\ell_0=0\)</span>, and at the end <span class="math inline">\(\operatorname{lse}=m+\log\ell\)</span>. Every exponent is <span class="math inline">\(\le0\)</span> at every step, so the algorithm is as stable as the two-pass one.</p>
+<p>The same identity applies to anything linear in the exponentials. For attention we need <span class="math inline">\(\mathbf{o}=\sum_i \operatorname{softmax}(\mathbf{s})_i\,\mathbf{v}_i\)</span>; keeping an unnormalised output <span class="math inline">\(\mathbf{o}_j=\sum_{i\le j}e^{s_i-m_j}\mathbf{v}_i\)</span> and rescaling it with the same factor, <span class="xn" id="eq:numerics:onlineo"></span><span class="math display">\[\mathbf{o}_{j+1} = e^{m_j-m_{j+1}}\,\mathbf{o}_j + \sum_{i\in B} e^{s_i-m_{j+1}}\mathbf{v}_i,
+\qquad \text{output } \mathbf{o}/\ell,
+\tag{4.8}\]</span> computes softmax-weighted sums in a single streaming pass that never materialises the <span class="math inline">\(N\times N\)</span> score matrix (Figure&nbsp;<a href="#fig:numerics:online">4.7</a>). This is the mathematical root of FlashAttention (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">9</span>, Section&nbsp;<span class="xref-unpub" title="Not published yet">9.8</span>); everything else in FlashAttention is the tiling that keeps <span class="math inline">\((m,\ell,\mathbf{o})\)</span> in registers and the blocks of <span class="math inline">\(\mathbf{K},\mathbf{V}\)</span> in shared memory.</p>
+<figure id="fig:numerics:online">
+<img style="width: 1596px" src="figures/ch04_numerics-7.svg" class="fig fig-light" loading="lazy" alt="The online softmax as a streaming reduction: each block of scores updates the running maximum m, rescales the running sum \ell and the output accumulator \mathbf{o} by e^{m_{\text{old}}-m_{\text{new}}}, and adds its own contribution." /><img style="width: 1596px" src="figures/ch04_numerics-7-dark.svg" class="fig fig-dark" aria-hidden="true" loading="lazy" alt="The online softmax as a streaming reduction: each block of scores updates the running maximum m, rescales the running sum \ell and the output accumulator \mathbf{o} by e^{m_{\text{old}}-m_{\text{new}}}, and adds its own contribution." />
+<figcaption aria-hidden="true"><span class="xn"><span class="num">Figure 4.7: </span></span>The online softmax as a streaming reduction: each block of scores updates the running maximum <span class="math inline">\(m\)</span>, rescales the running sum <span class="math inline">\(\ell\)</span> and the output accumulator <span class="math inline">\(\mathbf{o}\)</span> by <span class="math inline">\(e^{m_{\text{old}}-m_{\text{new}}}\)</span>, and adds its own contribution.</figcaption>
+</figure>
+<div id="lst:numerics:online" class="listing">
+<div class="listing-caption">
+<span class="xn"><span class="num">Listing 4.7: </span></span>Softmax-weighted sum in one pass over blocks (from <code>numerics.online_softmax_matmul</code>).
+</div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> online_softmax_matmul(s, v, block<span class="op">=</span><span class="dv">128</span>):</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    m <span class="op">=</span> torch.full(s.shape[:<span class="op">-</span><span class="dv">1</span>], <span class="op">-</span>math.inf, dtype<span class="op">=</span>s.dtype)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    l <span class="op">=</span> torch.zeros_like(m)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    o <span class="op">=</span> torch.zeros(<span class="op">*</span>s.shape[:<span class="op">-</span><span class="dv">1</span>], v.shape[<span class="op">-</span><span class="dv">1</span>], dtype<span class="op">=</span>s.dtype)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> j <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">0</span>, s.shape[<span class="op">-</span><span class="dv">1</span>], block):</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>        sb <span class="op">=</span> s[..., j:j <span class="op">+</span> block]</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>        m_new <span class="op">=</span> torch.maximum(m, sb.amax(<span class="op">-</span><span class="dv">1</span>))</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>        alpha <span class="op">=</span> torch.where(m <span class="op">==</span> <span class="op">-</span>math.inf, <span class="fl">0.0</span>, torch.exp(m <span class="op">-</span> m_new))   <span class="co"># rescale old state</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>        p <span class="op">=</span> torch.exp(sb <span class="op">-</span> m_new[..., <span class="va">None</span>])</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>        l <span class="op">=</span> l <span class="op">*</span> alpha <span class="op">+</span> p.<span class="bu">sum</span>(<span class="op">-</span><span class="dv">1</span>)</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>        o <span class="op">=</span> o <span class="op">*</span> alpha[..., <span class="va">None</span>] <span class="op">+</span> p <span class="op">@</span> v[..., j:j <span class="op">+</span> block, :]</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>        m <span class="op">=</span> m_new</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> o <span class="op">/</span> l[..., <span class="va">None</span>]</span></code></pre></div>
+</div>
+<p>Two states <span class="math inline">\((m_a,\ell_a,\mathbf{o}_a)\)</span> and <span class="math inline">\((m_b,\ell_b,\mathbf{o}_b)\)</span> computed on disjoint blocks can also be <em>merged</em> with the same rescaling, in any order; this is how split-KV decoding kernels parallelise one query over a long cache; one of the exercises asks for the merge.</p>
+<div class="systemslens box">
+<p><strong>Systems Lens: One pass is a memory-traffic decision</strong></p>
+<p>The online form is not only a numerical trick. A two-pass softmax over attention scores must either store the scores between the passes or compute them twice. For one head at <span class="math inline">\(N=8{,}192\)</span> tokens the FP32 score matrix is <span class="math inline">\(8192^2\cdot4\)</span> bytes <span class="math inline">\(=256\)</span> MiB; writing it once and reading it once at 1.555 TB/s takes about 0.35 ms, while the <span class="math inline">\(\mathbf{Q}\mathbf{K}^{\top}\)</span> that produced it is <span class="math inline">\(2N^2d=17\)</span> GFLOP at <span class="math inline">\(d=128\)</span>, about 55 <span class="math inline">\(\mu\)</span>s at the A100’s 312 TFLOP/s. Materialising the scores would cost six times the matmul that made them. The online softmax replaces those 256 MiB by three running values per query row, <span class="math inline">\((m,\ell,\mathbf{o})\)</span>, which fit in registers; the price is one extra exponential and one multiply per block to rescale them, cheap work on a machine that has far more FLOP/s than bytes per second.</p>
+</div>
+</section>
+<section id="welfords-algorithm" class="level3">
+<h3><span class="xn"><span class="num">4.7.3&nbsp;&nbsp;</span></span>Welford’s algorithm</h3>
+<p>The variance <span class="math inline">\(\frac1n\sum x_i^2 - \bar x^2\)</span> in one pass is a textbook example of catastrophic cancellation: when <span class="math inline">\(|\bar x|\gg\sigma\)</span> both terms are huge and nearly equal. For FP32 values <span class="math inline">\(10^4+\mathcal{N}(0,1)\)</span> we measure “variances” of 8, 8 and <span class="math inline">\(-24\)</span> for three rows whose true variance is about 1. Welford’s algorithm (Welford, 1962) updates the mean and the sum of squared deviations <span class="math inline">\(M_2\)</span> incrementally: <span class="xn" id="eq:numerics:welford"></span><span class="math display">\[\delta = x_k-\bar x_{k-1},\qquad \bar x_k = \bar x_{k-1}+\frac{\delta}{k},\qquad
+M_{2,k} = M_{2,k-1} + \delta\,(x_k-\bar x_k),
+\tag{4.9}\]</span> with variance <span class="math inline">\(M_{2,n}/n\)</span>. It never subtracts two large numbers and gives 1.0336, 0.9806, 0.9994 against the exact 1.0337, 0.9809, 0.9993 for the same rows. Partial results from different threads merge exactly (Chan et al., 1983): with <span class="math inline">\(\Delta=\bar x_b-\bar x_a\)</span> and <span class="math inline">\(n=n_a+n_b\)</span>, <span class="math inline">\(\bar x = \bar x_a + \Delta n_b/n\)</span> and <span class="math inline">\(M_2 = M_{2,a}+M_{2,b}+\Delta^2 n_an_b/n\)</span>. LayerNorm kernels use exactly this: each thread runs Welford over its slice of the row, then warps merge the <span class="math inline">\((\bar x, M_2, n)\)</span> triples in a tree reduction. RMSNorm needs only <span class="math inline">\(\sum x_i^2\)</span>, has no cancellation, and is one reason it is simpler to fuse (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">11</span>).</p>
+<div class="pitfall box">
+<p><strong>Pitfall: A stable algorithm in the wrong precision is still unstable</strong></p>
+<p>Online softmax and Welford remove <em>algorithmic</em> cancellation and overflow; they do not make a long accumulation in BF16 accurate. FlashAttention keeps <span class="math inline">\(m\)</span>, <span class="math inline">\(\ell\)</span> and <span class="math inline">\(\mathbf{o}\)</span> in FP32 registers even when <span class="math inline">\(\mathbf{Q}\)</span>, <span class="math inline">\(\mathbf{K}\)</span>, <span class="math inline">\(\mathbf{V}\)</span> are BF16, normalisation kernels accumulate in FP32, and the cross-entropy of BF16 logits is computed in FP32. In the lab, Welford’s running mean in FP32 still drifts by about <span class="math inline">\(10^{-6}\)</span> relative over 2,048 values of magnitude <span class="math inline">\(10^4\)</span>: each update rounds.</p>
+</div>
+</section>
+</section>
+<section id="sec:numerics:frontier" class="level2">
+<h2><span class="xn"><span class="num">4.8&nbsp;&nbsp;</span></span>Research frontier</h2>
+<p><strong>Open problems.</strong> <em>Accumulators for ever narrower inputs.</em> Each new tensor-core generation multiplies narrower operands at a higher rate, and the accumulator inside the MMA is where the saving is paid for. Hopper’s FP8 accumulator keeps about 14 bits (DeepSeek-AI, 2024), the FP32 “accumulation” of the A100’s FP16 and BF16 tensor cores is not round-to-nearest in our probes, and formal models of three generations of tensor cores (Valpey et al., 2025) disagree with earlier empirical ones (Fasi et al., 2021). How wide an accumulator must be for a given <span class="math inline">\(K\)</span>, input format and training horizon, and whether promotion should move into hardware, are open. <em>Trainer/inference numerical mismatch</em>: in reinforcement learning the sampling engine and the trainer compute the “same” log-probabilities with different kernels, batch sizes and precisions, and the small differences bias policy-gradient estimates (Chapter&nbsp;<span class="xref-unpub" title="Not published yet">65</span>); batch-invariant, deterministic kernels (He and Thinking Machines Lab, 2025) remove the batch-size dependence at some cost in speed, and how to get exact agreement cheaply is open. <em>Stochastic rounding in hardware</em>: SR needs a random number per rounding; a few accelerators provide it, mainstream GPUs do not expose it in their MMA units, and how many random bits suffice is a hardware-design question (Croci et al., 2022). <em>Stable algorithms beyond softmax</em>: the online rescaling identity made attention a one-pass reduction; which other reductions in a model (normalisation, losses over very large vocabularies, the scans of linear-attention and state-space layers) admit a one-pass, numerically stable form that a fused kernel can keep in registers is an active question. <em>Alternative number systems</em>: posits (Gustafson and Yonemoto, 2017) and logarithmic formats (Johnson, 2018) promise better accuracy per bit near 1, but need new hardware.</p>
+<p><strong>Papers that define the area.</strong></p>
+<ul>
+<li>Higham (2002), <em>Accuracy and Stability of Numerical Algorithms</em>: the standard model, summation bounds and compensated summation that every error analysis here uses.</li>
+<li>Kalamkar et al. (2019), <em>A Study of BFLOAT16</em>: range over precision; made BF16 the default.</li>
+<li>Wang et al. (2018) and Sun et al. (2019): first FP8 training, chunked accumulation, hybrid E4M3/E5M2.</li>
+<li>Micikevicius et al. (2022), <em>FP8 Formats for Deep Learning</em>: the E4M3/E5M2 encodings now in hardware.</li>
+<li>Fasi et al. (2021), <em>Numerical Behavior of NVIDIA Tensor Cores</em>: what the accumulator actually does.</li>
+<li>Valpey et al. (2025), <em>An SMT Formalization of Mixed-Precision Matrix Multiplication</em>: a formal model of three generations of tensor cores, and evidence that their accumulation is not simple truncation.</li>
+<li>DeepSeek-AI (2024), <em>DeepSeek-V3</em>: the 14-bit FP8 accumulator of Hopper and promotion every 128 elements.</li>
+<li>Croci et al. (2022), <em>Stochastic Rounding: Implementation, Error Analysis and Applications</em>: the theory and hardware cost of SR.</li>
+<li>Milakov and Gimelshein (2018), <em>Online Normalizer Calculation for Softmax</em>: the rescaling identity that FlashAttention is built on.</li>
+<li>He and Thinking Machines Lab (2025), <em>Defeating Nondeterminism in LLM Inference</em>: why outputs change with batch size, and batch-invariant kernels that stop it.</li>
+</ul>
+<p><strong>Assumptions likely to break.</strong> That the accumulator is effectively FP32 (it was not for FP8 on Hopper, and narrower MMAs make it worse). That rounding is deterministic round-to-nearest (FP4 training leans on SR). That every format needs IEEE-style infinities and NaNs (the OCP formats below eight bits have none, and E4M3 trades its infinities for range). That results are reproducible across kernels, batch sizes and GPU generations (they are not, bit for bit). And that a stable algorithm in BF16 is stable: the statistics of online softmax, normalisation and the loss still need FP32.</p>
+<p><strong>How to recognise the next variant.</strong> Place a new paper on numbers and arithmetic on these axes: (1) the encoding: exponent/fraction split, bias, special values, overflow policy (saturate or infinity); (2) the rounding rule (RNE, toward zero, stochastic, and with how many random bits); (3) the accumulator: its width, its rounding, the MMA depth and the promotion interval; (4) the reduction order and whether results are deterministic and batch-invariant; (5) the algorithmic form: one pass or two, compensated, pairwise or blocked, mergeable across threads; (6) what hardware executes it natively, and at what rate. Most new methods change one or two of these and keep the rest of a known design. Papers that also change <em>where the scales go</em> belong to the axes of Section&nbsp;<a href="ch05_quant.html#sec:quant:frontier">5.8</a>.</p>
+</section>
+<section id="sec:numerics:summary" class="level2">
+<h2><span class="xn"><span class="num">4.9&nbsp;&nbsp;</span></span>Summary</h2>
+<ul>
+<li>Bytes per element set capacity, bandwidth and tensor-core rate; most LLM speedups are format decisions. Measured on our A100: 18 TFLOP/s FP32, 102 TF32, 217 BF16, 335 TOPS INT8 (with the right layout).</li>
+<li>Integers wrap in adders and saturate in quantisers; INT8 products accumulate exactly in INT32. Fixed point has constant absolute error, floating point constant relative error.</li>
+<li>A float stores sign, biased exponent and fraction; relative spacing is constant within the normal range (<span class="math inline">\(u=2^{-(m+1)}\)</span>), subnormals underflow gradually, and range in decades is set by the exponent bits. BF16 won for training because range matters more than precision when accumulation is kept in FP32.</li>
+<li>FP8 comes as E4M3 (OCP, max 448, saturating) and E5M2 (IEEE-like); FP6 and FP4 have no specials and only one or two decades of range. Per-tensor E4M3 flushes 59% of a heavy-tailed gradient tensor to zero, E5M2 0.1%.</li>
+<li>RNE is unbiased, RTZ is not, SR is unbiased for every input with variance at most <span class="math inline">\(q^2/4\)</span>. Updates below half an ulp vanish under RNE: BF16 weights without master copies lose 91.5% of 10,000 small updates; SR loses none on average.</li>
+<li>Summation error grows like <span class="math inline">\(nu\)</span> (naive), <span class="math inline">\(u\log_2 n\)</span> (pairwise) or <span class="math inline">\(2u\)</span> (Kahan). Accumulate wide; split-K and promotion shorten running sums. Tensor-core “FP32 accumulation” is not IEEE round-to-nearest, and a 14-bit FP8 accumulator needs promotion every 128 elements.</li>
+<li>Logsumexp, online softmax and Welford are single-pass, stable streaming reductions; the online softmax rescaling identity is the root of FlashAttention.</li>
+</ul>
+<p>Everything in this chapter treated one number, or one operation, at a time. A narrow format can only hold a whole tensor once a scale has moved the tensor’s range into the format’s window, and choosing those scales (how many, in which format, along which dimension, computed when) is where low-precision training and inference are won or lost. Chapter&nbsp;<a href="ch05_quant.html#ch:quant">5</a> takes up that problem: block scaling with MX and NVFP4, the mathematics of quantisation, and the mixed-precision recipes, DeepSeek-V3’s FP8 recipe among them, that combine everything we have built here.</p>
+</section>
+<section id="sec:numerics:exercises" class="level2">
+<h2><span class="xn"><span class="num">4.10&nbsp;&nbsp;</span></span>Exercises</h2>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.1</span></span></strong> (<em>Encodings by hand</em>).</p>
+<p>Encode <span class="math inline">\(-0.15625\)</span> and <span class="math inline">\(1000\)</span> in FP16, BF16, FP8 E4M3 and FP8 E5M2: give the sign, exponent and fraction fields, the hexadecimal code and the stored value. Which encodings are exact? What does E4M3 store for 1000, and what would an IEEE-style E4M3 with infinities store? Check your answers with <code>numerics.encode</code>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.2</span></span></strong> (<em>Designing an 8-bit float</em>).</p>
+<p>For an 8-bit format with one sign bit, <span class="math inline">\(e\)</span> exponent bits and <span class="math inline">\(7-e\)</span> fraction bits, IEEE-style specials and bias <span class="math inline">\(2^{e-1}-1\)</span>, tabulate the maximum, the smallest subnormal, the dynamic range in decades and the unit roundoff for <span class="math inline">\(e=2,\dots,6\)</span>. Which <span class="math inline">\(e\)</span> would you pick for weights distributed as <span class="math inline">\(\mathcal{N}(0, 0.02^2)\)</span> with one per-tensor scale, and which for gradients spanning ten decades? How much range does the OCP “fn” convention add to E4M3, and what does it give up?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.3</span></span></strong> (<em>Integer accumulators</em>).</p>
+<p>What is the largest <span class="math inline">\(K\)</span> for which an INT8<span class="math inline">\(\times\)</span>INT8 dot product cannot overflow an INT32 accumulator? An INT4<span class="math inline">\(\times\)</span>INT4 product in an INT16 accumulator? Why are integer GEMMs free of accumulation error, and what limits their accuracy instead?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.4</span></span></strong> (<em>The half-ulp threshold</em>).</p>
+<p>An AdamW update has magnitude close to the learning rate <span class="math inline">\(\eta\)</span>. For BF16 weights of magnitude 0.02 and 1, find the largest <span class="math inline">\(\eta\)</span> for which <em>all</em> updates are lost under RNE. With <span class="math inline">\(\eta=3\times
+10^{-4}\)</span> decayed to <span class="math inline">\(3\times10^{-5}\)</span> by a cosine schedule, at which point of training do updates of magnitude-0.02 weights start to vanish? What does an FP32 master copy cost for a 7B model, and what does stochastic rounding cost instead?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.5</span></span></strong> (<em>Stochastic rounding with few random bits</em>).</p>
+<p>Show that SR with <span class="math inline">\(r\)</span> random bits (<span class="math inline">\(U\)</span> uniform on multiples of <span class="math inline">\(2^{-r}\)</span> in <span class="math inline">\([0,1)\)</span>) has a bias of at most <span class="math inline">\(2^{-r}\)</span> ulp, and find the input fractions <span class="math inline">\(f\)</span> for which the bias is largest. Show that the variance bound <span class="math inline">\(q^2/4\)</span> still holds. How many random bits make the bias smaller than RNE’s typical error for a sum of <span class="math inline">\(10^4\)</span> BF16 addends?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.6</span></span></strong> (<em>Why Kahan works</em>).</p>
+<p>Prove that if <span class="math inline">\(|a|\ge|b|\)</span> and <span class="math inline">\(s=\operatorname{fl}(a+b)\)</span> in a binary format with round to nearest, then <span class="math inline">\(\operatorname{fl}(s-a)\)</span> is computed exactly and <span class="math inline">\(b-\operatorname{fl}(s-a)\)</span> is the exact rounding error of <span class="math inline">\(s\)</span>. Then trace Kahan summation of <span class="math inline">\((1, 2^{-9}, 2^{-9}, 2^{-9}, 2^{-9})\)</span> (four small addends) in BF16 and compare with the naive sum.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.7</span></span></strong> (<em>Merging online-softmax states</em>).</p>
+<p>Two thread blocks process disjoint halves of one attention row and return <span class="math inline">\((m_a,\ell_a,\mathbf{o}_a)\)</span> and <span class="math inline">\((m_b,\ell_b,\mathbf{o}_b)\)</span> in the unnormalised form of (<a href="#eq:numerics:onlineo">4.8</a>). Derive the merge that gives the state of the whole row, prove it is associative, and implement it as a function that the lab’s <code>online_softmax_matmul</code> can be checked against. Where is this used in decoding?</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.8</span></span></strong> (<em>Research: predict, then measure, the accumulator of your GPU</em>).</p>
+<p>Using only <code>torch.mm(a, b, out_dtype=torch.float32)</code> on FP16 inputs, design an experiment that determines whether your GPU’s tensor-core accumulation rounds to nearest or truncates, and how many products it adds before rounding (hint: Fasi et al., 2021, use inputs with carefully chosen exponents). Predict the outcome from our measurement in Section&nbsp;<a href="#sec:numerics:accum">4.6</a>, run it on an A100 and on any other GPU you can access, and compare the error of <span class="math inline">\(K=4096\)</span> random products with the RNE and RTZ models of <code>numerics.matmul_sim</code>.</p>
+</div>
+<div class="exercise box">
+<p><strong><span class="xn"><span class="num">Exercise 4.9</span></span></strong> (<em>Research: Kahan-compensated BF16 weights</em>).</p>
+<p>Extend the <code>updates</code> experiment of the lab to the setting of Zamirai et al. (2020): BF16 weights <span class="math inline">\(w\)</span> with a BF16 compensation buffer <span class="math inline">\(c\)</span>, updated by Kahan’s algorithm (Listing&nbsp;<a href="#lst:numerics:kahan">4.5</a>) with the addend <span class="math inline">\(\delta\)</span> instead of <span class="math inline">\(x_i\)</span> and the arithmetic done in FP32 and rounded to BF16. Predict, before running, the final relative error of <span class="math inline">\(w\)</span> against the exact trajectory, next to RNE (91.5%), SR (7.3%) and FP32 master weights (0.18%), and the error of the compensated value <span class="math inline">\(w-c\)</span>. Compare the memory per parameter of the four schemes, then measure on the CPU with <code>--n-weights 65536</code>. Which scheme would you choose for a model whose optimiser states already fill the GPU?</p>
+</div>
+</section>
+<section id="sec:numerics:lab" class="level2">
+<h2><span class="xn"><span class="num">4.11&nbsp;&nbsp;</span></span>Lab 4: A bit-exact number-format simulator</h2>
+<div class="labbox box">
+<p><strong><span class="xn"><span class="num">Lab 4</span></span>: A bit-exact number-format simulator</strong></p>
+<p><strong>Code:</strong> <code>code/labs/lab04_numerics</code></p>
+<p><strong>Goals</strong></p>
+<p>Build the core of <code>llmsys/numerics.py</code> yourself: encode and decode every format bit for bit, stochastic rounding, compensated and pairwise summation, the online softmax and Welford’s algorithm, and a GEMM with a limited-precision accumulator, chunked MMAs and periodic promotion. Then measure on a GPU what precision does to weight updates, GEMM error and throughput, and probe the tensor-core accumulator. The scaled formats, quantisers and the block-scaled FP8 GEMM built on these pieces are the next lab (Lab&nbsp;<a href="ch05_quant.html#sec:quant:lab">5</a>); together they are the library the low-precision training capstone (Chapter&nbsp;<a href="ch07_proj_lowprec.html#ch:proj11">7</a>) builds on.</p>
+<p><strong>Setup</strong></p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> code</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> <span class="at">-m</span> pytest <span class="at">-q</span> labs/lab04_numerics                     <span class="co"># grades starter.py</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="va">LAB_IMPL</span><span class="op">=</span>solution <span class="ex">python</span> <span class="at">-m</span> pytest <span class="at">-q</span> labs/lab04_numerics   <span class="co"># the reference (seconds, CPU)</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="va">CUDA_VISIBLE_DEVICES</span><span class="op">=</span>0 <span class="ex">python</span> labs/lab04_numerics/bench.py  <span class="co"># measurements on the GPU</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="ex">python</span> labs/lab04_numerics/figures.py                       <span class="co"># redraw this chapter&#39;s figures</span></span></code></pre></div>
+<p><strong>Tasks</strong></p>
+<ol type="1">
+<li><strong>Bits.</strong> <code>decode_float</code> and <code>encode_float</code> for any <code>FloatFormat</code>, with RNE, saturation and the “ieee”, “fn” and “none” special-value conventions. The tests compare all codes and all ties with <code>torch.float16</code>, <code>torch.bfloat16</code>, <code>torch.float8_e4m3fn</code> and <code>torch.float8_e5m2</code>, and FP6 (E2M3, E3M2) and FP4 (E2M1) with literal value tables from the OCP specification.</li>
+<li><strong>Stochastic rounding.</strong> <code>stochastic_round</code>; tested for unbiasedness over 40,000 draws and the variance bound of (<a href="#eq:numerics:sr">4.4</a>).</li>
+<li><strong>Summation.</strong> <code>pairwise_sum</code> and <code>kahan_sum</code> in a simulated precision; tested against exact <code>fractions.Fraction</code> sums and the bounds of Section&nbsp;<a href="#sec:numerics:accum">4.6</a>.</li>
+<li><strong>Online algorithms.</strong> <code>online_logsumexp</code>, <code>online_softmax</code>, <code>welford</code>; tested against float64 two-pass results, including inputs where the naive formulas overflow or cancel.</li>
+<li><strong>Accumulators.</strong> <code>accumulate_gemm</code> with an accumulator format, an MMA depth, a rounding rule and an optional promotion interval (Listing&nbsp;<a href="#lst:numerics:matmulsim">4.6</a>); tested bit for bit against <code>numerics.matmul_sim</code>, including the 14-bit truncating model of Hopper’s FP8 accumulator, and for the ordering of accumulator precisions measured in Section&nbsp;<a href="#sec:numerics:accum">4.6</a>.</li>
+</ol>
+<p>The last block of tests checks the library itself: the format constants against <code>torch.finfo</code>, FP32 and TF32 encodings, the rounding modes and <code>next_after</code>, the overflow policies, the number of random bits in stochastic rounding and the BF16 bit trick, integers and fixed point, Welford’s merge, the softmax-weighted sum and the stable cross-entropy, and split-K.</p>
+<p><strong>Measurements</strong></p>
+<p><code>bench.py</code> writes <code>results/bench_results.{json,md}</code>. On our A100 (measured on 2x A100-40GB (PCIe)): GEMM throughput of Table&nbsp;<a href="#tab:numerics:peaks">4.1</a>; BF16 weights without master copies lose 91.5% of 10,000 small updates, SR 7.3% (noise), FP32 masters 0.18%; FP16-accumulator error <span class="math inline">\(1.7\times10^{-3}\)</span> at <span class="math inline">\(K=4096\)</span> against <span class="math inline">\(2\times10^{-7}\)</span> for FP32; 14-bit FP8 accumulation error <span class="math inline">\(3.5\times10^{-3}\)</span> without and <span class="math inline">\(1.2\times10^{-4}\)</span> with promotion every 128 (<code>promotion</code>); per-tensor E4M3 flushes 59% of a heavy-tailed tensor and E5M2 0.1% (<code>formats</code>). The <code>tcprobe</code> experiment produces the tensor-core probes of Section&nbsp;<a href="#sec:numerics:accum">4.6</a>. Your numbers for the simulated quantities should match ours exactly (they are deterministic); the throughput and cuBLAS numbers depend on your GPU.</p>
+<p><strong>Deliverables</strong></p>
+<p>Passing tests; your <code>bench_results.md</code>; a half-page note explaining (a) why the INT8 GEMM’s speed depends on layout, (b) the shape of the promotion-interval curve, and (c) what the probes say about the rounding of your GPU’s tensor-core accumulator, with numbers.</p>
+<p><strong>Stretch goals</strong></p>
+<p>(1) Implement Neumaier summation in the lab and find an input where it beats Kahan. (2) Replace the RNE weight update in the <code>updates</code> experiment by Kahan-compensated BF16 updates (a BF16 compensation buffer per weight) and compare with SR and with FP32 masters at equal memory. (3) Run the accumulator experiment of the research exercise on a different GPU generation.</p>
+</div>
+</section>
+</section>
+
+    </article>
+    <nav class="pager"><a class="prev" href="ch03_machine.html">&larr; The Machine Underneath: GPUs, Rooflines and Measurement</a> <a class="next" href="ch05_quant.html">Scaling, Quantisation and Mixed Precision &rarr;</a></nav>
+    <footer class="footer">Big Book of LLMs · utkrshkmr</footer>
+  </main>
+
+  <aside class="pagetoc" id="pagetoc" aria-label="On this page">
+    <div class="pagetoc-title">On this page</div>
+<nav id="TOC" role="doc-toc"><ul>
+<li><a href="#sec:numerics:why" id="toc-sec:numerics:why"><span class="num">4.1&nbsp;&nbsp;</span>Why numbers are a systems topic</a></li>
+<li><a href="#sec:numerics:int" id="toc-sec:numerics:int"><span class="num">4.2&nbsp;&nbsp;</span>Integers and fixed point</a></li>
+<li><a href="#sec:numerics:ieee" id="toc-sec:numerics:ieee"><span class="num">4.3&nbsp;&nbsp;</span>IEEE 754 from the bit level</a>
+<ul>
+<li><a href="#worked-encodings" id="toc-worked-encodings"><span class="num">4.3.1&nbsp;&nbsp;</span>Worked encodings</a></li>
+<li><a href="#machine-epsilon-ulp-and-the-standard-model" id="toc-machine-epsilon-ulp-and-the-standard-model"><span class="num">4.3.2&nbsp;&nbsp;</span>Machine epsilon, ulp and the standard model</a></li>
+<li><a href="#subnormals-infinities-and-nan" id="toc-subnormals-infinities-and-nan"><span class="num">4.3.3&nbsp;&nbsp;</span>Subnormals, infinities and NaN</a></li>
+<li><a href="#fp32-tf32-fp16-and-bf16" id="toc-fp32-tf32-fp16-and-bf16"><span class="num">4.3.4&nbsp;&nbsp;</span>FP32, TF32, FP16 and BF16</a></li>
+</ul></li>
+<li><a href="#sec:numerics:lowfp" id="toc-sec:numerics:lowfp"><span class="num">4.4&nbsp;&nbsp;</span>Low-precision floats: FP8, FP6 and FP4</a></li>
+<li><a href="#sec:numerics:rounding" id="toc-sec:numerics:rounding"><span class="num">4.5&nbsp;&nbsp;</span>Rounding</a>
+<ul>
+<li><a href="#stochastic-rounding-is-unbiased" id="toc-stochastic-rounding-is-unbiased"><span class="num">4.5.1&nbsp;&nbsp;</span>Stochastic rounding is unbiased</a></li>
+<li><a href="#the-update-smaller-than-half-an-ulp-vanishes" id="toc-the-update-smaller-than-half-an-ulp-vanishes"><span class="num">4.5.2&nbsp;&nbsp;</span>The update smaller than half an ulp vanishes</a></li>
+<li><a href="#compensated-summation" id="toc-compensated-summation"><span class="num">4.5.3&nbsp;&nbsp;</span>Compensated summation</a></li>
+</ul></li>
+<li><a href="#sec:numerics:accum" id="toc-sec:numerics:accum"><span class="num">4.6&nbsp;&nbsp;</span>Accumulation precision</a>
+<ul>
+<li><a href="#error-bounds-for-summation" id="toc-error-bounds-for-summation"><span class="num">4.6.1&nbsp;&nbsp;</span>Error bounds for summation</a></li>
+<li><a href="#dot-products-on-tensor-cores" id="toc-dot-products-on-tensor-cores"><span class="num">4.6.2&nbsp;&nbsp;</span>Dot products on tensor cores</a></li>
+<li><a href="#fp8-accumulation-on-hopper-and-promotion" id="toc-fp8-accumulation-on-hopper-and-promotion"><span class="num">4.6.3&nbsp;&nbsp;</span>FP8 accumulation on Hopper and promotion</a></li>
+</ul></li>
+<li><a href="#sec:numerics:online" id="toc-sec:numerics:online"><span class="num">4.7&nbsp;&nbsp;</span>Numerically stable online algorithms</a>
+<ul>
+<li><a href="#logsumexp-and-stable-cross-entropy" id="toc-logsumexp-and-stable-cross-entropy"><span class="num">4.7.1&nbsp;&nbsp;</span>Logsumexp and stable cross-entropy</a></li>
+<li><a href="#online-softmax" id="toc-online-softmax"><span class="num">4.7.2&nbsp;&nbsp;</span>Online softmax</a></li>
+<li><a href="#welfords-algorithm" id="toc-welfords-algorithm"><span class="num">4.7.3&nbsp;&nbsp;</span>Welford’s algorithm</a></li>
+</ul></li>
+<li><a href="#sec:numerics:frontier" id="toc-sec:numerics:frontier"><span class="num">4.8&nbsp;&nbsp;</span>Research frontier</a></li>
+<li><a href="#sec:numerics:summary" id="toc-sec:numerics:summary"><span class="num">4.9&nbsp;&nbsp;</span>Summary</a></li>
+<li><a href="#sec:numerics:exercises" id="toc-sec:numerics:exercises"><span class="num">4.10&nbsp;&nbsp;</span>Exercises</a></li>
+<li><a href="#sec:numerics:lab" id="toc-sec:numerics:lab"><span class="num">4.11&nbsp;&nbsp;</span>Lab 4: A bit-exact number-format simulator</a></li>
+</ul></nav>
+  </aside>
+</div>
+
+<div class="zoom-overlay" id="zoom-overlay" hidden><img alt="Enlarged figure"></div>
+<div class="search-overlay" id="search-overlay" hidden>
+  <div class="search-panel" role="dialog" aria-label="Search the book">
+    <input id="search-input" type="search" placeholder="Search the book…" autocomplete="off">
+    <ol id="search-results"></ol>
+  </div>
+</div>
+</body>
+</html>
