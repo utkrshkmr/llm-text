@@ -122,3 +122,14 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | Hyper-connections and mHC | ch:archdesign | 2 | planned |
 | Janus / Janus-Pro, DeepSeek-VL2 | ch:alignment | 7b | planned |
 | DeepSeek-OCR: optical context compression | ch:alignment (ch:kvcache) | 7b | planned |
+
+## Model files and MoE serving (owner request, 2026-11-05)
+
+| Topic | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| Model files: safetensors layout, sharded index, config and tokenizer files, tensor naming, quantised layouts, GGUF | ch:anatomy (ch:ondevice) | 2 | planned |
+| Selective loading: a rank's experts or TP slice by name or byte range, resharding on load, load-time accounting | ch:anatomy (ch:serving) | 2 | planned |
+| Expert placement, replicating hot experts (EPLB), online rebalancing, EP vs TP for MoE serving | ch:serving (ch:moe) | 6a | planned |
+| Expert offload and caching (GPU/CPU split, prefetch) | ch:serving (ch:memory) | 6a | planned |
+| 2-GPU MoE serving experiment with experts split across the A100s | ch:serving | 6a | planned |
+| P8 acceptance: ranks load only their own experts | P8 | 9c | planned |

@@ -53,3 +53,18 @@ Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); 
 - DeepSeek-V3's production serving design as a case study: prefill/decode disaggregation with different
   parallelism per phase, redundant experts, two-micro-batch overlap of attention and MoE communication; the
   multi-token-prediction module used for speculative decoding at serving time (acceptance rate reported).
+
+
+## Model files and MoE serving (owner request, 2026-11-05). Depth rules: BRIEF_conventions.md §7
+- MoE serving in depth (extends item 3 above): expert placement as an optimisation problem (memory per GPU, measured
+  expert load, all-to-all bytes, locality), static placement from a load profile, replicating hot experts and
+  balancing with an EPLB-style algorithm (redundant experts, grouped/hierarchical placement), online rebalancing
+  while serving and its cost, attention data-parallel + expert-parallel layouts, EP vs TP vs mixed for MoE at
+  decode and prefill; keeping a subset of experts on the GPU with the rest on the CPU (expert offload and caching,
+  prefetch from predicted routing, CPU execution of cold experts), with the PCIe bandwidth budget from [@ch:memory].
+- The 2-GPU worked example: serve a real small MoE (e.g. Qwen3-30B-A3B in a quantised form, or OLMoE/Qwen1.5-MoE-A2.7B
+  if memory requires) with experts split across the two A100s, each GPU loading only its experts with the selective
+  loader of [@sec:anatomy:files]; measure load time, bytes moved per token (all-to-all over PCIe), expert load
+  imbalance, tokens/s and TPOT for EP=2 vs TP=2 vs replicated-hot-experts, and compare with the cost model.
+- Code: code/llmsys/serving/moe_serving.py gains placement (greedy + EPLB-style), rebalancing, offload/cache
+  simulation; lab tests check placement invariants and cost-model values on crafted load profiles.

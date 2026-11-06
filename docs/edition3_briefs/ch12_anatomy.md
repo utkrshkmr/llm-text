@@ -69,3 +69,24 @@ Site check (see BRIEF_conventions.md §2); run lab12 tests and `python -m pytest
 ## Expanded scope (owner, 2026-11; staged plan). Depth rules: BRIEF_conventions.md §7
 - KV-cache scaling table across MHA/GQA/MQA/MLA with the exact formula bytes = 2·L·B·S·H_kv·d_h·bytes (MLA: L·B·S·(d_c + d_rope)·bytes); depth on management in [@ch:kvcache].
 - Research frontier (§7) and Reading-the-research box (e.g. DeepSeek-V2 for MLA).
+
+
+## Model files and MoE serving (owner request, 2026-11-05). Depth rules: BRIEF_conventions.md §7
+- New section "Model files from the bytes up" {#sec:anatomy:files}: the safetensors byte layout (8-byte header
+  length, JSON header with dtype/shape/data_offsets per tensor, alignment, why it is safe to mmap and zero-copy),
+  sharded checkpoints and `model.safetensors.index.json` (weight_map), `config.json` and `generation_config.json`,
+  tokenizer files (tokenizer.json, tokenizer_config.json, chat template), tensor-naming conventions per family
+  (layers.N.self_attn.q_proj, mlp.experts.E.gate_proj, fused vs per-expert layouts), how quantised checkpoints store
+  data (GPTQ/AWQ packed int4 qweight/qzeros/scales/g_idx, bitsandbytes NF4, FP8 weights with per-block
+  `weight_scale_inv` as in DeepSeek-V3, compressed-tensors), GGUF (header, metadata KV, tensor infos, quant block
+  types) and how it differs; PyTorch .bin/pickle and why it is unsafe.
+- Selective loading: read only the tensors a rank needs, by name or by byte range (`safe_open(...).get_slice`), so
+  each GPU loads only its experts or its tensor-parallel slice; resharding on load (column/row splits, fused QKV and
+  gate/up splitting, GQA head assignment); direct-to-GPU loading and load-time accounting (disk/page-cache → host →
+  device bandwidth, measured on this box).
+- Code: code/llmsys/models/files.py (pure-Python safetensors header parser and writer, index resolver, selective
+  loader for a rank's experts/TP slice, GGUF header reader, dequantisers for the packed formats above).
+- Lab 12 additions (CPU tests): parse headers of synthetic files and compare with the `safetensors` library; the
+  selective loader reads exactly the expected byte ranges (count bytes read) for EP=2 and TP=2 rank layouts; a
+  round-trip of a tiny MoE checkpoint written in HF layout; GGUF header parse of a synthetic file; dequantising a
+  packed GPTQ/FP8-block tensor matches a reference.
