@@ -1,4 +1,4 @@
-"""Fully sharded data parallelism (ZeRO-3) from scratch (Chapter 23).
+"""Fully sharded data parallelism (ZeRO-3) from scratch (Chapter 25).
 
 Design (the "flat-parameter" scheme used by PyTorch FSDP1 and DeepSpeed ZeRO-3):
 

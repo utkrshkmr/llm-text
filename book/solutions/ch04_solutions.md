@@ -1,153 +1,142 @@
-## Chapter 4: Project 10, Know Your Machine {.unnumbered}
+## Chapter 4: Numbers on the Machine: Formats, Rounding and Stable Algorithms {.unnumbered}
 
-#### Exercise 4.1
+#### Exercise 4.1.
 
-From $\pi = N_{\text{SM}}\,f\,\phi$, $f = 989\times10^{12}/(132\times4{,}096) = 1.83$ GHz. The
-datasheet number therefore assumes every SM runs its tensor cores at 1.83 GHz for the whole
-computation. Compare it with the maximum clock `nvidia-smi -q -d CLOCK` reports, and then with the
-clock under a sustained GEMM (the method of [@sec:proj10:power]). On our A100 a large GEMM's
-throughput was proportional to the clock, so the burst-to-sustained ratio equals the clock ratio,
-$1{,}035/1{,}410 = 0.73$. A card with more tensor throughput per watt of power limit will throttle
-further; predict the ratio from (peak FLOP/s) / (power limit) relative to the A100's $312/250$,
-then measure it with the sampler, pairing samples by timestamp.
+$-0.15625=-1.25\cdot2^{-3}$: sign 1, unbiased exponent $-3$, fraction $0.25$ (binary `01`).
+FP16: $E=-3+15=12=$ `01100`, fraction `0100000000`, code `0xB100`. BF16: $E=124=$ `01111100`,
+fraction `0100000`, code `0xBE20`. E4M3: $E=4=$ `0100`, fraction `010`, code `0xA2`. E5M2:
+$E=12$, fraction `01`, code `0xB1`. All four are exact, because 1.25 needs only two significant
+bits.
 
-#### Exercise 4.2
+$1000=1.953125\cdot2^9$, fraction $0.953125=$ `111101` in binary (six bits). FP16 (10 bits):
+exact, $E=24$, code `0x63D0`. BF16 (7 bits): exact, $E=136$, code `0x447A`. E5M2 (2 bits): the
+neighbours are $1.75\cdot512=896$ and $2\cdot512=1024$; 1000 is nearer 1024, code `0x64`, stored
+value 1024 (error 2.4%). E4M3: 1000 exceeds the maximum 448, and the OCP conversion saturates to
+448 (code `0x7E`, `S.1111.110`); an IEEE-style E4M3 (maximum 240) without saturation overflows to
+$+\infty$ (code `0x78`). `numerics.encode` returns exactly these codes.
 
-$n_{1/2} = \alpha\beta = 6.3\times10^{-6}\times23.9\times10^{9} = 151$ KB. Since
-$B(n)/\beta = n/(n+n_{1/2})$, 90% needs $n = 9\,n_{1/2} \approx 1.36$ MB. A batch of
-$8\times2048$ int64 ids is 131 KB: $t = 6.3\ \mu\text{s} + 131{,}072/23.9\times10^{9}\ \text{s} =
-11.8\ \mu$s, an effective 11.1 GB/s (46% of $\beta$). As int32 it is 65.5 KB and takes 9.0 μs. The
-3 μs saved is invisible next to a training step of tens of milliseconds, and with `non_blocking`
-the copy overlaps compute anyway; the dtype matters for memory, not for transfer time.
+#### Exercise 4.2.
 
-#### Exercise 4.3
+With IEEE specials and bias $2^{e-1}-1$, $e_{\max}=2^{e-1}-1$, $e_{\min}=2-2^{e-1}$ and $m=7-e$:
 
-$\beta_{\text{memcpy}} = 1/(1/8.1 - 1/23.5) = 12.4$ GB/s, against $1/(1/10.0 - 1/24.0) = 17.1$
-GB/s inferred from the H2D direction. The two-stage model with one host-copy rate does not fit both
-directions: the D2H pageable path is slower than the model explains (its host copy runs after the
-DMA into the staging buffer, and the driver may overlap the two stages less in this direction). A
-direct test: time a 256 MiB `pageable.copy_(pinned)` on the CPU (one thread, then several, with
-both buffers on the GPU's NUMA node) to measure $\beta_{\text{memcpy}}$ in each direction, then
-predict the pageable transfer from ([-@eq:proj10:pageable]) with no overlap and with full overlap
-($\min(\beta_{\text{pinned}}, \beta_{\text{memcpy}})$); the measurement should fall between the
-two.
+| $e$ | max | smallest subnormal | decades | $u$ |
+|--:|--:|--:|--:|--:|
+| 2 | 3.94 | $3.1\times10^{-2}$ | 2.1 | $2^{-6}$ |
+| 3 | 15.5 | $1.6\times10^{-2}$ | 3.0 | $2^{-5}$ |
+| 4 | 240 | $2.0\times10^{-3}$ | 5.1 | $2^{-4}$ |
+| 5 | 57,344 | $1.5\times10^{-5}$ | 9.6 | $2^{-3}$ |
+| 6 | $3.2\times10^{9}$ | $4.7\times10^{-10}$ | 18.8 | $2^{-2}$ |
 
-#### Exercise 4.4
+A per-tensor-scaled Gaussian weight tensor spans about four decades between its maximum
+($\approx5\sigma$) and the values that matter ($\approx10^{-3}\sigma$), so $e=4$ suffices and buys
+the most precision. Gradients spanning ten decades need $e=5$ (or finer scales). The "fn"
+convention turns the top binade's seven non-NaN codes into numbers, raising E4M3's maximum from
+240 to 448 (0.9 binades more range), and gives up infinities (overflow must saturate or produce
+NaN) and all but one NaN code per sign.
 
-With $k = n/c$ chunks, $T(c) = (n/c + 1)(\alpha + c/\beta) = n\alpha/c + n/\beta + \alpha +
-c/\beta$. Setting $dT/dc = -n\alpha/c^2 + 1/\beta = 0$ gives $c^\star = \sqrt{n\alpha\beta} =
-\sqrt{n\,n_{1/2}}$. For $n = 256$ MiB: with the H2D stage ($n_{1/2} = 151$ KB) $c^\star = 6.4$ MB;
-with the D2H stage ($n_{1/2} = 356$ KB) $c^\star = 9.8$ MB. Both are close to the 8 MiB we used,
-and at the optimum $T^\star = n/\beta + 2\sqrt{n\alpha/\beta} + \alpha \approx 11.2 + 0.5 =
-11.8$ ms, about 23 GB/s. The measured 18.5 GB/s (two-GPU run) is lower because both DMA streams
-share host memory, one of them necessarily crosses the inter-socket link (the two GPUs are on
-different nodes, the pinned buffers on one), our measurement did not place the buffers
-deliberately, and the Python loop issues four operations per chunk at several microseconds each.
-`staged_bandwidth(n, 0, 1, c)` for $c$ = 1, 4, 16, 64 MiB gives the measured curve; expect the
-small chunks to lose most (they pay $\alpha$ and the host's enqueue cost 256 times).
+#### Exercise 4.3.
 
-#### Exercise 4.5
+INT8: $|p|\le128^2=2^{14}$, so $K\cdot2^{14}\le2^{31}-1$ requires $K<2^{17}=131{,}072$. INT4 into
+INT16: $|p|\le8^2=64$, and $64K\le32{,}767$ gives $K\le511$, which is why INT4 GEMMs also
+accumulate in INT32. Integer addition is exact, so an integer GEMM's result is the exact dot
+product of the integer codes; its accuracy is limited by the representation (rounding and clipping
+in the quantiser, [@sec:quant:quant]) and by the final conversion of the INT32 result times the
+scales to floating point.
 
-For Gaussian samples the median's standard error is $\sqrt{\pi/2}\,\sigma/\sqrt{n} \approx
-1.2533\,\sigma/\sqrt{n}$. A 95% interval of half-width 1% with $\sigma = 3\%$ of the median needs
-$1.96\times1.2533\times0.03/\sqrt{n} \le 0.01$, so $\sqrt{n} \ge 7.4$ and $n \ge 55$. The
-order-statistic rule ([-@eq:proj10:ci]) with $n = 55$ takes ranks 20 and 36. A bootstrap check:
-draw 55 log-normal samples with $\sigma_{\log} = 0.03$, call `stats.bootstrap_ci`, and repeat a few
-hundred times; the interval's half-width averages about 1% and it covers the true median in about
-95% of repetitions. For timing distributions with a heavy right tail, the median needs fewer
-samples than the mean for the same precision, one more reason to report it.
+#### Exercise 4.4.
 
-#### Exercise 4.6
+For $|w|\in[2^{-6},2^{-5})\ni0.02$, $\operatorname{ulp}=2^{-6-7}=2^{-13}$ and every update with
+$|\delta|<2^{-14}=6.1\times10^{-5}$ is lost; for $|w|$ just above 1 the threshold is
+$2^{-8}=3.9\times10^{-3}$. So with $\eta<6.1\times10^{-5}$ (for Adam, $|\delta|\approx\eta$) all
+updates of the magnitude-0.02 weights vanish. With the cosine schedule
+$\eta(t)=\eta_{\min}+\tfrac12(\eta_{\max}-\eta_{\min})(1+\cos\pi t/T)$, $\eta_{\max}=3\times10^{-4}$,
+$\eta_{\min}=3\times10^{-5}$, we solve $\eta(t)=6.1\times10^{-5}$: $1+\cos(\pi t/T)=0.230$,
+$t/T=0.78$. The last 22% of training would do nothing to those weights (and Adam updates of elements
+with small $m/\sqrt v$ vanish earlier). An FP32 master copy costs 4 bytes per parameter, 28 GB for
+7B; stochastic rounding costs one random number per updated element and no memory
+(`numerics.stochastic_round_bf16`).
 
-Eager: the host enqueues 420 kernels at 7.4 μs each, 3.1 ms, while the GPU's own work (about
-0.9 ms of weight streaming) hides underneath: the step is host-bound. Fusing half the kernels
-gives 1.6 ms, still host-bound. From a CUDA graph the host costs one launch; the device runs 420
-kernels with about 1.3 μs of gap each (0.55 ms) and streams the weights in 0.9 ms, so the step
-takes between $\max(0.9, 0.55) = 0.9$ ms and $0.9 + 0.55 = 1.45$ ms, depending on how much of the
-gaps overlap with work. Eager decoding stops being overhead-bound when the GPU's work exceeds
-3.1 ms: ignoring the KV cache, the matmul FLOPs are $2\times0.6\times10^9\times B$, which take
-3.1 ms at 217 TFLOP/s for $B \approx 560$. Reading the KV cache grows with batch and context and
-lowers that crossover in practice.
+#### Exercise 4.5.
 
-#### Exercise 4.7
+With $U$ uniform on $\{0,2^{-r},\dots,1-2^{-r}\}$, $\operatorname{SR}(x)=h$ iff $U\ge1-f$, which
+happens for $\lfloor2^rf\rfloor$ of the $2^r$ values. So $P(\text{up})=\lfloor2^rf\rfloor/2^r$ and
+the bias is $-q\,(f-\lfloor2^rf\rfloor2^{-r})\in(-q2^{-r},0]$: always toward $\ell$, largest when
+$f$ is just below a multiple of $2^{-r}$ (for example $f<2^{-r}$ never rounds up). The result is
+still a two-point random variable with $P=P(\text{up})$, so its variance $q^2P(1-P)\le q^2/4$.
+For a sum of $n=10^4$ addends the bias accumulates linearly, up to $n2^{-r}$ ulp, while
+round-to-nearest errors of random sign accumulate like $\sqrt{n/12}\approx29$ ulp; $n2^{-r}<29$
+needs $r\ge9$ bits. The library's `sr_bits` argument and the test with $r=2$ illustrate the effect.
 
-(a) Work division: PyTorch's elementwise kernels launch a grid sized from the element count; a
-size that leaves a partly filled last wave of blocks over the 108 SMs wastes a fraction of the
-final wave, and at a few microseconds per kernel the tail is a visible share. (b) Address mapping:
-L2 slices and the two partitions are selected by hashing physical addresses; buffers whose sizes
-are not powers of two can load the slices unevenly or straddle partitions differently. To
-distinguish them, sweep the size finely (32 points per octave between 2 and 16 MiB): mechanism (a)
-predicts dips at sizes where the block count crosses multiples of 108 times the resident blocks per
-SM, and the pattern should also appear in the cold sweep; mechanism (b) predicts a dependence on
-alignment, so repeat each size with the buffers offset by 1 KiB and by 64 KiB, which leaves (a)
-unchanged and moves (b). The two mechanisms are not exclusive; report the fraction of the dip each
-explains.
+#### Exercise 4.6.
 
-#### Exercise 4.8
+Let $|a|\ge|b|$ and $s=\operatorname{fl}(a+b)$. Sterbenz's lemma says that $x-y$ is exact when
+$y/2\le x\le2y$. If $a$ and $b$ have the same sign, $|a|\le|s|\le2|a|$, so $s-a$ is exact. If
+they have opposite signs and $|b|\ge|a|/2$, then $a+b$ itself is exact by Sterbenz, $s=a+b$ and
+$s-a=b$. Otherwise $|a|/2<|a|-|b|\le|s|\le|a|$ and Sterbenz applies to $s-a$ again. So
+$z=\operatorname{fl}(s-a)=s-a$ exactly, and $b-z=(a+b)-s$ is the rounding error of the sum, which
+is itself representable for round-to-nearest addition, so $\operatorname{fl}(b-z)$ is exact too. This is
+Dekker's Fast2Sum, and Kahan's $c$ is its negation. Trace for $(1,2^{-9},2^{-9},2^{-9},2^{-9})$ in
+BF16 (exact sum $1+2^{-7}$, representable): the naive sum stays at 1 because each $2^{-9}$ is a
+quarter ulp. Kahan: after the first $2^{-9}$, $s=1$, $c=-2^{-9}$; next $y=2^{-8}$, $s+y$ is a tie
+and rounds to 1, $c=-2^{-8}$; next $y=3\cdot2^{-9}$, $s=\operatorname{fl}(1+3\cdot2^{-9})=1+2^{-7}$,
+$c=2^{-7}-3\cdot2^{-9}=2^{-9}$; last $y=0$, $s=1+2^{-7}$. Kahan returns the exact 1.0078125
+(`numerics.sum_kahan` agrees), the naive sum 1.0.
 
-With $F = 1.0995\times10^{12}$: the "burst" time is $F/261\times10^{12} = 4.213$ ms at 1,410 MHz
-and the sustained time $F/217\times10^{12} = 5.067$ ms at 1,035 MHz. Subtracting,
-$W_{\text{SM}}(1/1{,}035 - 1/1{,}410) = 0.854$ ms gives $W_{\text{SM}} \approx 3{,}320$ MHz$\cdot$ms
-and $W_{\text{mem}} = 4.213 - 3{,}320/1{,}410 = 1.86$ ms, 44% of the burst time apparently
-independent of the clock. At 765 MHz the fit predicts $3{,}320/765 + 1.86 = 6.2$ ms, 177 TFLOP/s.
-But the clock-scaled peak at 765 MHz is $312\times765/1{,}410 = 169$ TFLOP/s: the fit predicts a
-GEMM that completes more FLOPs per clock cycle than the tensor cores can issue, which is
-impossible. The faulty assumption is that the "burst" sample ran entirely at 1,410 MHz. The clock
-readings lag the GPU by up to about 100 ms, and the throttle reason "software power cap" was
-already active at the first sample; the first 10-GEMM group (44 ms) partly ran at a lower clock,
-so its throughput understates what 1,410 MHz delivers, and the fit invents a clock-independent
-part to explain the shortfall. The correctly timestamped trace of [@fig:proj10:sustained] settles
-it: throughput divided by the clock at each moment is constant at about 294 TFLOP/s per 1,410 MHz
-across the steady state, so $W_{\text{mem}} \approx 0$ for this GEMM, and the proportional model
-predicts $294\times765/1{,}410 = 160$ TFLOP/s at 765 MHz, below the peak as it must be.
+#### Exercise 4.7.
 
-#### Exercise 4.9
+Let $m=\max(m_a,m_b)$, $\alpha=e^{m_a-m}$, $\beta=e^{m_b-m}$. Then $\ell=\alpha\ell_a+\beta\ell_b$
+and $\mathbf{o}=\alpha\mathbf{o}_a+\beta\mathbf{o}_b$, with final output $\mathbf{o}/\ell$. A state
+$(m,\ell,\mathbf{o})$ represents the pair $(e^{m}\ell, e^{m}\mathbf{o})=(\sum_ie^{s_i},
+\sum_ie^{s_i}\mathbf{v}_i)$; the merge adds these pairs in a rescaled representation, so it is
+associative and commutative (up to rounding), and the identity element is $(-\infty,0,\mathbf{0})$
+(guard the $e^{-\infty-(-\infty)}$ case as `online_softmax_stats` does). Check: split the score row
+of `online_softmax_matmul` in two, run each half, merge, and compare with the full result to
+$10^{-12}$ in float64. Split-KV ("flash-decoding") kernels use this merge: during decoding there is
+one query per sequence, so the KV cache is split across thread blocks and their partial states are
+merged.
 
-The rule multiplies compute-bound kernel times by $1{,}410/1{,}035 = 1.36$ and leaves
-memory-bound ones unchanged. For the large GEMMs it should work: [@sec:proj10:power] found their
-throughput proportional to the clock, so the $4096^3$ GEMM should go from 549 μs to about 750 μs.
-It under-predicts latency-bound memory kernels (softmax, LayerNorm, small kernels), whose time
-depends on how fast the SMs issue loads and on fixed costs that scale with the clock, and it may
-over-predict the slowdown of small GEMMs, whose time includes clock-independent fixed costs.
-Streaming kernels (copy, add, GEMV) should not move. To measure in the low-clock state without
-locking clocks, time each kernel immediately after two seconds of back-to-back GEMMs, record the
-clock with a timestamped sampler, and discard samples whose clock is not near 1,035 MHz. Habitat's
-own evaluation compares different GPUs, where SM count, bandwidth and cache size change together;
-this box isolates the clock, which is the cleanest test of its scaling rule.
+#### Exercise 4.8.
 
-#### Exercise 4.10
+Construct rows whose exact sum falls strictly between two FP32 numbers, with every input exactly
+representable in FP16 (and BF16): for example $a=(1,3\cdot2^{-14},0,\dots)$, $b=(1,2^{-11},0,\dots)$
+gives $1+0.75$ ulp; fifteen products of $2^{-24}$ after a 1 give $1+7.5$ ulp; and $a=(-1,3\cdot
+2^{-14})$ gives a negative exact tie. Round-to-nearest returns $1+$ulp, $1+8$ ulp (or less if the
+additions are sequential) and the even neighbour; round-toward-zero returns $1$, $1+7$ ulp and the
+neighbour of smaller magnitude; round-toward-$-\infty$ returns $1$, $1+7$ ulp and the neighbour of
+*larger* magnitude. Moving the large term to different positions along $K$ (and padding $K$ with
+zeros) reveals how many products are summed before each rounding. `bench.py --only tcprobe`
+implements the three probes. On the A100 the FP32 SGEMM rounds to nearest, while both the FP16 and
+the BF16 tensor-core GEMMs return $1$, $1+7$ ulp and the larger-magnitude neighbour: rounding toward
+$-\infty$, the same for both input formats, which is neither RNE nor the round-toward-zero that Fasi
+et al. (2021) reported for the V100 (and agrees with Valpey et al., 2025). *Prediction for random
+data*: directed rounding biases long sums, so one would expect error growing with $K$ above the RNE
+model. The measurement only partly agrees: the BF16 kernel's error ($1.3\times10^{-7}$ at $K=4096$)
+is *below* the sequential RNE model because the kernel's blocking and split-K shorten each chain of
+additions, while the FP16 kernel's ($2.4\times10^{-6}$) is ten times above it and nearly
+independent of $K$. On identical BF16-representable data the FP16 kernel is still 3.7 times worse,
+and the profiler shows different kernels (a CUTLASS kernel for FP16, a cuBLAS one for BF16). So the
+probe characterises the MMA, but the error on real data depends on the kernel the library selects;
+repeat both on another GPU generation to see which of the two changed.
 
-A prediction for an H100 SXM from our fractions: HBM copy $0.85\times3.35 = 2.85$ TB/s; BF16 per
-clock $0.94\times989 \approx 930$ TFLOP/s at the boost clock, less under the power limit; PCIe 5.0
-x16 pinned about $0.76\times63 = 48$ GB/s from the local NUMA node; GPU-to-GPU over NVLink rather
-than PCIe, hundreds of GB/s, but checked for correctness all the same; fixed costs similar to ours
-(they are set by the host CPU and the driver, not the GPU). The fractions most likely to transfer
-are the DRAM and PCIe ones ([@tab:proj10:repro] already shows them carrying over from V100 to
-A100) and the fixed costs; the least likely are the burst GEMM fraction (it depends on library
-maturity for the architecture) and the burst--sustained gap (it depends on the power limit relative
-to throughput, 700 W on the SXM part). The model of ([-@eq:proj10:model]) needs an interconnect
-term for NVLink paths and, for FP8, a compute class whose peak depends on the scaling granularity
-of [@ch:numerics].
+#### Exercise 4.9.
 
-#### Exercise 4.11
+*Prediction.* Kahan's buffer $c$ holds the part of the accumulated updates that $w$ could not
+absorb, so $|c|<\operatorname{ulp}(w)/2$, and the compensated value $w-c$ tracks the exact
+trajectory up to the rounding of $c$ itself. That rounding loses at most $2^{-9}|c|\le2^{-10}
+\operatorname{ulp}(w)$ per step, with random sign, so after $T=10^4$ steps the error of $w-c$ is of
+the order of $\sqrt{T}\cdot2^{-10}\operatorname{ulp}(w)/\sqrt3$. For $|w|\approx0.02$,
+$\operatorname{ulp}(w)=2^{-13}$, that is about $7\times10^{-6}$ against an accumulated displacement of
+about $0.05$ (a drift of $0.5\times10^{-5}$ per step), a relative error near $10^{-4}$. The weight
+$w$ alone differs from $w-c$ by $|c|<\operatorname{ulp}(w)/2$, which is exactly the error of rounding
+an FP32 master copy to BF16 at the end, so $w$ should match the FP32-master result (0.18%) and
+$w-c$ should be about ten times better.
 
-A minimal test, skipped on machines with fewer than two GPUs:
-
-``` python
-@pytest.mark.parametrize("n", [1024, 16 * 2**20])
-@pytest.mark.parametrize("src,dst", [(0, 1), (1, 0)])
-def test_peer_copy_delivers_data(n, src, dst):
-    x = (torch.arange(n, device=f"cuda:{src}") % 65521).float()
-    y = x.to(f"cuda:{dst}")
-    torch.cuda.synchronize(src); torch.cuda.synchronize(dst)
-    assert torch.equal(y.cpu(), x.cpu())      # compare through the host, not the path under test
-```
-
-Add a non-contiguous case and the framework's own send/receive path, and record the IOMMU group
-type next to the result (`env.iommu_info`): a translating IOMMU (`DMA`, `DMA-FQ`) is the
-configuration NVIDIA does not support for PCIe peer-to-peer. NCCL does not need the test on our
-box because it does not use peer-to-peer DMA across a `SYS` path by default: its topology search
-reads the PCI hierarchy, assigns each pair of GPUs a path type, and enables the P2P transport only
-up to a configured path distance (`NCCL_P2P_LEVEL`), falling back to shared host memory (the "via
-SHM/direct" channels in its log) otherwise. Choosing a transport from the measured topology rather
-than from the driver's yes/no answer to "can access peer" is the robust design.
+*Measurement* (CPU, `--n-weights 65536`, 10,000 steps, the bench's update distribution): RNE
+91.5%, SR 7.3%, FP32 master 0.18%, Kahan-compensated $w$ 0.18%, and $w-c$ 0.017%. Memory per
+parameter: BF16 with RNE or SR 2 bytes; Kahan 4 bytes (weight plus compensation); BF16 weights
+with an FP32 master 6 bytes (4 if the BF16 copy is re-derived from the master before each forward
+pass). Kahan buys the accuracy of a master copy for two bytes instead of four, and keeps the
+update deterministic. SR costs nothing in memory but leaves a noise of a few per cent that only
+averages out over many steps. When optimiser states already fill the GPU, Kahan-compensated BF16
+weights are the better trade if two bytes per parameter can be found; otherwise SR is the only
+option that does not lose the small updates outright.

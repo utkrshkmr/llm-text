@@ -1,4 +1,4 @@
-"""Project 11, milestone 2: one instrumented training run under a precision recipe (Chapter 5).
+"""Project 11, milestone 2: one instrumented training run under a precision recipe (Chapter 7).
 
 ``train(cfg)`` builds the task, the model and the recipe, trains with AdamW (warm-up + cosine),
 and logs every ``log_every`` steps: training loss, the validation loss of the current weights

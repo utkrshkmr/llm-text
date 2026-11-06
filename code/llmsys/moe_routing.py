@@ -1,6 +1,6 @@
-"""Routers and load-balancing schemes for mixture-of-experts layers (Chapter 13).
+"""Routers and load-balancing schemes for mixture-of-experts layers (Chapter 15).
 
-Chapter 9 introduced one router (softmax, top-k, renormalise; ``llmsys.moe.route_topk``).
+Chapter 11 introduced one router (softmax, top-k, renormalise; ``llmsys.moe.route_topk``).
 This module collects the routing families used by current open models and the three
 balancing mechanisms that keep them from collapsing:
 

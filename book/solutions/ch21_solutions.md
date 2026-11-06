@@ -1,101 +1,103 @@
-## Chapter 17: Performance Engineering on One GPU {#chapter-17-performance-engineering-on-one-gpu .unnumbered}
+## Chapter 15: Pretraining Data: From Common Crawl to Tokens {#chapter-15-pretraining-data-from-common-crawl-to-tokens .unnumbered}
 
-#### Exercise 17.1
+#### Exercise 15.1
 
-One-time costs: CUDA context creation and kernel-module loading; cuBLAS handle creation and
-heuristic or autotuning selection per new GEMM shape; Triton JIT compilation and `triton.autotune`
-sweeps; `torch.compile` tracing (Dynamo), joint-graph partitioning (AOTAutograd) and code generation
-(Inductor); caching-allocator growth (one `cudaMalloc` per new segment); CUDA-graph capture if
-enabled; GPU clock ramp-up. Experiment: wrap "import + model construction", "first forward", "first
-backward", "first optimizer step", "second step" and "steps 3--20" in separate NVTX ranges and
-profile without a capture range. Compile and autotune appear as long host-side ranges with no
-kernels; allocator growth appears as `cudaMalloc` calls in the CUDA API row; clock ramp-up shows as
-identical kernels getting faster over the first iterations (also visible with `nvidia-smi dmon`).
+\(a\) The cp1252 bytes `caf\xe9` with no declaration: naive UTF-8 decoding yields "caf" followed by
+the replacement character U+FFFD; the cascade sees invalid UTF-8 and falls back to cp1252, giving
+"café". (b) A page whose HTTP header says `charset=iso-8859-1` and contains `\xe9`: the header wins
+and the text decodes correctly. (c) A UTF-8 page with a byte-order mark: naive decoding keeps a
+stray U+FEFF at the start; the BOM rule strips it. A failure case is a Shift-JIS or GBK page with no
+declaration: it is invalid UTF-8, so the cascade falls back to cp1252 and produces mojibake. The
+missing signal is a statistical detector that scores byte-pair frequencies under each candidate
+encoding (as chardet or Resiliparse do), possibly combined with language ID of the decoded result.
 
-#### Exercise 17.2
+#### Exercise 15.2
 
-Any launch-bound workload: for example, 1000 small elementwise kernels on $10^4$-element tensors.
-Each kernel runs for about $2\,\mu$s on the device, but the host needs about $5$--$10\,\mu$s per
-launch, so CUDA events (device time, roughly the sum of kernel durations when the queue never
-empties) report much less than wall-clock time, which includes the launch bottleneck. Report device
-time (events or `do_bench`) for a kernel paper, because the claim is about the kernel; report
-synchronised wall-clock time for training throughput, because host overhead is part of the real
-cost.
+With independent features, the log-odds between languages $a$ and $b$ is
+$\log\frac{p(a)}{p(b)} + \sum_g c_g(x)\log\frac{p(g\mid a)}{p(g\mid b)}$. Concatenating $m$ copies
+multiplies every $c_g$ by $m$, so the evidence term scales by $m$ and the posterior saturates to 0
+or 1 regardless of how ambiguous each copy is. Posteriors on long documents are therefore not
+calibrated confidences. A length-normalised score divides the evidence by the number of $n$-grams,
+$\frac{1}{|x|}\sum_g c_g\log\frac{p(g\mid a)}{p(g\mid b)}$ (the average log-likelihood ratio per
+feature), and thresholds that, or calibrates it with logistic regression on held-out labelled data
+(Platt scaling).
 
-#### Exercise 17.3
+#### Exercise 15.3
 
-For `fc3(silu(fc1(x)) * fc2(x))` in eager mode: `fc1` and `fc2` save $x$ (the same storage, counted
-once): $BTd\cdot4$ bytes. `silu` saves its input $g=\texttt{fc1}(x)$: $BTh\cdot4$. The product saves
-both operands, `silu`$(g)$ and $u=\texttt{fc2}(x)$: $2BTh\cdot4$. `fc3` saves its input (the
-product): $BTh\cdot4$. Total $4BT(d+4h)$ bytes, i.e. $1+4h/d$ units of the residual stream (about 13
-for $h=3d$). Under `torch.compile` the partitioner typically keeps $x$, $g$ and $u$ and recomputes
-`silu`$(g)$ and the product in the backward kernel, dropping two $h$-wide tensors (about $1+2h/d$
-units). Verify by printing `tr.table()` in both modes.
+False positives include long numeric identifiers with separators (`123-456-7890` used as an order
+number), dates such as `2024 555 0123` in tables, and fax numbers that you may decide to keep. False
+negatives include extensions (`x123`), international numbers (`+44 20 7946 0958`), vanity numbers
+(`1-800-FLOWERS`), and numbers split across lines by extraction. Measure precision as
+masked-and-correct over all masked strings, and recall as masked-and-correct over all true phone
+numbers in your list. Improvements that keep precision include requiring context words ("call",
+"tel", "phone") for ambiguous formats, adding an extension group, and accepting `+\d{1,3}` country
+codes only when followed by a plausible national format.
 
-#### Exercise 17.4
+#### Exercise 15.4
 
-With outer groups of $k_1$ blocks, each recomputed with inner checkpoints every $k_2$ blocks, the
-peak (in units of $a$, with $A=30a$) is $M=\tfrac{L}{k_1}+\tfrac{k_1}{k_2}+30k_2$: outer
-checkpoints, the inner checkpoints of the outer group being recomputed, and one live inner group.
-Each block runs forward three times (original, outer recomputation, inner recomputation) versus
-twice for one level. Because $A\gg a$, $k_2=1$ is optimal, giving $M=64/k_1+k_1+30$, minimised at
-$k_1=8$: $M=46a$. The best one-level schedule ($k=1$ or $2$) gives $94a$ or $92a$. One extra forward
-per block roughly halves peak activation memory here.
+On 400 synthetic pages, every rule-failing page belongs to spam, listings, login pages or foreign
+pages. Spam fails the symbol-ratio, ellipsis, alphabetic-word and stop-word rules (all 41 pages);
+listings fail symbol-ratio, bullet, alphabetic-word and stop-word rules (31/31); login pages fail
+word count and stop words (26/26); foreign pages fail only the stop-word rule (57/57). The stop-word
+rule alone removes every bad page here, so the other rules are redundant on this crawl. On a real
+crawl they are not: SEO spam and many menus contain stop words, short English pages fail only the
+word-count rule, and repetition rules catch templated pages that pass everything else.
 
-#### Exercise 17.5
+#### Exercise 15.5
 
-Per parameter, AdamW does about 12--15 FLOPs (two moment updates, bias corrections, a square root, a
-division, weight decay, the update) and moves about 28 bytes ([@sec:perf:anatomy]): roughly
-0.5 FLOP/byte, far below any GPU's ridge point. Qwen3-1.7B has $1.72\times10^9$ parameters, so
-48.2 GB of traffic, or 14.4 ms at 3.35 TB/s. The model has about 310 parameter tensors (11 per layer
-over 28 layers, plus the embedding and final norm); at about ten kernels per tensor and $5\,\mu$s
-per launch, launching alone takes 15.5 ms of host time, and kernels on small tensors (norm weights)
-are too short to reach bandwidth. Expect 25--40 ms unfused. A fused (or multi-tensor) implementation
-launches a handful of kernels and approaches $14.4/0.8\approx18$ ms at 80% of peak bandwidth.
+Each of the $\binom{F}{2}$ feature pairs collides with probability $1/B$, so the expected number of
+colliding pairs is $\binom{F}{2}/B = 2000\cdot1999/2/2^{18}\approx 7.6$. With 2,000 features
+averaged into one logit, a handful of shared buckets shifts the score negligibly. Across the corpus,
+however, collisions are between *features*, not documents: a frequent feature colliding with a
+strongly weighted rare feature biases every document containing it. Larger $B$ or signed hashing (a
+second hash choosing $\pm1$) reduces this bias.
 
-#### Exercise 17.6
+#### Exercise 15.6
 
-$16\times4096=65{,}536$ tokens. Logits in bf16: $65{,}536\times151{,}936\times2$ B $=19.9$ GB; the
-fp32 upcast doubles that to 39.8 GB; the gradient of the logits is another 19.9--39.8 GB. That is
-80--100 GB at the peak, more than an 80 GB GPU. To keep the fp32 slab under 1 GB: chunk
-$\le 10^9/(151{,}936\times4)\approx1645$ tokens, so use 1024 (0.62 GB fp32 plus 0.31 GB bf16).
-Recomputation repeats the LM-head forward ($2d_{\text{model}}V=622$ MFLOP per token),
-i.e. $4.1\times10^{13}$ extra FLOPs per step (about 41 ms at the H100's bf16 peak): one third more
-than the LM head's normal training cost.
+Let $X_i=\mathbb{1}[\min_S h_i = \min_T h_i]$. By [@prop:data:minhash],
+$\mathbb{E}[X_i]=J$, so $\mathbb{E}[\hat J]=J$. Each $X_i$ is Bernoulli($J$) with variance $J(1-J)$,
+and independence gives $\mathrm{Var}(\hat J)=J(1-J)/k$. For a standard deviation of 0.02 at $J=0.8$:
+$k = 0.16/0.0004 = 400$. Empirically, repeat `MinHasher(400).signature` with different seeds on a
+pair of sets with known $J$ and compare the sample standard deviation with 0.02.
 
-#### Exercise 17.7
+#### Exercise 15.7
 
-With tile size $b$ and $n=T/b$ tiles per side, a causal forward visits $n(n+1)/2$ tiles and does two
-GEMMs of $2b^2d_{h}$ FLOPs on each, giving $2\,BHd_{h}\,T(T+b)$ FLOPs ($\approx2BHd_{h}T^2$, half of
-non-causal). The two-kernel backward does seven GEMMs per visited tile: $7\,BHd_{h}\,T(T+b)$,
-$3.5\times$ the forward. A backward reading a stored $\mathbf{P}$ does four GEMMs
-($\mathbf{dV},\mathbf{dP},\mathbf{dQ},\mathbf{dK}$), $2\times$ the forward, but must store and read
-$BHT^2$ elements. The diagonal tiles are computed in full and masked, so their wasted FLOPs are the
-$T\cdot b$ term.
+A brute-force search over $k=br$ finds the smallest feasible design at $k=312$ with $b=26$, $r=12$:
+$P(0.85)=0.981$ and $P(0.5)=0.0063$. Intuitively, $r$ must be large enough to suppress $J=0.5$
+($0.5^{12}\approx2.4\times10^{-4}$ per band) while $b$ restores recall at 0.85. Plotting
+$1-(1-s^{12})^{26}$ shows a curve much steeper than the $k=128$ curves of
+[@fig:data:scurve], centred near $(1/26)^{1/12}\approx0.76$.
 
-#### Exercise 17.8
+#### Exercise 15.8
 
-Visited tiles $n(n+1)/2$, masked tiles $n$: a fraction of $2/(n+1)$, e.g. about 3% for $n=64$. With
-`BLOCK_M`$=2\,$`BLOCK_N` and $n_q=T/\texttt{BLOCK\_M}$ query tiles, query tile $i$ visits $2i+2$ key
-tiles, the last two of which straddle the diagonal and need masks. Visited $=n_q(n_q+1)$, masked
-$=2n_q$, so again $2/(n_q+1)$, now in terms of the (fewer) query tiles.
+$10^{6}$ identical pages in one bucket produce $\binom{10^6}{2}\approx5\times10^{11}$ pairs per
+band, which is infeasible. Cap bucket sizes at $M$ (say $10^{3}$). For an oversized bucket, do not
+enumerate pairs: emit $(\text{first},i)$ edges from one representative to every member, which is
+linear in bucket size, optionally after verifying a random sample of members against the
+representative. Union-find then merges the whole bucket into one cluster in $O(n\,\alpha(n))$.
 
-#### Exercise 17.9
+#### Exercise 15.9
 
-Tiles $=16\lceil M/128\rceil$ and waves $=\lceil\text{tiles}/132\rceil$; achieved fraction
-$=\text{tiles}/(132\cdot\text{waves})$. At $M=4096$: 512 tiles, 4 waves, 97%. Throughput drops just
-above $M=4224$ (528 tiles fill exactly 4 waves; 544 need 5, falling to 82%), $M=5248$ (656 to 672
-tiles: 99% to 85%), $M=6272$ (784 to 800 tiles) and $M=7296$ (912 to 928 tiles), with smaller steps
-at every multiple of 128 from tile quantisation. A sweep of measured throughput shows the same
-sawtooth.
+Bits per item $= -\ln 10^{-3}/(\ln2)^2\approx14.4$, so $m\approx4.3\times10^{11}$ bits
+$\approx54$ GB, with $k\approx10$. To shard over 16 machines, route each paragraph by a hash prefix
+to one shard that owns its own filter of about 3.4 GB. Each paragraph then needs only one network
+message carrying its 8--16-byte hash, about $3\times10^{10}\times16$ B $\approx
+0.5$ TB in total, and all $k$ bit lookups for that paragraph are local to its shard.
 
-#### Exercise 17.10
+#### Exercise 15.10
 
-With `fullgraph=True`, Dynamo raises at `loss.item()` ("data-dependent" or "Tensor.item" graph
-break) because converting a tensor to a Python number needs a device synchronisation and leaves the
-graph. `TORCH_LOGS=graph_breaks` on the original code lists remaining breaks, typically from
-NVTX/profiler calls inside the compiled region, `print`s, Python-side conditionals on tensor values
-and calls into unsupported libraries. The remedies: move logging outside the compiled function
-(return the loss tensor and call `.item()` every $k$ steps), replace data-dependent branches with
-`torch.where`, mark helper functions with `torch.compiler.disable` if they must stay in Python, and
-compile per block so that remaining breaks fall between compiled regions.
+UniMax (budget 300B, cap 3): the 0.5B source gets 1.5B (3 epochs), the 5B source 15B (3 epochs), and
+the remaining 283.5B is split equally between the two large sources, 141.75B each. The weights are
+$(0.4725, 0.4725, 0.05, 0.005)$ and the epochs $(0.28, 2.84, 3, 3)$. Temperature sampling with
+$\alpha=0.3$ gives weights $(0.532,0.267,0.134,0.067)$ and epochs $(0.32, 1.6, 8.0, 40.2)$: the
+smallest source would be repeated 40 times, which is exactly what UniMax prevents.
+
+#### Exercise 15.11
+
+Let $t$ be the measured seconds per shard on one core and $S=90{,}000$ shards. With $c$ effective
+cores the time is roughly $S t / (c\,\eta)$, where $\eta$ is the parallel efficiency from
+`bench.py scaling` (often 0.6--0.9 on one machine, lower when I/O-bound). For example, if $t=60$ s:
+a 4-core laptop needs about 15 days at $\eta=1$, a 64-core server about a day, and 1,000 vCPUs about
+1.5 hours. Rewrite first the stage that dominates the per-stage table. In our measurements that is
+pure-Python language ID and extraction, so replace them with fastText and Resiliparse (C++) or a
+vectorised implementation before considering anything else.

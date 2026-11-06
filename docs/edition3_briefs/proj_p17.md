@@ -1,4 +1,4 @@
-# Brief: Project 17, A domain specialist end to end (book/chapters/ch42_proj_specialist.md {#ch:proj17}, kit code/projects/p17_specialist NEW)
+# Brief: Project 17, A domain specialist end to end (book/chapters/ch44_proj_specialist.md {#ch:proj17}, kit code/projects/p17_specialist NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P17", and the
 chapters this capstone of Part V builds on: [@ch:data] (filtering, dedup, decontamination), [@ch:instruct], [@ch:classify]; [@ch:eval] and [@ch:dpo] are optional extensions. Budget on 2×A100-40GB PCIe: ~12 GPU-h (estimate; calibrate in

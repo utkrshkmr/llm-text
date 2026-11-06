@@ -316,3 +316,7 @@ thead th { border-bottom: 2px solid var(--text-faint); font-weight: 600; text-al
   .topbar, .sidebar, .pagetoc, .pager, .search-overlay, .zoom-overlay { display: none !important; }
   .layout { display: block; }
 }
+
+/* Cross-references into parts that are not published yet: plain text, no link. */
+.xref-unpub { color: inherit; border-bottom: 1px dotted var(--text-faint); cursor: help; }
+.parts-coming { grid-column: 1 / -1; color: var(--text-faint); font: 14.5px/1.5 var(--ui-font); margin-top: .5em; }

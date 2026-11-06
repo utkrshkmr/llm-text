@@ -1,4 +1,4 @@
-"""Project 10: one host<->device measurement bound to one NUMA node (Chapter 4).
+"""Project 10: one host<->device measurement bound to one NUMA node (Chapter 6).
 
 Run by ``bandwidth.numa_h2d`` in a fresh process per placement, so that no page and no cached
 pinned block is shared between placements. Binds CPUs and memory policy to ``--node`` before

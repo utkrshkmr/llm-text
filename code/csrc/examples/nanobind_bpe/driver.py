@@ -1,4 +1,4 @@
-"""Drive the nanobind BPE module; same checks as the pybind11 driver (Chapter 29).
+"""Drive the nanobind BPE module; same checks as the pybind11 driver (Chapter 31).
 
     cmake -S . -B build -G Ninja -DPython_EXECUTABLE=$(which python) && cmake --build build
     PYTHONPATH=build python driver.py

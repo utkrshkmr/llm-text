@@ -1,72 +1,93 @@
-## Chapter 39: Self-Refinement and Scoring {#chapter-39-self-refinement-and-scoring .unnumbered}
+## Chapter 37: Evaluating LLMs and Reasoning Models {#chapter-37-evaluating-llms-and-reasoning-models .unnumbered}
 
-#### Exercise 39.1
+#### Exercise 37.1
 
-With `logits[1:]`, the row used for target token $i{+}1$ is the distribution for token $i{+}2$, so
-every answer token is scored under the wrong context (and the gather still succeeds, because shapes
-match after the targets are sliced accordingly). The values are log-probabilities of real tokens
-under some distribution, hence plausible negative numbers. `test_token_logprobs_match_incremental`
-catches it, because it compares each entry with a token-by-token incremental computation.
+Typical findings: (i) *false negative* for unordered answers ("2, 3" vs. "3, 2" for "all
+solutions"), because tuples are compared in order; fixing it globally would break ordered pairs, so
+make it opt-in per problem (Exercise 31.2). (ii) *false negative* for units the reference keeps
+("5 \\text{ cm}" vs. "5" unwraps the `\text`, leaving "5 cm", which SymPy parses as $5\,c\,m$);
+stripping known unit words fixes it but risks deleting variables named $m$. (iii) *false positive*
+from the assignment rule: "$y = 5$" accepted for a question about $x$; restricting the rule to the
+variable named in the problem fixes it at the cost of parsing the problem. Every fix is a policy
+change --- add a regression test for each.
 
-#### Exercise 39.2
+#### Exercise 37.2
 
-$\log\sum_j e^{z_j} = \log\bigl(e^M\sum_j e^{z_j - M}\bigr) = M + \log\sum_j
-e^{z_j-M}$. All exponents are $\le 0$, so no term overflows; the term with $z_j = M$ equals 1, so
-the sum lies in $[1, V]$ and its log in $[0, \log V]$ --- no underflow to $\log 0$. The output for
-the argmax entry is $M - \mathrm{LSE} = -\log\sum_j e^{z_j - M} \in [-\log V, 0]$, and it is the
-largest output entry.
+Normalize both sides, split into components, then match as a multiset: for each gold component find
+an unused predicted component with `equality_check`. Naively that is $O(k^2)$ SymPy calls. Cheaper:
+first bucket components by a canonical numeric key (evaluate each with `sympy.N` to, say, 12
+significant digits, or use the normalized string), match identical keys in $O(k \log k)$, and fall
+back to pairwise symbolic checks only for the unmatched remainder.
 
-#### Exercise 39.3
+#### Exercise 37.3
 
-Appending tokens adds terms $\log p < 0$, so the joint log-probability strictly decreases. The
-average can increase: an answer with token log-probs $(-3, -3)$ (mean $-3$) extended by
-$(-0.1, -0.1)$ has mean $-1.55$. To compare a 50-token and a 500-token solution use a
-length-normalized score (mean log-prob or perplexity), ideally restricted to the final-answer tokens
-if you care about the result rather than the prose.
+Record `hit_eos` (generation ended with EOS before the budget) and `has_box`. Then: `has_box` and
+wrong $\Rightarrow$ the model is wrong; `not hit_eos` and `not has_box` $\Rightarrow$ the budget
+truncated the chain of thought (raise `max_new_tokens`); `hit_eos` and `not has_box` $\Rightarrow$ a
+format failure (adjust the prompt or extraction fallback). Reporting the three rates alongside
+accuracy explains most surprising accuracy changes.
 
-#### Exercise 39.4
+#### Exercise 37.4
 
-Compute $\bar\ell$ for each answer under the original prompt, grade with the verifier, bin by score
-decile and plot per-bin accuracy. A useful scorer shows accuracy rising with the decile; small base
-models are often only weakly calibrated, and the minimum-token or boxed-tokens-only variants can be
-more informative than the plain mean. Report the area under the ROC curve of score versus
-correctness as a single-number summary.
+\(a\) A: 205/500, Wilson 95% CI $[0.368, 0.454]$; B: 223/500, CI $[0.403, 0.490]$. The intervals
+overlap, so independent intervals suggest no clear difference. (b) McNemar uses only discordant
+items: $b = 30$, $c = 48$. With continuity correction $\chi^2 = (|b-c|-1)^2/(b+c) = 289/78 = 3.71$,
+$p \approx 0.054$; without correction $\chi^2 = 4.15$, $p \approx 0.042$; the exact binomial test
+gives $p \approx 0.054$. The paired test is the right one and is far more sensitive than comparing
+intervals, because per-item difficulty cancels; here the evidence is borderline, and a second seed
+or more items would be needed before claiming B is better.
 
-#### Exercise 39.5
+#### Exercise 37.5
 
-Loop over position chunks of size $C$: run the model once to get the hidden states (or logits), and
-for each chunk compute `log_softmax` in float32 on $C$ rows and gather the targets, keeping only the
-gathered values. Peak extra memory drops from $TV\times 4$ B ($\approx 2.5$ GB at $T = 4096$) to
-$CV\times 4$ B ($\approx 39$ MB at $C = 64$). Going further and chunking the final projection avoids
-materializing full logits at all.
+Useful row-steps are $\sum_i \ell_i$ out of $B \max_i \ell_i$, so the wasted fraction is
+$1 - \bar\ell / \max_i \ell_i$. For i.i.d. exponential lengths with mean $\mu = 600$,
+$\mathbb{E}[\max] = \mu H_B$ with $H_{64} \approx 4.744$, i.e. $\approx 2846$ tokens, so waste
+$\approx 1 - 600/2846 \approx 79\%$. Even with a budget cap that truncates the tail, static batching
+of long reasoning traces wastes most of the batch --- the motivation for continuous batching
+([@ch:serving]).
 
-#### Exercise 39.6
+#### Exercise 37.6
 
-Report the three rates per scorer. Typically: no scorer has the highest harm rate (correct drafts
-broken by spurious critiques); the heuristic scorer mainly rejects revisions that lose the box or
-ramble; the log-prob scorer rejects many revisions and therefore has a low harm rate but also a low
-fix rate. The best ratio of fixes to harms is model-dependent, which is the point of measuring it.
+For GPT-2 and Qwen BPE, `"A"` and `" A"` are distinct ids, and `encode("Answer: A")[-1]` is the
+space-prefixed variant. Summing the softmax probability of both variants per letter (computed in
+float32) is the robust choice; on base models the single-variant (no-space) version can disagree on
+a noticeable fraction of questions because almost all of the mass sits on the space-prefixed token.
 
-#### Exercise 39.7
+#### Exercise 37.7
 
-Ask the draft to state a checkable consequence (e.g. substitute the answer into the original
-equation) and evaluate it with SymPy; if the check fails, put "Substituting your answer gives ...,
-which is not equal to ..." into the review. With external feedback, revisions are triggered only by
-real errors and carry specific information, which typically improves the fix rate and nearly
-eliminates harm on correct drafts.
+Sample votes from fixed strengths (e.g. Elo-scale 1000, 1050, 1100, 1200) by drawing random pairs
+and a winner with probability $p_i/(p_i+p_j)$. Online Elo with $K = 32$ produces visibly different
+ratings for different vote orders (spreads of tens of points), most of it driven by the last few
+hundred votes; BT is order-invariant by construction, and its bootstrap interval reflects only
+sampling noise. Lowering $K$ reduces Elo's order dependence but slows convergence.
 
-#### Exercise 39.8
+#### Exercise 37.8
 
-Order each call as `[question][draft][critique][instruction]` (or run the loop as one growing
-conversation), so each call's prompt is the previous call's prompt plus its output plus a short
-instruction. Then, with perfect prefix caching, each call prefills only its new instruction: total
-prefill $\approx q = 150$ tokens instead of $q + k(2q + 2a + c) = 150 +
-2(300 + 1000 + 120) = 2990$, a saving of $\approx 2840$ tokens (95%). Decode work is unchanged.
+Write $\ell(p) = \sum_i W_i \log p_i - \sum_{i<j} n_{ij}\log(p_i+p_j)$. Since
+$-\log x \ge 1 - \log y - x/y$ for $x, y > 0$ (concavity of $\log$), at the current iterate
+$p^{(k)}$ the function
+$Q(p) = \sum_i W_i\log p_i - \sum_{i<j} n_{ij}\bigl(\log(p^{(k)}_i+p^{(k)}_j) + \frac{p_i+p_j}{p^{(k)}_i+p^{(k)}_j} - 1\bigr)$
+minorizes $\ell$ and touches it at $p^{(k)}$. $Q$ separates over $i$; setting
+$\partial Q/\partial p_i = W_i/p_i - \sum_{j\ne i} n_{ij}/(p^{(k)}_i+p^{(k)}_j) = 0$ gives exactly
+the MM update. Hence $\ell(p^{(k+1)}) \ge Q(p^{(k+1)}) \ge Q(p^{(k)}) = \ell(p^{(k)})$. Rescaling
+does not change $\ell$, which is invariant to multiplying all $p_i$ by a constant.
 
-#### Exercise 39.9
+#### Exercise 37.9
 
-At $\approx$`<!-- -->`{=html}2000 decode tokens, best-of-4 decodes four 500-token answers in one
-batched call and scores them with four prefills; refinement with $k = 2$ makes five sequential
-calls. Expect best-of-4 to have roughly a third of the latency; which is more accurate depends on
-the scorer's calibration (best-of-$n$) versus the critique's quality (refinement), and must be
-measured.
+Position bias appears as verdicts that flip when the order of the two responses is swapped; with
+small local judges flip rates of tens of percent are common. Debias by evaluating both orders and
+(a) counting a win only if it holds in both (ties otherwise), or (b) averaging the two
+scores/probabilities. Report the flip rate as a judge-quality metric.
+
+#### Exercise 37.10
+
+Work: $20 \times 500 \times 8 = 80000$ generations; at an assumed mean of 2000 tokens that is
+$1.6\times10^8$ decode tokens. A 7B model is 14 GB in bf16 and fits on one GPU, so use data
+parallelism (one replica per GPU; tensor parallelism only adds communication). KV for a Llama-style
+7B with GQA (32 layers, 8 KV heads, head dim 128) is $\approx 131$ KB/token; at batch 128 and
+2000-token average context that is $\approx 34$ GB. Each step moves $\approx 14 + 34 = 48$ GB,
+i.e. $\approx 14$ ms on an H100, producing 128 tokens: $\approx 9$k tokens/s per GPU, $\approx 72$k
+tokens/s for 8 GPUs, so $\approx 37$ minutes at the roofline; with realistic 2--3$\times$ overheads,
+1.5--2 hours. That fits in 6 hours. Grading 80k answers at $\sim$`<!-- -->`{=html}10 ms per SymPy
+check is $\sim$`<!-- -->`{=html}800 CPU-seconds --- a few cores keep up easily, provided grading
+runs concurrently with generation.

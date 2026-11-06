@@ -1,4 +1,4 @@
-"""Fused SwiGLU activation ``silu(gate) * up`` with switchable backends (Chapter 29).
+"""Fused SwiGLU activation ``silu(gate) * up`` with switchable backends (Chapter 31).
 
     from llmsys.ops import silu_mul
     y = silu_mul.silu_mul(gate, up)                    # backend chosen by LLMSYS_BACKEND / device

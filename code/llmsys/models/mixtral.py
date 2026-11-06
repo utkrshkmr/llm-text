@@ -1,4 +1,4 @@
-"""Mixtral-style sparse MoE (Chapter 14): Mistral attention (GQA, RoPE, optional sliding window)
+"""Mixtral-style sparse MoE (Chapter 16): Mistral attention (GQA, RoPE, optional sliding window)
 with a top-2-of-8 router: softmax over all experts, keep two, renormalise. Mixtral-8x7B ships
 without a window (``sliding_window: null``); Mistral-7B v0.1 used 4096.
 """

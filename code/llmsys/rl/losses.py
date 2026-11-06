@@ -20,7 +20,7 @@ Stats = Dict[str, float]
 
 # --------------------------------------------------------------------------- Ch. 27
 def reinforce_seq_loss(adv: torch.Tensor, seq_logp: torch.Tensor) -> torch.Tensor:
-    """Chapter 61's first loss: -(A_i * log pi(y_i|x)).mean().
+    """Chapter 63's first loss: -(A_i * log pi(y_i|x)).mean().
 
     This is REINFORCE with a group-relative baseline; the gradient of the clipped
     sequence-level objective at ratio = 1 is identical.

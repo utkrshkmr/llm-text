@@ -50,7 +50,7 @@ batch). Equating gives $B^\star=bF/(2W)$. For an H100 in bf16,
 $B^\star=2\times989/(2\times3.35)\approx295$, matching the lab's 296--320 (the lab includes the LM
 head and attention FLOPs and embedding bytes, which shift the value slightly). With long contexts
 each sequence adds its own KV bytes, which are *not* shared across the batch. Attention over the
-cache has an operational intensity of $H/G$ FLOP/byte in bf16 ([-@eq:pytorch:decodeI]): 2 for
+cache has an operational intensity of $H/G$ FLOP/byte in bf16 ([-@eq:machine:decodeI]): 2 for
 Qwen3-0.6B and 1.7B, 4 for Qwen3-4B and 8B, regardless of batch size. That is two orders of
 magnitude below the ridge, so the step needs a larger batch, or never becomes compute-bound when KV
 traffic dominates.
@@ -136,11 +136,11 @@ step moves 1.21 GB, so the bound is 0.78 ms per token (1,285 tokens/s) on the A1
 2.15, is the bandwidth ratio $3.35/1.555$, because both are bandwidth-bound. The critical batch is
 201 on the A100 and 296 on the H100, the ratio of the ridge points (1.47), not of the bandwidths.
 
-Measurement (`labs/lab43_inference/bench.py --exp compile --device cuda --size 0.6B`, measured on
+Measurement (`labs/lab45_inference/bench.py --exp compile --device cuda --size 0.6B`, measured on
 2x A100-40GB (PCIe), torch 2.14.1): eager decoding runs at 29.8 tokens/s (33.6 ms per token,
 43 times the bound) and `torch.compile` at 162 tokens/s (6.2 ms, 8 times the bound); the
 `reduce-overhead` mode reaches 153 tokens/s because Inductor skips CUDA graphs when the KV cache is
-mutated in place. Eager decoding of a 0.6B model is regime (b) of [@fig:pytorch:async]: several
+mutated in place. Eager decoding of a 0.6B model is regime (b) of [@fig:machine:async]: several
 hundred small kernels per token, each paying Python and launch overhead, so the step is bound by
 the host, not by either roof. That also answers the question about ratios: the predicted ratio of
 critical batches is a property of the GPUs and would hold once batches are large, but the measured

@@ -1,4 +1,4 @@
-"""Experiment management: configs, run directories, logging, sweeps, plots (Chapter 17).
+"""Experiment management: configs, run directories, logging, sweeps, plots (Chapter 19).
 
 Design goals: no mandatory dependencies, append-only JSON-lines logs that survive crashes
 and can be re-plotted later, wall-clock *and* step on every record, and an optional

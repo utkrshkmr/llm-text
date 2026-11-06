@@ -1,4 +1,4 @@
-## Chapter 2: PyTorch and the Machine Underneath {#chapter-2-pytorch-and-the-machine-underneath .unnumbered}
+## Chapter 2: PyTorch Essentials {#chapter-2-pytorch-essentials .unnumbered}
 
 #### Exercise 2.1
 
@@ -24,10 +24,69 @@ With $a=\sigma(z)$ and $\mathcal{L}=-[y\log a+(1-y)\log(1-a)]$:
 $\partial\mathcal{L}/\partial a = -y/a + (1-y)/(1-a) = (a-y)/(a(1-a))$ and
 $\partial a/\partial z=a(1-a)$, so $\partial\mathcal{L}/\partial z=a-y$. For a batch with mean loss,
 $\nabla_{\boldsymbol{w}}=\frac1N\mathbf{X}^\top(\boldsymbol{a}-\boldsymbol{y})$ and
-$\partial/\partial b=\frac1N\sum_i(a_i-y_i)$. This is exactly `logistic_regression_grads` in the lab
+$\partial/\partial b=\frac1N\sum_i(a_i-y_i)$. This is exactly `logistic_regression_grads` (Task 3) in the lab
 solution, which matches autograd to $10^{-6}$.
 
 #### Exercise 2.4
+
+(a) The Jacobian is $m\times n$. Forward mode builds it one column at a time: each
+Jacobian--vector product pushes one tangent through every layer, and for the linear layers that
+costs one matrix product the size of the forward one, so $n$ columns cost about $n$ forward passes
+plus the primal pass, $(1+n)F$. Reverse mode builds it one row at a time: each vector--Jacobian
+product with respect to the *input* needs only $\mathbf{G}\mathbf{W}$ per layer (no weight
+gradient), again one forward-sized product, so $m$ rows cost about $(1+m)F$, with the primal pass
+recorded once. (b) With layers $n\to1024\to1024\to m$, one forward pass is
+$2(1024n+1024^2+1024m)$ FLOPs, 3.2 MFLOP for $(512, 8)$. Forward mode costs about $513F\approx1.6$
+GFLOP and reverse mode about $9F\approx29$ MFLOP, so in FLOPs `jacrev` should be about 57 times
+cheaper for $(512, 8)$ and `jacfwd` about 57 times cheaper for $(8, 512)$. (c) Expect the measured
+ratio on a GPU to be far smaller than 57. Both functions vectorise their passes with `vmap`, so the
+512 tangents (or cotangents) become one matrix product per layer that reads each weight once:
+the expensive mode is a GEMM with $M=512$, at a much higher operational intensity than the
+matrix--vector products of the cheap mode, which are bound by memory and by kernel launches
+([@ch:machine]). The cheap mode cannot go below a fixed cost of a few dozen launches, and the
+expensive one runs its extra FLOPs at a far better rate, so the time ratio is a small factor. On a
+CPU, where the GEMMs are compute-bound at much smaller sizes, the ratio moves towards the FLOP
+ratio. The direction never changes: with few outputs, use reverse mode.
+
+#### Exercise 2.5
+
+(a) Per block the saved tensors become the block input (saved by the first `nn.Linear` for its
+weight gradient) and $\mathbf{U}$; $\mathbf{W}_2$ is a parameter and is not counted. With 8,192
+tokens, $d=4096$, hidden 16,384 and bf16, that is $8192\times(4096+16384)\times2 = 335.5$ MB per
+block and 5.37 GB for 16 blocks, against 9.66 GB without the function and 1.07 GB with full
+checkpointing. `saved_activation_bytes` reports exactly $16\times335{,}544{,}320$ bytes, because it
+counts the tensors the hooks see and deduplicates by data pointer. (b) The backward pass now
+recomputes one GELU per element of $\mathbf{U}$, about a dozen FLOPs for each of
+$8192\times16384$ elements, roughly 1.6 GFLOP per block, against 6.6 TFLOP of GEMM work in the
+block's forward and backward: negligible. The bytes matter more: reading $\mathbf{U}$ and writing
+$\operatorname{GELU}(\mathbf{U})$ moves 537 MB per block, about 0.4 ms at 1,369 GB/s, or about 6 ms
+for the stack, roughly 1% of the 501 ms step (a kernel that applies GELU while loading the second
+GEMM's operand avoids even that write). Full checkpointing instead recomputes both GEMMs, 2.2
+TFLOP and about 10 ms per block at 217 TFLOP/s. The lean block saves 4.3 GB for about 1% of the
+step; full checkpointing saves 8.6 GB for a third more FLOPs. Recomputing cheap, memory-bound
+operations is the idea of selective recomputation (Korthikanti et al., 2022).
+
+#### Exercise 2.6
+
+(a) Write $s$ for a block's input and $r$ for its residuals: $s=8192\times4096\times2=67.1$ MB and
+$r=s+2\times268.4=604.0$ MB. `checkpoint_sequential` with $S=L/k$ segments checkpoints the first
+$S-1$ segments and runs the last one normally, so after the forward pass it holds
+$(S-1)s+kr$ bytes, which is also about the peak at the start of backward (the last segment's
+residuals are already there; each earlier segment, when recomputed, holds at most the same $kr$).
+For $L=16$: $k=1$: $15s+r=1.61$ GB; $k=2$: $7s+2r=1.68$ GB; $k=4$: $3s+4r=2.62$ GB; $k=8$:
+$s+8r=4.90$ GB; $k=16$: $16r=9.66$ GB. (The lab's `saved_activation_bytes` checkpoints every
+block, including the last, which is why it reports $16s=1.07$ GB.) (b) $k^\star=\sqrt{Ls/r}$. For
+$L=64$, $k^\star=\sqrt{64\times67.1/604}\approx2.7$; among divisors, $k=2$ gives $31s+2r=3.29$ GB,
+$k=4$ gives $15s+4r=3.42$ GB, and $k=1$ gives $63s+r=4.83$ GB. For blocks with $r=s$ and $L=16$,
+$k^\star=4=\sqrt{L}$ and the memory is $(L/k-1+k)s=7s$ against $16s$, the $O(\sqrt{L})$ regime of
+the paper. (c) The saved bytes match exactly. The measured peak is higher than $(S-1)s+kr$ by the
+backward pass's own tensors: the gradient flowing between blocks (block-input-sized), the
+gradients of $\mathbf{U}$ and of the GELU output (268 MB each, transient), the weight gradients if
+they are not allocated before the measurement starts, cuBLAS workspace, and the allocator's
+rounding of every block. With full checkpointing these add about 1 GB to the 1.07 GB of stored
+inputs in [@tab:pytorch:ckpt].
+
+#### Exercise 2.7
 
 Parameters:
 $(784\cdot512+512)+(512\cdot256+256)+(256\cdot10+10)=401{,}920+131{,}328+2{,}570=535{,}818$. In
@@ -36,29 +95,25 @@ bytes/parameter). Forward FLOPs for a batch of 128:
 $2\times128\times(784\cdot512+512\cdot256+256\cdot10)\approx1.37\times10^8$ (biases and ReLU add
 well under 1%).
 
-#### Exercise 2.5
+#### Exercise 2.8
 
-A100: $I^\star=312/2.04\approx153$ FLOP/byte; a bf16 square GEMM has $I=n/3$, so it becomes
-compute-bound at $n\approx460$. RTX 4090: $I^\star=165/1.008\approx164$, so $n\approx490$. The
-decode critical batch is $B^\star\approx bI^\star/2=I^\star$ in bf16, so the 4090 needs a slightly
-larger batch (about 164 versus 153). Both need far smaller batches than an H100
-($\approx$`<!-- -->`{=html}295), whose compute has outgrown its bandwidth.
+(a) The step consumes $32\times2048=65{,}536$ tokens every 0.25 s, 262,144 tokens/s. One worker
+produces a batch in $65{,}536/400{,}000=164$ ms, faster than the 250 ms step, so one worker keeps
+up with 1.5$\times$ headroom; two give room for jitter. The loader delivers batches in order,
+assigning them to workers round-robin, so a stalled worker delays the batch it owes even if the
+other worker is idle. With two workers each owes every second batch, one per 0.5 s, and a 1 s stall
+is hidden only if that worker already has two finished batches queued: `prefetch_factor` of at
+least 2 (the default), better 3, which is 4 to 6 batches, 1--1.5 s of steps, in flight. (b) Stored
+as `uint16`, the loader reads $262{,}144\times2=0.5$ MB/s, nothing for a disk or the page cache. What
+limits it is per-batch Python work (indexing, building an `int64` tensor, passing it from the worker
+through shared memory), on the order of a millisecond per batch, still far below 250 ms. (c) The
+inputs are $65{,}536\times8=524$ KB of `int64` (the shifted targets as many again), about 26 μs
+each at 20 GB/s, negligible next to the step. `non_blocking=True` matters for another reason: a
+blocking copy makes the CPU wait until the copy has run, and the copy runs only after every kernel
+already queued on the stream, so the CPU stops running ahead of the GPU and the GPU then idles
+while the next step's kernels are launched ([@sec:machine:async]).
 
-#### Exercise 2.6
-
-$d=4096$, hidden $4d=16{,}384$, bf16. *$BT=1$*: each GEMM does
-$2\times4096\times16{,}384\approx1.34\times10^8$ FLOPs and moves about
-$2\times4096\times16{,}384\approx134$ MB (the weight dominates), so $I\approx1$: memory-bound, about
-40 μs each on an H100. GELU touches 16,384 elements, which is negligible but still costs a launch.
-*$BT=4096$*: GEMM 1 does $5.5\times10^{11}$ FLOPs and moves
-$2(4096^2+2\cdot4096\cdot16{,}384)\approx302$ MB, so $I\approx1{,}800$: compute-bound,
-$\approx0.56$ ms at peak; GEMM 2 is the same. GELU reads and writes $4096\times16{,}384$ bf16
-values, 268 MB, $\approx0.08$ ms, memory-bound. Fusing GELU into GEMM 1's epilogue removes that
-round trip (the GEMM output is activated in registers before being stored), saving $\approx0.08$ ms
-of $\approx1.2$ ms, about 7%. Fusion matters far more for chains of elementwise ops without a GEMM
-to hide behind.
-
-#### Exercise 2.7
+#### Exercise 2.9
 
 Gradients are 14 GB in bf16. A ring all-reduce sends and receives $2(P-1)/P\times14\approx24.5$ GB
 per GPU for $P=8$. Over NVLink at 300 GB/s this takes $\approx82$ ms, easily hidden behind a 1.5 s
@@ -67,70 +122,26 @@ communication cannot be hidden and the step at least doubles. The model does not
 7B parameters $\times$ 16 bytes $=112$ GB of weights, gradients and Adam state exceeds 80 GB before
 activations. This requires ZeRO/FSDP sharding ([@ch:distributed]).
 
-#### Exercise 2.8
-
-For 1,024 elements, both eager and compiled versions are dominated by per-op overhead: eager time is
-about $100\times$ the per-launch cost (hundreds of μs to milliseconds); this is regime (b) of
-[@fig:pytorch:async]. For $10^8$ elements, each op is a memory-bound kernel taking
-$\approx0.24$ ms in fp32 on an H100, so eager time is about 24 ms and overhead is hidden; this is
-regime (a). `torch.compile` fuses the chain into one kernel that reads and writes once. The large
-tensor speeds up by up to $\approx100\times$ in traffic terms, and the small tensor speeds up
-because 100 launches became one; this is regime (c). With `reduce-overhead`, CUDA graphs remove the
-remaining launch cost.
-
-#### Exercise 2.9
-
-At batch 8, the profile is dominated by many small kernels: `addmm`/`mm` at low intensity
-(memory-bound, weight reads dominate), plus optimiser elementwise kernels (`add_`, `mul_`, foreach
-ops) that touch every parameter and are memory-bound. At batch 4096, `addmm`/`mm` in forward and
-backward take the large majority of device time and are compute-bound; elementwise ops shrink to a
-small fraction. Optimiser cost is independent of batch size, so its share falls as the batch grows.
-
 #### Exercise 2.10
 
-Achieved model FLOP/s $=2.1\times10^6\times6\times3\times10^9=3.78\times10^{16}$; peak
-$=64\times989\times10^{12}=6.33\times10^{16}$; MFU $\approx60\%$. That is at the very top of what
-well-tuned dense training achieves, so ask: are padding tokens counted as tokens? Is $N$ the total
-or non-embedding count? Are attention FLOPs or recomputation included (that would make it hardware
-FLOPs utilisation, HFU, not MFU)? Is the peak taken as the bf16 or the fp8 rate? Is the throughput a
-steady-state peak or an average including evaluation and checkpoint stalls?
-
-#### Exercise 2.11
-
-(a) An L2 probe keeps source and destination inside the 40 MB L2 (for example two 8 MiB buffers)
-and runs the copy many times inside one timed call (a Python loop of 100 copies, or a CUDA graph of
-them), dividing the bytes moved by the total time; with the per-call fixed cost of about 14 μs
-amortised, the probe measures the L2's bandwidth, several times the 1.37 TB/s HBM roof. Report it
-with the same median and p10/p90 as `time_stats`. (b) Only kernels whose working set fits in L2
-and is re-read can be limited by it. The streaming kernels of [@tab:pytorch:points] (add, row sum,
-softmax, the GEMV and the decode attention) touch hundreds of megabytes once each, so HBM binds.
-The tiled GEMMs and the prefill attention re-read their tiles of $\mathbf{A}$, $\mathbf{B}$ or
-$\mathbf{K}$, $\mathbf{V}$ many times, mostly from L2: their L2 intensity is far below their HBM
-intensity, and for the $M=256$ GEMM, which sits just right of the HBM ridge, the L2 roof is the
-candidate. (c) Nsight Compute's `dram__bytes_read.sum` and `dram__bytes_write.sum` give
-$Q_{\text{HBM}}$, and `lts__t_bytes.sum` gives the L2 traffic. Divide the kernel's $F$ by each to get
-$I_{\text{HBM}}$ and $I_{\text{L2}}$, and plot the kernel's achieved FLOP/s at both intensities
-against both roofs; the roof the kernel is closest to is the one that binds. For a well-tiled GEMM
-the HBM point lies near $Q_{\min}$ and the L2 point far to the left but still under the much higher
-L2 roof, so neither memory level binds and the kernel is limited by the tensor cores and the
-pipeline that feeds them.
-
-#### Exercise 2.12
-
-(a, b) Measured on 2x A100-40GB (PCIe), one GPU, 8,192-cubed bf16 GEMMs run for eight seconds
-each: random normal data, 215 TFLOP/s at an SM clock of 1,035 MHz and 250 W (the limit); random
-data with the low 4 of the 7 mantissa bits zeroed, 230 TFLOP/s at 1,095 MHz and 249 W; zeros,
-290 TFLOP/s at 1,380 MHz and 234 W. Zeroing mantissa bits reduces the number of bits that toggle in
-the multipliers, so each FLOP costs less energy and the power manager allows a higher clock; the
-exponent and the upper mantissa bits of random data still toggle, so the gain is partial. Zeros
-toggle almost nothing and the card is no longer power-limited. (c) Treating the full board power as
-the cost (the card idles near 35 W, which a more careful study subtracts), the random-data GEMM
-costs $250/(214.7\times10^{12}) \approx 1.2$ pJ per FLOP, and the 1 GiB copy, which also runs at
-the 250 W limit at 1,379 GB/s, costs $250/(1.379\times10^{12}) \approx 180$ pJ per byte moved.
-The two energies are equal at an operational intensity of about $180/1.2 \approx 155$ FLOP/byte,
-almost exactly the empirical ridge point: on a power-limited card running at its limit, time and
-energy are proportional and the energy roofline and the time roofline coincide. (d) An H100 SXM
-has a 700 W limit for 989 TFLOP/s, about the same peak FLOP/s per watt of limit as the A100 PCIe
-(312 TFLOP/s for 250 W), so it is also expected to be power-limited on dense random-data GEMMs, and
-reports of data-dependent GEMM throughput on H100s (He, 2024) agree; the size of the effect depends
-on how much clock headroom the power manager has at the limit and has to be measured.
+(a) The gradients are $350\times10^6\times2=700$ MB. With $P=2$, a ring all-reduce sends
+$2(P-1)/P=1$ times the gradient volume per GPU in each direction, 700 MB, so the transfers alone take
+$700/20=35$ ms, well under the 120 ms backward pass. With $n=700/B$ buckets of $B$ MB, assume
+gradients become ready at a uniform rate, one bucket every $120/n$ ms, and that the all-reduces run
+one after another, each taking $\alpha+B/\beta$. If each all-reduce is shorter than the interval
+between buckets, communication keeps up and only the last bucket, which becomes ready when backward
+ends, is exposed: $\alpha+B/\beta$. Otherwise a backlog builds and the exposed time is about
+$n(\alpha+B/\beta)-120$ ms. Taking $\alpha=0.1$ ms as an assumption to be measured: $B=1$ MB gives
+700 calls of 0.15 ms against an interval of 0.17 ms, so it barely keeps up and exposes about
+0.15 ms, but any $\alpha$ above 0.12 ms tips it into a backlog (at $\alpha=0.2$ ms, $700\times0.25-120=55$
+ms exposed); $B=25$ MB exposes about 1.35 ms; $B=100$ MB about 5.1 ms; $B=1{,}000$ MB holds all
+700 MB in one bucket that starts only when backward ends, exposing the full 35 ms. The prediction
+is a broad optimum between a few and a few tens of megabytes, with small buckets punished by
+$\alpha$ and large ones by lost overlap. (b) Measure the step with `torch.cuda.Event` timing after
+a warm-up, for each `bucket_cap_mb`, and check once that both ranks hold identical weights after a
+step, since on this box direct peer copies are unreliable while NCCL is correct. (c) The
+assumptions to check first: gradients are not produced uniformly (DDP orders buckets in reverse
+parameter order, and its first bucket is small by design); NCCL's kernels use SMs and slow the
+backward pass they overlap with; with no peer-to-peer path, NCCL stages through host memory, so
+$\beta$ may be well below 20 GB/s; and $\alpha$ includes the CPU cost of launching each call, which
+competes with the backward pass's own launches.

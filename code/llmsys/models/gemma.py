@@ -1,4 +1,4 @@
-"""Gemma-2/3-style decoder (Chapter 14): interleaved local (sliding-window) and global attention
+"""Gemma-2/3-style decoder (Chapter 16): interleaved local (sliding-window) and global attention
 layers with separate RoPE bases, embedding scaled by sqrt(d), GeGLU MLP, RMSNorm before *and*
 after each sublayer with the ``1 + w`` gain convention, optional attention-logit soft-capping
 (Gemma 2) and final-logit soft-capping, QK-norm (Gemma 3), tied embeddings.

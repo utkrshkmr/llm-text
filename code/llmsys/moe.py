@@ -1,4 +1,4 @@
-"""Mixture-of-Experts feed-forward layer (Chapter 9).
+"""Mixture-of-Experts feed-forward layer (Chapter 11).
 
 Two implementations of the *same* function are provided:
 

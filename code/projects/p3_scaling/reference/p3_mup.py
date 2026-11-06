@@ -1,4 +1,4 @@
-"""Project 3 (reference solution): muP width scaling for the llmsys GPT (Chapter 27).
+"""Project 3 (reference solution): muP width scaling for the llmsys GPT (Chapter 29).
 
 The maximal-update parameterisation (Yang et al., 2022) makes the learning-rate optimum
 width-independent, so hyperparameters tuned on a narrow proxy transfer to the wide models of

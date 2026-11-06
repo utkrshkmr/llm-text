@@ -1,4 +1,4 @@
-"""A deterministic math-answer verifier (Chapter 54).
+"""A deterministic math-answer verifier (Chapter 56).
 
 Pipeline:  model text --extract--> candidate --normalize--> plain expression
            --parse (SymPy)--> symbolic object --compare--> True / False

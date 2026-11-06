@@ -1,4 +1,4 @@
-"""Project 11, milestone 3: the run matrix (Chapter 5).
+"""Project 11, milestone 3: the run matrix (Chapter 7).
 
 A config names the models (with their task and training settings), the recipes to run on each,
 the seeds, and optional sweeps of one training setting. ``expand`` turns it into a flat list of

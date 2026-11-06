@@ -1,86 +1,112 @@
-## Chapter 6: Implementing a GPT Model {#chapter-6-implementing-a-gpt-model .unnumbered}
+## Chapter 4: Text Data, Tokenization, and the Input Pipeline {#chapter-4-text-data-tokenization-and-the-input-pipeline .unnumbered}
 
-#### Exercise 6.1.
+#### Exercise 4.1.
 
-With [@eq:gpt:params] (untied head, no QKV bias, $V=50257$, $T_\text{max}=1024$): GPT-2
-medium has 406212608 parameters (attention 100.7 , FFN 201.4 ); large has 838220800 (attention
-236.0 , FFN 472.1 ); XL has 1637792000 (attention 491.6 , FFN 983.4 ). For $L=12$ the FFN holds
-$12(8d^2+5d)$ parameters and the embeddings plus head hold $(2V+T_\text{max})d$. Equality gives
-$96d+60=2\cdot50257+1024$, i.e. $d\approx1057$; any width above that (in practice the next multiple
-of 64, $d=1088$) puts more parameters in the FFNs than in the vocabulary-sized matrices.
+A window starting at offset $s_0$ needs tokens $s_0,\dots,s_0+T$, so valid starts are
+$0,s,2s,\dots\le N-T-1$, giving $n=\lfloor (N-T-1)/s\rfloor+1$ windows (for $N>T$). Input positions
+per epoch: $nT\approx NT/s$. A typical (interior) token is therefore an input about $T/s$ times: $T$
+times for $s=1$, 4 times for $s=T/4$, once for $s=T$.
 
-#### Exercise 6.2.
+#### Exercise 4.2.
 
-Add three keys, e.g. `drop_emb`, `drop_attn` and `drop_resid`, pass `drop_attn` to
-`MultiHeadAttention` and `drop_resid` to `drop_shortcut`, and use `drop_emb` in `GPTModel`. Removing
-the *attention-weight* dropout saves the most: it acts on the largest activation ($BHT^2$ elements
-per layer), its mask must otherwise be stored or regenerated, and many fused attention kernels have
-a faster code path when dropout is zero.
+\(i\) `"a b"` (two spaces): decoding re-joins with one space. (ii) `'say "hi"'`: tokens `say`, `"`,
+`hi`, `"` decode to `'say " hi"'` because the regex only removes spaces *before* punctuation,
+leaving the space after the opening quote. (iii) any string with a tab or newline: whitespace is
+discarded and replaced by single spaces. Byte-level BPE never discards bytes: every byte belongs to
+exactly one token and decoding concatenates the tokens' bytes, so `decode(encode(s)) == s` for every
+valid UTF-8 string.
 
-#### Exercise 6.3.
+#### Exercise 4.3.
 
-The next multiple of 128 above 50257 is 50304: 47 extra rows, $47\times768=36096$ parameters per
-vocabulary matrix (72192 if the head is untied). Two fp32 Adam moments add 8 bytes per parameter:
-289  (tied) or 578  (untied)---negligible. During generation either slice the logits to the true
-vocabulary (`logits[..., :50257]`) or set the padded entries to $-\infty$ before argmax/sampling, so
-a padded ID can never be emitted.
+Random lowercase strings contain few frequent English bigrams, so only short merges apply: expect
+roughly 1.5--2.5 bytes per token. A script absent from the training corpus has no merges at all
+among its bytes, so each UTF-8 byte is its own token: for a 3-byte script that is 1 byte/token,
+i.e. three tokens per character. Compression depends entirely on which byte sequences were frequent
+in the tokenizer's training data.
 
-#### Exercise 6.4.
+#### Exercise 4.4.
 
-From $8Nd^2=r\,(10Nd+8d^2)$ with ridge point $r$ we get $N^\star=8rd/(8d-10r)$. For the A100,
-$r=312/2.039\approx153$ FLOP/byte, giving $N^\star\approx204$ tokens for $d=768$ and $\approx160$
-for $d=4096$. The second FFN GEMM, $(N\times4d)\cdot(4d\times d)$, also performs $8Nd^2$ FLOPs and
-moves $2(4Nd)+2(4d^2)+2(Nd)=10Nd+8d^2$ bytes: its intensity is identical, so (ignoring tiling
-effects) both GEMMs reach the ridge at the same $N^\star$.
+Training learned merges in a specific order and the training corpus was segmented by applying them
+in that order; the model only ever saw segmentations produced that way. Example: merges
+$[(b,c)\to X,\ (a,b)\to Y]$ and input `ababc`. By rank: $(b,c)$ first gives `a b a X`, then $(a,b)$
+gives `Y a X`. By in-input frequency: $(a,b)$ occurs twice, so it is merged first, giving `Y Y c`,
+after which nothing applies. Different token sequence, one the model may never have seen in
+training.
 
-#### Exercise 6.5.
+#### Exercise 4.5.
 
-Without scaling, each of the $2L$ sublayers adds an update of roughly constant variance $\sigma_u^2$
-to the stream, so after $\ell$ sublayers the variance is $\sigma_0^2+\ell\sigma_u^2$ and the RMS
-grows like $\sqrt{\ell}$: a concave, square-root-shaped curve. Scaling the output projections by
-$1/\sqrt{2L}$ shrinks each update's variance by $2L$, so the total added variance after all $2L$
-sublayers is about $\sigma_u^2$ and the curve becomes nearly flat.
+Naive: each of $M$ merges recounts all $W$ symbols and scans $P$ pairs: $O(M(W+P))$. Incremental:
+initial counting $O(W)$, then merge $m$ costs $O(\sum_{w\in a_m}|w|)$ plus $O(P)$ to find the
+maximum, i.e. $O(W+\sum_m |a_m|\bar{\ell}+MP)$. A max-heap keyed by count makes the maximum
+$O(\log P)$, but counts *decrease* when words are rewritten, and binary heaps do not support
+decrease-key cheaply. The standard solution is lazy deletion: push a new
+$(\text{count},\text{pair})$ entry whenever a count changes, and when popping, discard entries whose
+count no longer matches the current table (or use an indexed priority queue).
 
-#### Exercise 6.6.
+#### Exercise 4.6.
 
-Post-LN computes `x = norm(x + f(x))`. Without warmup, the post-LN model typically diverges (loss
-spikes to NaN or plateaus at the unigram entropy) at a learning rate several times lower than the
-pre-LN model tolerates, because the gradients of the last layers are large at initialization (Xiong
-et al., 2020); adding a linear warmup closes much of the gap.
+With $d=2048$, $L=24$ the non-embedding parameters are about $12Ld^2\approx1.21$B. (a) Tied
+embeddings: $32\text{k}\cdot2048=65.5$M vs. $256\text{k}\cdot2048=524$M. (b) Logit FLOPs per token
+$2Vd$: 131 MFLOP vs. 1.05 GFLOP, compared to $\approx2.4$ GFLOP for the rest of the forward pass.
+(c) $10^{11}$ vs. $\approx0.85\times10^{11}$ tokens. (d) fp32 logits for $B=4$, $T=8192$:
+$4\cdot8192\cdot V\cdot4$ B $=4.2$ GB vs. 33.6 GB. Training compute $\approx6(N+Vd)D$:
+$7.7\times10^{20}$ vs. $9.1\times10^{20}$ FLOPs, so for this size the small vocabulary is cheaper
+overall. For a 0.5B model the large vocabulary would be most of the parameter budget; choose
+$\approx32$--$64$k. For a 70B model the embedding is a few percent of parameters and logits a few
+percent of FLOPs, while 15% shorter sequences cut attention, KV cache and serving cost: choose the
+large vocabulary.
 
-#### Exercise 6.7.
+#### Exercise 4.7.
 
-\(a\) The explicit tanh-GELU saves, per element of the $4d$-wide hidden tensor, the input (for `pow`
-and the outer multiply), the `tanh` output, the half-scaled input and the $(1+\tanh)$ factor: about
-four $4d$-wide tensors. (b) `nn.GELU` saves only its input, removing roughly three of them
-(1387 $\to$`<!-- -->`{=html}994  on the tiny configuration). (c) The explicit LayerNorm saves
-$x-\mu$, the denominator and the normalized tensor; `nn.LayerNorm` saves the input plus one mean and
-one reciprocal standard deviation per row, so roughly one to two $d$-wide tensors disappear per
-norm.
+``` python
+emb = torch.nn.Embedding(10, 4)
+ids = torch.tensor([3, 7, 3])
+g = torch.randn(3, 4)
+(emb(ids) * g).sum().backward()
+nz = emb.weight.grad.abs().sum(1) > 0
+assert nz.nonzero().flatten().tolist() == [3, 7]
+assert torch.allclose(emb.weight.grad[3], g[0] + g[2])
+```
 
-#### Exercise 6.8.
+With `sparse=True` the gradient is a sparse COO tensor holding only the touched rows; it is accepted
+by `optim.SGD`, `optim.SparseAdam` and `optim.Adagrad`, but not by `Adam`/`AdamW`.
 
-Causal attention computes, per head and sequence, $\sum_{i=1}^{T} i\,d_{h}\cdot2 = T(T+1)d_{h}$
-FLOPs for $QK^\top$ and the same for $AV$, i.e. $2T(T+1)d$ per layer instead of $4T^2d$---a factor
-$(T+1)/2T\approx\tfrac12$. For GPT-2 small the total forward FLOPs per token drop from 284.8M to
-265.9M at $T=1024$ (6.6% less) and from 549.1M to 398.1M at $T=8192$ (27.5% less). If one paper
-counts full attention and another counts only the causal half, their MFU numbers differ by this
-amount for the same hardware efficiency, increasingly so at long context.
+#### Exercise 4.8.
 
-#### Exercise 6.9.
+With `sa = SelfAttention(d, d)` (no positions), a permutation matrix $\Pi$ gives
+$\mathrm{sa}(\Pi X)=\Pi\,\mathrm{sa}(X)$, because $\Pi X W$ permutes rows of $Q,K,V$, the score
+matrix becomes $\Pi S\Pi^\top$, the row softmax commutes with that, and $\Pi A\Pi^\top\Pi V=\Pi AV$.
+Test: `perm = torch.randperm(T); assert torch.allclose(sa(x[perm]), sa(x)[perm])`. After adding
+`pos_emb(arange(T))` to the input the property fails, since position vectors are not permuted with
+the tokens.
 
-Neglecting attention terms, a forward pass over $t$ tokens costs $\approx2Pt$. Without a cache,
-generating $n$ tokens costs $\sum_{t=p}^{p+n-1}2Pt\approx2P(pn+n^2/2)$; with a cache, $2P(p+n)$
-(prefill plus one token per step). The ratio is $(pn+n^2/2)/(p+n)$, which for $p=100$ reaches 100 at
-$n^2/2=10^4$, i.e. $n\approx141$. Including attention makes the uncached version slightly worse
-still.
+#### Exercise 4.9.
 
-#### Exercise 6.10.
+For frequency $\omega$, $\sin\omega(p+k)=\sin\omega p\cos\omega k+\cos\omega p\sin\omega k$ and
+$\cos\omega(p+k)=\cos\omega p\cos\omega k-\sin\omega p\sin\omega k$. Hence each $(\sin,\cos)$ pair
+is mapped by the $2\times2$ block
+$\begin{psmallmatrix}\cos\omega k&\sin\omega k\\-\sin\omega k&\cos\omega k\end{psmallmatrix}$, and
+$\mathbf{M}_k$ is block diagonal with these blocks, independent of $p$. A linear layer can therefore
+implement "look $k$ positions back" uniformly for all positions.
 
-Loop over sequence chunks of 128 positions: compute the chunk's logits, its cross-entropy summed
-over tokens, and accumulate; wrap each chunk in `torch.utils.checkpoint` so the chunk logits are
-recomputed in backward rather than stored. Peak logits memory falls from
-$8\cdot1024\cdot50257\cdot4\,\text{B}=1.65\,\mathrm{\giga\byte}$ to
-$8\cdot128\cdot50257\cdot4\,\text{B}=206\,\mathrm{\mega\byte}$ (and the same for the softmax
-gradient). The price is recomputing the head GEMM in the backward pass, about $2NVd$ extra FLOPs,
-i.e. one third more work for the output layer.
+#### Exercise 4.10.
+
+``` python
+def doc_causal_mask(ids, eot_id):
+    T = len(ids)
+    ends = torch.as_tensor(ids) == eot_id
+    doc = torch.cumsum(ends.long(), 0) - ends.long()  # EOT belongs to its doc
+    same = doc[:, None] == doc[None, :]
+    return same & torch.tril(torch.ones(T, T, dtype=torch.bool))  # True = allowed
+```
+
+The plain causal mask allows $\approx T^2/2$ scores; four equal documents allow
+$4\cdot(T/4)^2/2=T^2/8$, so three quarters of the causal scores are skipped.
+
+#### Exercise 4.11.
+
+With a warm page cache, reads are limited by Python per-item overhead (tens of thousands of windows
+per second, as in the chapter's measurement). After dropping caches, each random window is one small
+random read: on an NVMe SSD (hundreds of thousands of IOPS at high queue depth, far fewer at queue
+depth 1 from a single Python thread) expect thousands to tens of thousands of windows/s; on a hard
+disk, about 100/s. Multiple loader workers raise the effective queue depth and recover throughput.

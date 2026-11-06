@@ -1,6 +1,6 @@
-"""Mixture-of-experts layer with fine-grained and shared experts (Chapter 13).
+"""Mixture-of-experts layer with fine-grained and shared experts (Chapter 15).
 
-``llmsys.moe.MoEFeedForward`` (Chapter 9) keeps its experts as a ``ModuleList`` and loops
+``llmsys.moe.MoEFeedForward`` (Chapter 11) keeps its experts as a ``ModuleList`` and loops
 over them. This module is the version a systems implementation needs:
 
 * ``Experts`` stores all E SwiGLU experts as three stacked tensors (E, d, h), (E, d, h),

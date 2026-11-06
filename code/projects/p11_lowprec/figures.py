@@ -1,4 +1,4 @@
-"""Project 11: draw the chapter's figures as SVG (house palette, light theme) (Chapter 5).
+"""Project 11: draw the chapter's figures as SVG (house palette, light theme) (Chapter 7).
 
     python figures.py                                     # from results/smoke_a100_pcie.json
     python figures.py --json results/full.json --out-dir /tmp/f
@@ -30,12 +30,12 @@ BLUE, AMBER, PURPLE, GREEN, RED, GREY = ("#1f4e79", "#8a5a00", "#6a4c93", "#2e6b
 TINT = {BLUE: "#dce6f1", AMBER: "#f3e9d2", PURPLE: "#ebe4f2", GREEN: "#deeedc", RED: "#f2dcdc",
         GREY: "#eeeeee"}
 BOOK_FIGS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "book", "figures")
-STEM = "ch05_proj_lowprec"
+STEM = "ch07_proj_lowprec"
 MEASURED = "measured on 2x A100-40GB (PCIe)"
 INK = "#111111"   # near-black, written explicitly into the SVG so the dark theme can convert it
 plt.rcParams.update({"font.size": 10, "axes.edgecolor": GREY, "axes.labelcolor": INK,
                      "xtick.color": INK, "ytick.color": INK, "text.color": INK,
-                     "axes.titlecolor": INK, "svg.hashsalt": "ch05",
+                     "axes.titlecolor": INK, "svg.hashsalt": "ch07",
                      "font.family": "DejaVu Sans", "figure.facecolor": "#ffffff",
                      "axes.facecolor": "#ffffff", "savefig.facecolor": "#ffffff",
                      "legend.frameon": False})

@@ -1,4 +1,4 @@
-"""Reference implementations of IO-aware attention (Chapter 7).
+"""Reference implementations of IO-aware attention (Chapter 9).
 
 These are *algorithmic* references written in plain PyTorch: they reproduce the
 blocking, online-softmax and recomputation structure of FlashAttention so it can be

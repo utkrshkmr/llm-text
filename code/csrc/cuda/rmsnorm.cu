@@ -1,4 +1,4 @@
-// RMSNorm forward on the GPU (Chapter 31): one thread block per row, warp-shuffle reduction.
+// RMSNorm forward on the GPU (Chapter 33): one thread block per row, warp-shuffle reduction.
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAGuard.h>

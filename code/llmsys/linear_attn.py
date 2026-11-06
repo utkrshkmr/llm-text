@@ -1,4 +1,4 @@
-"""Linear attention and its gated / delta-rule relatives (Chapter 11).
+"""Linear attention and its gated / delta-rule relatives (Chapter 13).
 
 All functions use the shapes q, k: (B, H, T, dk), v: (B, H, T, dv) and implement
 *causal* sequence mixing. The same operator is computed three ways:

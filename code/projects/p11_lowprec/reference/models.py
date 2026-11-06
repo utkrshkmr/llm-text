@@ -1,4 +1,4 @@
-"""Project 11: the small models under study, written so every cast is visible (Chapter 5).
+"""Project 11: the small models under study, written so every cast is visible (Chapter 7).
 
 Part I readers have not built a transformer yet, so the kit provides two models:
 

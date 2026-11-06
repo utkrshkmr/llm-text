@@ -1,4 +1,4 @@
-"""Project 11: load the implementation to run or grade (Chapter 5).
+"""Project 11: load the implementation to run or grade (Chapter 7).
 
     P11_IMPL=/path/to/your_package    your code (a package with the same modules as reference/)
     LAB_IMPL=solution                 the reference solution in reference/

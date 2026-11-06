@@ -27,7 +27,8 @@ THEME_NAME = {"model": "models, training", "systems": "systems, serving",
 M, S, D, R, P, A = "model", "systems", "data", "reasoning", "project", "appendix"
 PARTS = [
     ("I", "Foundations", [
-        ("Landscape", M), ("PyTorch and|the machine", S), ("Numbers on|the machine", S),
+        ("Landscape", M), ("PyTorch|essentials", M), ("The machine|underneath", S),
+        ("Numbers on|the machine", S), ("Scaling and|quantisation", S),
         ("P10 Know|your machine", P), ("P11 Low-|precision training", P)]),
     ("II", "Building an LLM", [
         ("Text and|tokens", D), ("Attention", M), ("GPT-2", M), ("Qwen3 and|MoE intro", M),

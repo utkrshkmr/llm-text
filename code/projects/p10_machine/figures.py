@@ -1,4 +1,4 @@
-"""Project 10: draw the chapter's figures as SVG (house palette, light theme) (Chapter 4).
+"""Project 10: draw the chapter's figures as SVG (house palette, light theme) (Chapter 6).
 
     python figures.py                                          # from results/smoke_a100_pcie.json
     python figures.py --json results/full.json --out-dir /tmp/figs
@@ -22,7 +22,7 @@ import numpy as np  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOOK_FIGS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "book", "figures")
-STEM = "ch04_proj_machine"
+STEM = "ch06_proj_machine"
 BLUE, AMBER, PURPLE, GREEN, RED, GREY = (
     "#1f4e79",
     "#8a5a00",
@@ -47,7 +47,7 @@ plt.rcParams.update(
         "axes.labelcolor": "#000000",
         "xtick.color": "#000000",
         "ytick.color": "#000000",
-        "svg.hashsalt": "ch04",
+        "svg.hashsalt": "ch06",
         "font.family": "DejaVu Sans",
         "figure.facecolor": "#ffffff",
         "axes.facecolor": "#ffffff",

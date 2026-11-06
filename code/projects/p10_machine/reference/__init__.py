@@ -1,4 +1,4 @@
-"""Project 10 reference solution: know your machine (Chapter 4).
+"""Project 10 reference solution: know your machine (Chapter 6).
 
 Modules: stats (robust statistics), timing (wall/event/burst timers), bandwidth (milestone 1),
 compute (milestone 2), latency (milestone 3), kernels + model (milestone 4), report + env

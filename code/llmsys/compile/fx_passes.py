@@ -1,4 +1,4 @@
-"""Graph rewriting on torch.fx: a small fusion compiler for our models (Chapter 34).
+"""Graph rewriting on torch.fx: a small fusion compiler for our models (Chapter 36).
 
 The passes operate on any ``torch.fx.GraphModule``: the ones TorchDynamo hands to a backend
 (``dynamo_tools.capture_graphs``), the ones ``torch.export`` produces, or a hand-built graph.

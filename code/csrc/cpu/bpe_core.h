@@ -1,4 +1,4 @@
-// Byte-level BPE without PyTorch (Chapter 29): the encoder and trainer behind llmsys::bpe_*.
+// Byte-level BPE without PyTorch (Chapter 31): the encoder and trainer behind llmsys::bpe_*.
 //
 // This header has no ATen dependency on purpose. The same code is bound three ways in
 // csrc/examples/ (pybind11, nanobind, a C ABI for ctypes) and wrapped as dispatcher operators in

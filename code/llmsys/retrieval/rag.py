@@ -1,4 +1,4 @@
-"""Retrieval-augmented generation as a serving system (Chapter 48).
+"""Retrieval-augmented generation as a serving system (Chapter 50).
 
 A RAG query is a short pipeline whose stages have very different cost profiles:
 

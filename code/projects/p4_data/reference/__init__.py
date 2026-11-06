@@ -1,4 +1,4 @@
-"""Project 4 reference solution: a web-scale data pipeline (Chapter 28).
+"""Project 4 reference solution: a web-scale data pipeline (Chapter 30).
 
 Attempt the project before reading this package. The acceptance tests (``test_p4_acceptance.py``)
 run against it by default and against your own implementation through ``P4_IMPL=/path/to/dir``,

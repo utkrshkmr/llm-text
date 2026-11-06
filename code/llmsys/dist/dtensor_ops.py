@@ -1,4 +1,4 @@
-"""The four sharded matmul cases with PyTorch DTensor (Chapter 24).
+"""The four sharded matmul cases with PyTorch DTensor (Chapter 26).
 
 ``torch.distributed.tensor`` is the production form of the chapter's notation: a ``DeviceMesh`` is
 our ``Mesh``, and a tuple of placements, one per mesh axis (``Shard(d)``, ``Replicate()``,

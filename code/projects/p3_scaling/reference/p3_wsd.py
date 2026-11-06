@@ -1,4 +1,4 @@
-"""Project 3 (reference solution): warmup-stable-decay runs with branched decays (Chapter 27).
+"""Project 3 (reference solution): warmup-stable-decay runs with branched decays (Chapter 29).
 
 One stable-phase run per model size is trained once; at every token budget it passes through,
 the full training state (model, optimizer, data-order RNG) is checkpointed and a short decay

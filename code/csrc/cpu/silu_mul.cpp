@@ -1,4 +1,4 @@
-// Fused SwiGLU activation on the CPU with autograd written in C++ (Chapter 29).
+// Fused SwiGLU activation on the CPU with autograd written in C++ (Chapter 31).
 //
 //   y = silu(gate) * up = gate * sigmoid(gate) * up
 //

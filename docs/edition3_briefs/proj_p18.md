@@ -1,4 +1,4 @@
-# Brief: Project 18, Long-context multi-agent serving (book/chapters/ch53_proj_longctx.md {#ch:proj18}, kit code/projects/p18_longctx NEW)
+# Brief: Project 18, Long-context multi-agent serving (book/chapters/ch55_proj_longctx.md {#ch:proj18}, kit code/projects/p18_longctx NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P18", and the
 chapters this capstone of Part VI builds on: [@ch:serving], [@ch:kvcache], [@ch:efficient], [@ch:movestudy], [@ch:memory]. Budget on 2×A100-40GB PCIe: ~10 GPU-h (estimate; calibrate in

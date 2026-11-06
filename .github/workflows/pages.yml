@@ -21,12 +21,12 @@ jobs:
 
       - name: Install pandoc
         run: |
-          wget -q https://github.com/jgm/pandoc/releases/download/3.6.4/pandoc-3.6.4-1-amd64.deb
-          sudo dpkg -i pandoc-3.6.4-1-amd64.deb
+          wget -q https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-1-amd64.deb
+          sudo dpkg -i pandoc-3.13-1-amd64.deb
           pandoc --version | head -1
 
       - name: Build the website
-        run: python3 web/build_site.py --book book --out site
+        run: python3 web/build_site.py --book book --out site --strict
 
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4

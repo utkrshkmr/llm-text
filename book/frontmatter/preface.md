@@ -24,8 +24,8 @@ around that answer. So every chapter carries a systems layer:
 - **Napkin Math** boxes do back-of-the-envelope calculations with real accelerator numbers, so you
   build intuition for orders of magnitude.
 
-- Whole chapters cover the systems themselves: the numbers a machine computes with
-  ([@ch:numerics]), single-GPU performance engineering ([@ch:perf]), distributed and sharded
+- Whole chapters cover the systems themselves: the machine and how to measure it
+  ([@ch:machine]), the numbers it computes with and how to scale them ([@ch:numerics; @ch:quant]), single-GPU performance engineering ([@ch:perf]), distributed and sharded
   training ([@ch:distributed; @ch:sharding; @ch:shardcalc]), serving engines with continuous
   batching ([@ch:serving]), KV-cache management ([@ch:kvcache]), quantisation and speculative
   decoding ([@ch:efficient]), on-device and CPU inference ([@ch:ondevice]), retrieval and compound
@@ -62,23 +62,24 @@ on a small budget, and write up a finding.
 ## How to read this book {#how-to-read-this-book .unnumbered}
 
 The book has seven parts, and every part ends with its own capstone projects. Part I sets up the
-vocabulary and a performance mental model: the landscape, PyTorch and the machine underneath, and
-the numbers the machine computes with. Part II builds GPT-2 and then a modern Qwen3-style
-architecture from scratch, maps the design space around it, looks beyond softmax attention, and
-then widens the view: encoders and encoder--decoders, mixture-of-experts models end to end, and the
-anatomy of today's open models. Part III is pretraining at scale: optimisers, the training loop,
-data, scaling laws, single-GPU performance, distributed and sharded training, and a calculus for
-sharded computation. Part IV goes from Python to the metal: C++ for PyTorch, GPU and accelerator
-architecture, CUDA kernels, attention and MoE kernels, profiling, compilers, and memory and
-interconnects. Part V fine-tunes the model for classification and for following instructions.
-Part VI is about inference: how a single request is generated, how a server multiplexes thousands
-of them, how the KV cache is managed, how to make each token cheaper, how to run models on CPUs and
-devices, how retrieval, tools and agents turn a model into a compound system, and what data
-movement costs in a long-running reasoning workload. Part VII is post-training: evaluation,
-inference-time scaling, self-refinement, the reinforcement-learning setup for LLMs, policy
-gradients, RLHF and PPO, DPO, GRPO, RL systems, distillation, and alignment. The appendices cover
-Triton, accelerators, JAX, the lab setup, containerising an ML project, the references, doing LLM
-systems research, and solutions to the exercises.
+vocabulary and a performance mental model: the landscape, PyTorch, the machine underneath and how to
+measure it, the numbers the machine computes with, and the scales, quantisation grids and
+mixed-precision recipes that make narrow formats usable. Part II builds GPT-2 and then a modern
+Qwen3-style architecture from scratch, maps the design space around it, looks beyond softmax
+attention, and then widens the view: encoders and encoder--decoders, mixture-of-experts models end
+to end, and the anatomy of today's open models. Part III is pretraining at scale: optimisers, the
+training loop, data, scaling laws, single-GPU performance, distributed and sharded training, and a
+calculus for sharded computation. Part IV goes from Python to the metal: C++ for PyTorch, GPU and
+accelerator architecture, CUDA kernels, attention and MoE kernels, profiling, compilers, and memory
+and interconnects. Part V fine-tunes the model for classification and for following instructions.
+Part VI is about inference: how a single request is generated, how a server multiplexes thousands of
+them, how the KV cache is managed, how to make each token cheaper, how to run models on CPUs and
+devices, how retrieval, tools and agents turn a model into a compound system, and what data movement
+costs in a long-running reasoning workload. Part VII is post-training: evaluation, inference-time
+scaling, self-refinement, the reinforcement-learning setup for LLMs, policy gradients, RLHF and PPO,
+DPO, GRPO, RL systems, distillation, and alignment. The appendices cover Triton, accelerators, JAX,
+the lab setup, containerising an ML project, the references, doing LLM systems research, and
+solutions to the exercises.
 
 The capstone projects are research-grade work framed as research questions. Each has milestones
 with automated acceptance tests, baselines, a compute budget sized for two A100 GPUs connected over
@@ -112,8 +113,8 @@ The tests run on a laptop CPU in under a minute with tiny model configurations:
 ``` bash
 cd code
 pip install -r requirements.txt
-LAB_IMPL=starter  python -m pytest labs/lab07_attention   # grade your work
-LAB_IMPL=solution python -m pytest labs/lab07_attention   # check the reference
+LAB_IMPL=starter  python -m pytest labs/lab09_attention   # grade your work
+LAB_IMPL=solution python -m pytest labs/lab09_attention   # check the reference
 ```
 
 Several labs have a C++ or CUDA extension: the performance-critical operators live in `code/csrc`

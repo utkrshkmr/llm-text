@@ -1,4 +1,4 @@
-"""Project 11, milestone 1: the emulation layer (Chapter 5).
+"""Project 11, milestone 1: the emulation layer (Chapter 7).
 
 Low-precision training emulated with fake quantisation: every tensor that a recipe puts in a
 narrow format is rounded onto that format's grid (with the recipe's scaling) and carried on in

@@ -1,6 +1,6 @@
 # Project 11 — A low-precision training study
 
-The project guide is the chapter "A low-precision training study" (Chapter 5, `ch:proj11`) of the
+The project guide is the chapter "A low-precision training study" (Chapter 7, `ch:proj11`) of the
 book, the second capstone of Part I. You train a small MLP and a tiny decoder-only transformer under
 two dozen precision recipes and find where each one breaks and which fix recovers it: FP16 without
 loss scaling, BF16 without master weights, emulated FP8 (E4M3/E5M2; no scaling, per-tensor delayed,

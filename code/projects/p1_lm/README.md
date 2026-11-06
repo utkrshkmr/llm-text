@@ -1,8 +1,8 @@
-# Project 1 — A Transformer language model from scratch (Chapter 25)
+# Project 1 — A Transformer language model from scratch (Chapter 27)
 
 You build a byte-level BPE tokenizer, a pre-norm Transformer LM, AdamW, a learning-rate
 schedule, clipping, a batch sampler and checkpointing yourself, then train and study models.
-Chapter 25 is the specification and guide; it deliberately stops short of solutions.
+Chapter 27 is the specification and guide; it deliberately stops short of solutions.
 
 | file | purpose |
 |---|---|

@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): the spec sheet and the results files, milestone 5 (Chapter 4).
+"""Project 10 (reference solution): the spec sheet and the results files, milestone 5 (Chapter 6).
 
 ``results_document`` builds the repository-wide results schema
 ``{config, versions, metrics, timings: {median, p10, p90}, artifacts}``; ``spec_sheet_rows``

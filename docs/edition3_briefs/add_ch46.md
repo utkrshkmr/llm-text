@@ -1,77 +1,76 @@
-# Brief: additions to Chapter 46 "Cheaper Inference" + Lab 46 extension (int4 GEMV CUDA kernel)
+# Brief: additions to Chapter 46 "Serving Engines" + Lab 46 extension (multi-device, engine interface, CUDA backend)
 
-Read first: BRIEF_conventions.md (one level up, incl. §6), docs/PLAN.md §1.2 row "33", the existing chapter
-book/chapters/ch46_efficient_inference.md (keep ALL content: quantisation, speculative decoding, deployment),
-book/solutions/ch46_solutions.md, code/labs/lab46_quant_specdec/*, code/llmsys/{quant.py,specdec.py}, and from the
-first wave: book/chapters/ch47_ondevice.md + code/csrc/cpu/gemv_q4.cpp + code/llmsys/ops/gemv_q4.py (the CPU
-int4/int8 GEMV ops and THEIR SCHEMAS: your CUDA kernel implements the same operators for the CUDA dispatch key
-so the Python wrapper works on both devices — do not define new op names unless the CPU schema cannot express
-the CUDA variant), book/chapters/ch14_anatomy.md (MTP module in llmsys/models/deepseek.py: reuse for the
-MTP-head training section), code/csrc/README.md. GPU: CUDA_VISIBLE_DEVICES=0.
+Read first: BRIEF_conventions.md (one level up, incl. §6), docs/PLAN.md §1.2 row "31", the existing chapter
+book/chapters/ch46_serving_engine.md (keep ALL content), book/solutions/ch46_solutions.md, code/labs/lab46_engine/*,
+code/llmsys/serving/*.py, and from the first wave: book/chapters/ch34_attn_moe_kernels.md and
+code/llmsys/ops/paged_attn.py (the CUDA paged-attention backend with the ModelRunner-compatible signature),
+book/chapters/ch26_shardcalc.md (inference sharding section: cross-reference), book/chapters/ch15_moe.md
+(MoE inference section: cross-reference), code/llmsys/dist/launch.py. GPU: CUDA_VISIBLE_DEVICES=0,1 (short).
 
-Files you own: book/chapters/ch46_efficient_inference.md (add), book/solutions/ch46_solutions.md (add),
-code/labs/lab46_quant_specdec/* (add tasks/tests/bench + starter_csrc/), new code/csrc/cuda/gemv_q4.cu (CUDA
-kernels for the gemv_q4/gemv_q8 ops: one warp per output row or a split-K variant, nibble unpacking in
-registers, fp16 scales, bf16 activations, coalesced packed-weight reads; register TORCH_LIBRARY_IMPL(llmsys,
-CUDA, m) for the existing op names), update code/llmsys/ops/gemv_q4.py ONLY to register the "cuda" backend
-and add CUDA tests (coordinate by keeping the CPU parts intact), new module code/llmsys/quant_train.py (QAT with
-straight-through estimators, static vs dynamic activation quantisation with calibration, MTP head training
-loss, early exit / layer skipping / token pruning utilities), docs/edition3_briefs/refs/add_ch46.md.
+Files you own: book/chapters/ch46_serving_engine.md (add), book/solutions/ch46_solutions.md (add),
+code/labs/lab46_engine/* (add tasks/tests/bench), new modules code/llmsys/serving/interface.py
+(prefill/insert/generate engine interface), code/llmsys/serving/multidevice.py (sharded prefill/decode over
+torch.distributed: TP=2 decode step with the collectives per layer, replica routing, PP=2 sketch; gloo in
+tests), code/llmsys/serving/moe_serving.py (expert placement, EP vs TP serving cost model, batch-size vs
+expert utilisation), code/llmsys/serving/costs.py (worked serving-cost estimates: $/1M tokens from GPU
+price, batch, tokens/s), docs/edition3_briefs/refs/add_ch46.md.
 
 Additions:
-1. Quantisation-aware training: fake quantisation with STE, learnable scales (LSQ-style), where QAT beats
-   PTQ, cost; code.
-2. Static vs dynamic activation quantisation: calibration (percentile/MSE), per-tensor vs per-token vs
-   per-channel scales, the kernel consequences (static = scale known at compile time, fuses into GEMM
-   epilogue), SmoothQuant revisited (exists in llmsys.quant), int8 activations in practice (W8A8), FP8.
-3. Training multi-token-prediction heads for speculative decoding: the MTP module (reuse
-   llmsys.models.deepseek), the loss, acceptance rate vs head depth, converting a trained head into a draft
-   for the chapter's speculative decoder (llmsys.specdec).
-4. Early exit, layer skipping and token pruning: confidence-based exit, the KV-cache problem with early exit
-   (missing K/V for skipped layers and the fixes), layer-skip training, token pruning in prefill; cost/benefit
-   napkin math.
-5. int4 GEMV on the GPU: why weight-only int4 helps decode (bytes) and when it hurts prefill (dequant
-   compute), the kernel design, measured GB/s and speed vs bf16 GEMV (torch.matmul with batch 1) on the
-   A100 at several shapes (label measured); link to the CPU version of [@ch:ondevice].
-6. Lab 46 extension: CUDA int4/int8 GEMV (tests: equals the Python dequantise+matmul reference and the CPU
-   kernel results on identical inputs; shapes incl. odd sizes; opcheck; marked gpu), QAT STE (tests: forward
-   equals quantised, gradient passes), static calibration (tests on fixed tensors), MTP head loss shapes and
-   acceptance-rate simulation (CPU), early-exit utilities (CPU tests). bench.py: GEMV GB/s table.
+1. Multi-device inference: sharding prefill vs decode (TP for prefill compute, TP vs replicas for decode;
+   PP for memory), KV-cache placement under each, the per-token communication cost over PCIe (this box)
+   and NVLink, when two replicas beat TP=2 (goodput per GPU), disaggregated prefill/decode engines;
+   figures + napkin math; cross-reference [@ch:shardcalc].
+2. The prefill / insert / generate engine interface (the three-call API modern engines expose or
+   internally use: prefill a prompt into a KV state, insert states into the running decode batch,
+   generate steps that return tokens), how continuous batching maps onto it, how it enables
+   prefix caching and disaggregation; implement it as a thin layer over LLMEngine in serving/interface.py.
+3. MoE serving: expert placement (EP across GPUs vs replicate experts), token routing imbalance at decode,
+   batch-size effects on expert utilisation and bytes read per token (napkin math for a 128-expert, 8-active
+   model at batch 1/8/64), expert offloading; cross-reference [@ch:moe].
+4. Worked serving-cost estimates: from GPU hourly price, model size, batch and latency targets to $/1M
+   input and output tokens for 2–3 scenarios on A100 PCIe and H100; the sensitivity to batch size and
+   context length; where quantisation and speculation enter.
+5. CUDA paged-attention backend: wiring `llmsys.ops.paged_attn.paged_attention_cuda` into ModelRunner
+   (attention_fn), the engine's step time before/after on this A100 (measured; label), what else limits the
+   Python engine (scheduler and Python overhead) — honest discussion.
+6. Lab 46 extension: tasks for the prefill/insert/generate interface (tests: same tokens as LLMEngine.generate),
+   TP=2 decode over gloo processes equals single-process decode (test), serving cost functions (tests with
+   fixed inputs), engine with CUDA backend (GPU test marked gpu: identical greedy tokens to the reference
+   backend on a tiny Qwen3), MoE serving cost model (tests).
 
 Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); run
-`LAB_IMPL=solution python -m pytest -q labs/lab46_quant_specdec` (LLMSYS_JIT=1 and without), lab47 tests (you
-touched gemv_q4.py) and `python -m pytest -q tests`.
+`LAB_IMPL=solution python -m pytest -q labs/lab46_engine` (LLMSYS_JIT=1 and without) and `python -m pytest -q tests`.
 
 
 ## Expanded scope (owner, 2026-11; staged plan). Same depth rules: BRIEF_conventions.md §7 (Research frontier section, Reading-the-research box)
-- Quantisation calibration theory in full (format and grid maths are in [@ch:numerics]): the layer-wise
-  reconstruction objective, OBS/OBQ → GPTQ derivation (Hessian H = 2XXᵀ, Cholesky-based column updates, lazy batch
-  updates), AWQ (activation-aware per-channel scaling, the search), SmoothQuant (migration strength α, math of the
-  equivalent transform), rotation-based methods (QuaRot/SpinQuant: Hadamard rotations remove outliers), and how to
-  calibrate; implement GPTQ on a small layer and test that it beats round-to-nearest.
-- Speculative decoding in full: the acceptance-rejection proof of exactness, expected tokens per step, draft models,
-  self-speculation (Medusa heads, EAGLE/EAGLE-2/3 feature-level drafting, MTP heads), token trees and tree-attention
-  verification masks (implemented: build the tree mask and verify a tree in one forward pass, test against
-  sequential verification), lookahead/n-gram drafting, speculative decoding under batching (when it stops paying).
+- Keep the engine view; move depth on paging, prefix caching and eviction to [@ch:kvcache] and link both ways.
+- Scheduling in full: iteration-level (continuous) batching formalised; chunked prefill with a token budget and its
+  effect on TTFT/TPOT; prefill/decode interference; SLO-aware and fairness-aware scheduling; disaggregated serving
+  (DistServe/Splitwise/Mooncake) with the KV-transfer cost from [@ch:memory].
 
 
-## Weight streaming: hiding CPU→GPU layer transfers behind compute (owner request, 2026-11-05). Depth rules §7
-- Running models larger than GPU memory: layer-wise weight streaming from host memory (mechanism in [@ch:memory]).
-  The feasibility condition: transfer time per layer (layer bytes / PCIe bandwidth, ~25 GB/s here) vs compute per
-  layer (≈ 2·params·tokens / achieved FLOP/s) → overlap succeeds for large-batch prefill and throughput serving,
-  fails for batch-1 decode (PCIe-bound: tokens/s ≈ PCIe BW / model bytes); compute the crossover batch size.
-  Systems: FlexGen (zig-zag block schedule over the batch × layer grid, the LP choosing what lives on GPU/CPU/disk
-  for weights, KV and activations), DeepSpeed ZeRO-Inference, Hugging Face Accelerate device_map/offload,
-  llama.cpp partial GPU offload (-ngl), PowerInfer (hot neurons on GPU, cold on CPU); how weight streaming combines
-  with quantisation (fewer bytes to stream) and with MoE expert offload ([@ch:serving]).
-- Lab 46 addition: a layer-streaming runner for one of our models (using llmsys.movement.streaming); tests: equals
-  the fully resident model; bench.py on the A100: throughput vs batch size with streaming vs resident, measured vs
-  predicted crossover batch size, overlap fraction from the trace.
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepSeek-V3's production serving design as a case study: prefill/decode disaggregation with different
+  parallelism per phase, redundant experts, two-micro-batch overlap of attention and MoE communication; the
+  multi-token-prediction module used for speculative decoding at serving time (acceptance rate reported).
+
+
+## Model files and MoE serving (owner request, 2026-11-05). Depth rules: BRIEF_conventions.md §7
+- MoE serving in depth (extends item 3 above): expert placement as an optimisation problem (memory per GPU, measured
+  expert load, all-to-all bytes, locality), static placement from a load profile, replicating hot experts and
+  balancing with an EPLB-style algorithm (redundant experts, grouped/hierarchical placement), online rebalancing
+  while serving and its cost, attention data-parallel + expert-parallel layouts, EP vs TP vs mixed for MoE at
+  decode and prefill; keeping a subset of experts on the GPU with the rest on the CPU (expert offload and caching,
+  prefetch from predicted routing, CPU execution of cold experts), with the PCIe bandwidth budget from [@ch:memory].
+- The 2-GPU worked example: serve a real small MoE (e.g. Qwen3-30B-A3B in a quantised form, or OLMoE/Qwen1.5-MoE-A2.7B
+  if memory requires) with experts split across the two A100s, each GPU loading only its experts with the selective
+  loader of [@sec:anatomy:files]; measure load time, bytes moved per token (all-to-all over PCIe), expert load
+  imbalance, tokens/s and TPOT for EP=2 vs TP=2 vs replicated-hot-experts, and compare with the cost model.
+- Code: code/llmsys/serving/moe_serving.py gains placement (greedy + EPLB-style), rebalancing, offload/cache
+  simulation; lab tests check placement invariants and cost-model values on crafted load profiles.
 
 
 ## Gap-check additions (owner request, 2026-11-05). Depth rules: BRIEF_conventions.md §7
-- Extreme compression: BitNet b1.58 (ternary weights trained from scratch, absmean quantisation, lookup-table
-  kernels), vector quantisation (QuIP# with incoherence processing and lattice codebooks, AQLM additive codebooks),
-  HQQ (calibration-free), mixed-precision kernels (Marlin/Machete for W4A16), 2:4 semi-structured sparsity with
-  SparseGPT and Wanda and its tensor-core speedup, structured pruning + distillation (Minitron: width/depth pruning
-  then retraining); implement Wanda and 2:4 masking and measure.
+- The 2026 serving ecosystem: vLLM, SGLang, TensorRT-LLM, NVIDIA Dynamo with NIXL for KV transfer, llm-d (Kubernetes-
+  native disaggregated serving), LMDeploy, Triton Inference Server; what each layer (engine, router, KV store,
+  orchestrator) does, mapped onto the mini engine.

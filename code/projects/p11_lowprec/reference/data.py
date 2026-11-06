@@ -1,4 +1,4 @@
-"""Project 11: synthetic tasks with known optimal losses (Chapter 5).
+"""Project 11: synthetic tasks with known optimal losses (Chapter 7).
 
 Both tasks are generated on the fly from a seed, so no dataset is downloaded and every run is
 reproducible; both have a loss *floor* we know exactly, so "training stalled" can be measured as

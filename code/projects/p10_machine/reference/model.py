@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): a predictive performance model, milestone 4 (Chapter 4).
+"""Project 10 (reference solution): a predictive performance model, milestone 4 (Chapter 6).
 
 The model is the roofline of Chapter 2 with two additions that matter for real kernels: a fixed
 per-launch cost, and an overlap exponent between the compute and memory terms:

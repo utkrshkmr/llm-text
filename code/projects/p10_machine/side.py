@@ -1,11 +1,11 @@
-"""Project 10: the side experiments the chapter quotes besides the suite (Chapter 4).
+"""Project 10: the side experiments the chapter quotes besides the suite (Chapter 6).
 
     python side.py --out results/side_experiments.json            # GPU0; P2P/NCCL if 2 GPUs
 
 clock_ramp     idle clock, and the FMA chain after 0.05-1 s of load (no clock warm-up)
 int8_layout    torch._int_mm with a row-major vs column-major right operand
 tf32_flag      an fp32 GEMM with the TF32 switch off and on
-baselines      Lab 2's empirical roofline, raw triton do_bench, llmsys.perf.bench
+baselines      Lab 3's empirical roofline, raw triton do_bench, llmsys.perf.bench
 h2d_repeats    pinned H2D in three separate processes (run-to-run spread)
 peer           direct peer copies (data check) and two-process NCCL (needs two visible GPUs)
 """
@@ -89,7 +89,7 @@ def tf32_flag(p10, n=4096):
 
 def baselines(p10):
     spec = importlib.util.spec_from_file_location(
-        "lab02_solution", os.path.join(CODE, "labs", "lab02_pytorch_roofline", "solution.py")
+        "lab03_solution", os.path.join(CODE, "labs", "lab03_roofline", "solution.py")
     )
     lab = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lab)
@@ -111,8 +111,8 @@ def baselines(p10):
     w_mm, w_cp = bench(lambda: a @ a), bench(lambda: y.copy_(x))
     f, nb = 2 * 4096**3, 2 * 4 * 2**27
     return dict(
-        lab02_bf16_tflops=pf / 1e12,
-        lab02_bw_gbs=pb / 1e9,
+        lab03_bf16_tflops=pf / 1e12,
+        lab03_bw_gbs=pb / 1e9,
         do_bench_raw_bf16_tflops=f / raw_mm * 1e-9,
         do_bench_raw_copy_gbs=nb / raw_cp * 1e-6,
         perf_bench_bf16_tflops=f / w_mm * 1e-9,

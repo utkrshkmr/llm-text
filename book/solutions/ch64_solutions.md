@@ -1,99 +1,109 @@
-## Chapter 47: Distillation for Efficient Reasoning {#chapter-47-distillation-for-efficient-reasoning .unnumbered}
+## Chapter 45: Improving GRPO {#chapter-45-improving-grpo .unnumbered}
 
-#### Exercise 47.1 (Split balance).
+#### Exercise 45.1
 
-With 25 validation examples drawn at random from a heavy-tailed length distribution, the validation
-mean length can differ noticeably from the training mean. Validation loss is length-sensitive
-because per-token loss varies along a trace (early reasoning tokens are harder to predict than
-formulaic later ones) and long traces contribute more tokens. A stratified split sorts examples by
-length, cuts them into $q$ quantile buckets, and draws $\lfloor 25/q\rfloor$ validation examples
-from each bucket with a fixed seed.
+All three edits give 0: a typo makes the tag a different token sequence, so `index` raises; reversed
+order fails the `<` test; a missing tag raises. The string check catches the same three. The
+id-based check can be broken by tokenisation: if the tokenizer does not treat `<think>` as a special
+token (the Qwen3 *base* tokenizer splits it into three pieces), the text contains the tag but the
+single id never occurs, so the id check returns 0 while the string check returns 1. Conversely, the
+model may emit pieces that decode to the tag without the special id.
 
-#### Exercise 47.2 (Without think tags).
+#### Exercise 45.2
 
-Without tags the target is the trace followed by the answer with no delimiter; validation loss is
-usually similar (the tags are two easy tokens), so differences show up in behaviour rather than
-loss: tagged students can be parsed and can be switched between thinking and non-thinking modes by
-pre-filling an empty `<think></think>` block, which untagged students never saw. The lab's
-`bench.py` compares tagged, untagged and answer-only students on the synthetic task.
+In our runs (two seeds, 150 steps), every format variant drove `format_avg` to $\approx$ 0.99 within
+about 30 steps, because the SFT model already emitted `<think>` 20% of the time and the tag is the
+easiest reward available. Unconditional weight 1 reached a late-run `correct_avg` of about 0.74 and
+greedy accuracy of 0.84--0.87, below the baseline (0.83 and 0.89--0.96). Weight 0.1 behaved the
+same, since even a small weight breaks ties between otherwise identical rollouts. The conditional
+variant recovered the baseline's correctness (0.80--0.86, greedy 0.91--0.96). In
+[@fig:grpo2:formatfig], under plain summation a wrong-but-tagged rollout ties with a
+right-but-untagged one, so early gradient mainly teaches tagging. Conditioning makes correctness a
+prerequisite for any reward.
 
-#### Exercise 47.3 (Loss identity).
+#### Exercise 45.3
 
-`answer_only_loss` averages $-\log p_\theta(y_t\mid x,y_{<t})$ over the $n$ positions whose targets
-are answer tokens (logit indices `prompt_len-1` to $T-2$), which by the chain rule is
-$-\frac1n\log p_\theta(y\mid x)$. For a batch, the token-level loss is
-$\sum_i n_i\bar\ell_i/\sum_i n_i$ and the average of per-example losses is
-$\frac1B\sum_i\bar\ell_i$; they are equal for all values of $\bar\ell_i$ iff all $n_i$ are equal.
+With `inner_epochs`$=1$ the clip fraction is exactly 0 (every ratio is 1). In our `clip_reuse4` runs
+(4 full-batch passes, learning rate $3\times10^{-4}$) the late-run clip fraction was only 2--3%, yet
+the clipped run kept the baseline's accuracy (0.88--0.95) while the unclipped one degraded to
+0.50--0.62. A small fraction of clipped tokens can carry most of the damage, because they are
+exactly the tokens whose probability is running away. The clip fraction grows with the number of
+passes and with the learning rate; where it crosses 0.2 depends on both, so measure it. Wall-clock
+time per update falls roughly as $(t_{\text{sample}}+k\,t_{\text{update}})/k$, so the saving
+saturates once $k\,t_{\text{update}}$ dominates. On real reasoning workloads, where sampling
+dominates, $k=2$--4 is the usual sweet spot.
 
-#### Exercise 47.4 (Off-by-one).
+#### Exercise 45.4
 
-Starting at `prompt_len` removes the target at the first answer position, so the model is never
-trained to predict `<think>` after `<assistant>`. Its first generated token is then whatever the
-untrained distribution favours, typically not `<think>`; greedy decoding starts in the wrong mode,
-and even when the model recovers, the answer format differs from training. Expect the rate of
-`<think>`-first outputs to drop from $\approx100\%$ to near zero.
+$\mathbb{E}_p[r]=\sum_yp(y)\frac{q(y)}{p(y)}=1$, so
+$\mathbb{E}_p[k_3]=1-1-\mathbb{E}_p[\log r]=\mathbb{E}_p[\log\frac{p}{q}]=\operatorname{KL}(p\|q)$.
+Pointwise, $f(r)=r-1-\log r$ has $f(1)=0$, $f'(r)=1-1/r$ and $f''>0$, so $f\ge0$. Numerically, all
+three sample means converge to the true KL ($k_2$ to a slightly different value, being biased).
+$k_1$ has the largest variance and negative samples; $k_3$ typically has the smallest variance when
+$p$ and $q$ are close.
 
-#### Exercise 47.5 (KD temperature).
+#### Exercise 45.5
 
-Let $q=\operatorname{softmax}(z/\tau)$ (student) and $p=\operatorname{softmax}(u/\tau)$ (teacher).
-$\operatorname{KL}(p\|q)=\sum_j p_j\log
-p_j-\sum_jp_j\log q_j$ and $\partial(-\sum_j p_j\log q_j)/\partial z_i=(q_i-p_i)/\tau$, so
-$\partial[\tau^2\operatorname{KL}]/\partial z_i=\tau(q_i-p_i)$. Without the $\tau^2$ factor the
-soft-target gradient would shrink as $1/\tau$ (and, for large $\tau$, as $1/\tau^2$ after expanding
-$q-p$ in the logit difference), so mixing it with the unit-temperature CE term would silently change
-the relative weight $\alpha$ with temperature.
+With zero advantages, the sequence surrogate's gradient is $\beta\nabla\sum_t\log\pi_\theta(y_t)$ on
+the fixed sampled tokens. Descending it lowers the probability of exactly those tokens, so
+probability flows to everything else, the sampled-token probability falls and entropy rises
+monotonically. The per-token $k_3$ term has gradient $\beta(1-r_t)\nabla\log\pi_\theta(y_t)$ with
+$r_t=\pi_{\text{ref}}/\pi_\theta$. It is zero when the policy equals the reference and *changes
+sign* when the policy undershoots ($r_t>1$ raises the token's probability again). It therefore pulls
+toward $\pi_{\text{ref}}$ rather than away from the samples, and entropy returns to the reference's
+level.
 
-#### Exercise 47.6 (Top-$k$ storage).
+#### Exercise 45.6
 
-For 3,000 tokens: full bf16 distributions $3000\times151{,}936\times2\approx912$ MB; top-8 at 6
-bytes per entry $=144$ KB; top-32 $=576$ KB; top-128 $=2.3$ MB; token ids $=12$ KB. For a peaked
-teacher (most mass in a few tokens) the sparse-loss error is tiny already at $k=8$; for a flat
-teacher it decays slowly with $k$ because renormalising over the top-$k$ support sharpens the
-target.
+Per-token gradient weights for (short $+1$, long $-1$):
 
-#### Exercise 47.7 (Forward vs. reverse KL).
+::: center
+| rule                                 | per token (short) | per token (long) | total long |
+|:-------------------------------------|:-----------------:|:----------------:|:----------:|
+| `seq_mean_token_mean`                |    $1/20=0.05$    | $1/2000=0.0005$  |   $0.5$    |
+| `token_mean`                         |     $1/1010$      |     $1/1010$     |   $0.99$   |
+| `seq_mean_token_sum_norm` ($L=1000$) |     $1/2000$      |     $1/2000$     |   $0.5$    |
+:::
 
-Minimising forward KL over Gaussians matches moments: for the mixture
-$\tfrac12\mathcal N(-2.2,0.6^2)
-+\tfrac12\mathcal N(2.2,0.6^2)$ the fit has mean 0 and variance $0.6^2+2.2^2=5.2$ (std
-$\approx2.3$), placing mass in the valley. Reverse KL has two local minima, each close to one
-component ($\mu\approx\pm2.2$, $\sigma\approx0.6$). A capacity-limited student trained with forward
-KL hedges between reasoning strategies and may produce incoherent mixtures; with reverse KL it
-commits to one strategy and may lose coverage of the other.
+Per-sequence averaging lets each token of the long wrong answer off 100 times more lightly than a
+token of the short right answer, which over many updates favours long wrong answers. Token-level and
+constant normalisation treat tokens equally.
 
-#### Exercise 47.8 (Logit memory).
+#### Exercise 45.7
 
-Weights+grads+Adam: $\approx9.5$ GB at every length. Activations without checkpointing: roughly 24k
-bf16 values per token per layer ($\approx47$ KB), $\times28$ layers $\approx1.3$ MB/token, i.e.
-$\approx2.7$, 10.8 and 43 GB at 2k, 8k and 32k; with per-layer checkpointing about $0.1$ MB/token
-($\approx0.2$, 0.8, 3.4 GB). Logits in fp32: 1.2, 5.0 and 19.9 GB (plus their gradient), capped at
-$\approx0.6$ GB by chunking. At 2k the optimizer state dominates; at 8k activations (without
-checkpointing); at 32k activations without checkpointing and the logits with it, which is why
-long-trace training needs both checkpointing and chunked/fused cross-entropy. (These are
-order-of-magnitude estimates; measure with `torch.cuda.max_memory_allocated`.)
+With std scaling, $\sum_i|A_i|=\frac{2Gp(1-p)}{s}
+=2\sqrt{G(G-1)}\sqrt{p(1-p)}$. Without it, $2Gp(1-p)$. The ratio (with/without) is $1/s$, which is
+largest when $p(1-p)$ is small, i.e. for nearly-always-solved and nearly-never-solved prompts. For
+$G=8$: at $p=\frac18$ the scaled weight is 4.95 versus 1.75 unscaled; at $p=\frac12$ it is 7.48
+versus 4. Std scaling up-weights edge cases relative to medium-difficulty prompts. Dr. GRPO calls
+this a difficulty bias. One could argue the reverse, that rare successes on hard prompts are the
+most informative, which is why DeepSeek-V3.2 keeps it.
 
-#### Exercise 47.9 (Packing for SFT).
+#### Exercise 45.8
 
-Make a differentiable variant of `varlen_forward` by removing `@torch.no_grad()` and returning
-logits for the packed row; build targets per segment with `IGNORE` on prompt positions and on the
-last token of each segment (no cross-segment target), then compute
-`cross_entropy(..., reduction="sum")` divided by the total number of answer tokens. Because
-attention is block-diagonal and positions restart per segment, each segment's logits equal its
-unpacked logits, so the packed loss equals the padded token-level loss.
+Full `token_entropy` on a $(4096,151936)$ tensor creates float32 copies of the logits, log-probs and
+their product: about three times 2.5 GB. The chunked version holds
+$\approx3\times C\times|\mathcal V|\times4$ B, i.e. $\approx$ 0.47 GB at $C=256$ and
+$\approx$ 1.9 GB at $C=1024$, with run time almost unchanged above $C\approx128$ (each chunk is
+still a large, efficient kernel). Below that, launch overhead dominates.
 
-#### Exercise 47.10 (Cost per solved problem).
+#### Exercise 45.9
 
-A: $2100/0.33\approx6{,}364$ tokens per solved problem; B: $900/0.30=3{,}000$. B is $2.1\times$
-cheaper. A wins only if B's accuracy falls below $900/6364\approx14.1\%$.
+The policy with AdamW needs $32\times10^9\times16\,\text{B}/16=32$ GB per GPU when FSDP-sharded. (a)
+A full bf16 reference adds 64 GB per GPU, 96 GB in total, which does not fit on 80 GB GPUs. (b)
+Sharding it like the policy adds 4 GB per GPU, plus an all-gather of $\approx64$ GB of reference
+weights per forward pass (each GPU receives $\frac{15}{16}\cdot64$ GB per step): $\approx0.15$ s at
+400 GB/s NVLink, over a second across 50 GB/s InfiniBand, overlappable layer by layer. (c) The
+rollout workers compute reference log-probs. That costs trainer memory nothing and ships only 4
+bytes per token (4 MB per million tokens), but the rollout fleet must hold an extra 64 GB copy (or
+reuse the base weights if the policy is a LoRA adapter). Option (c) is common in disaggregated
+systems, and (b) in colocated ones.
 
-#### Exercise 47.11 (Teacher generation throughput).
+#### Exercise 45.10
 
-Qwen3-32B: $\approx65.5$ GB of bf16 weights, KV $=2\cdot64\cdot8\cdot128\cdot2\approx262$ KB per
-token. On 8 H100s (640 GB) with one TP$=8$ replica and $\sim$`<!-- -->`{=html}64 GB overhead,
-$\approx510$ GB holds KV for $\approx970$ sequences at 2k average live context. A decode step
-streams weights plus KV, $\approx576$ GB at $8\times3.35$ TB/s $\approx21$ ms, giving $\approx45$k
-tokens/s and $\approx 800$ s ($\approx13$ minutes) for 36M tokens as an upper bound. Compute is
-$\approx2N\times45\text{k}
-\approx3\times10^{15}$ FLOP/s, $\approx38\%$ of peak, so the job is bandwidth-bound but not far from
-the ridge; in practice expect a few times longer because of prefill, scheduling, the length tail,
-and imperfect TP scaling.
+Casting to bf16 changes per-token log-probs by roughly $10^{-3}$--$10^{-2}$ nats, with heavy tails
+on low-probability tokens. On the toy task, training is stable either way, because sequences are
+short and the mismatch is small. The truncated weights mostly sit within $[0.99,1.01]$, with a few
+capped outliers. The effect becomes important on long sequences (thousands of tokens, where small
+per-token differences compound) and with aggressive sampler optimisations such as FP8 KV caches or
+speculative decoding.

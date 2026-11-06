@@ -1,6 +1,6 @@
 # Brief: Project 9, profiling data movement and compute with bubble charts (chapter 50 NEW, kit p9_profiler NEW)
-Read projects_common.md first, then docs/PLAN.md §4 "P9" and docs/TEST_PLAN.md §1 (profiler row), Chapters 2, 21, 22,
-43, 44, 61, 63 (book + code: llmsys.perf, llmsys.profiling, llmsys.flops, llmsys.dist.pipeline.to_tikz), the
+Read projects_common.md first, then docs/PLAN.md §4 "P9" and docs/TEST_PLAN.md §1 (profiler row), Chapters 2, 23, 24,
+45, 46, 63, 65 (book + code: llmsys.perf, llmsys.profiling, llmsys.flops, llmsys.dist.pipeline.to_tikz), the
 dataviz guidance: charts must be readable in light and dark themes and use the book palette. GPUs: both, short runs
 only. CUPTI: headers and library ship in the pip package nvidia-cuda-cupti (site-packages/nvidia/cuda_cupti/include
 and lib); `ncu`/`nsys` exist at /home/csgrad/utkarshk/port-wrf-gpu/Linux_x86_64/26.5/compilers/bin and in

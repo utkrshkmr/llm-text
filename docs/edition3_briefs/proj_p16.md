@@ -1,7 +1,7 @@
-# Brief: Project 16, A parameter-efficient fine-tuning study (book/chapters/ch41_proj_peft.md {#ch:proj16}, kit code/projects/p16_peft NEW)
+# Brief: Project 16, A parameter-efficient fine-tuning study (book/chapters/ch43_proj_peft.md {#ch:proj16}, kit code/projects/p16_peft NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P16", and the
-chapters this capstone of Part V builds on: [@ch:instruct], [@ch:classify], [@ch:numerics]. Budget on 2×A100-40GB PCIe: ~12 GPU-h (estimate; calibrate in
+chapters this capstone of Part V builds on: [@ch:instruct], [@ch:classify], [@ch:numerics], [@ch:quant]. Budget on 2×A100-40GB PCIe: ~12 GPU-h (estimate; calibrate in
 the GPU stage).
 
 Research questions: at matched GPU memory, how do full fine-tuning, LoRA, rsLoRA, DoRA and QLoRA (NF4) compare on an

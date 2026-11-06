@@ -1,4 +1,4 @@
-"""Number formats, rounding, scaling and numerically stable reductions (Chapter 3).
+"""Number formats, rounding, scaling and numerically stable reductions (Chapters 4 and 5).
 
 A bit-exact simulator of the formats LLM systems use, written in plain PyTorch so every result can
 be checked on a CPU. Formats are data (``FloatFormat``, ``IntFormat``, ``GridFormat``); one rounding
@@ -1062,7 +1062,7 @@ def inverse_hadamard_transform(y: torch.Tensor, block: Optional[int] = None,
 def requantize(qt: "QTensor", block: BlockSpec, **kw) -> "QTensor":
     """Quantise an already-quantised tensor again with another block shape (for example along M
     instead of K for a weight-gradient GEMM). Errors compound unless the scales are powers of
-    two that only shift the stored values (see the chapter's backward-pass section)."""
+    two that only shift the stored values (see the quantisation chapter's backward pass)."""
     return quantize(qt.dequantize(), qt.fmt, block=block, **kw)
 
 

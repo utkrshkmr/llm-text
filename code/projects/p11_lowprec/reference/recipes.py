@@ -1,6 +1,6 @@
-"""Project 11: precision recipes as data (Chapter 5).
+"""Project 11: precision recipes as data (Chapter 7).
 
-A recipe assigns a format to each of the roles of the numerics chapter's mixed-precision recipe:
+A recipe assigns a format to each of the roles of the quantisation chapter's mixed-precision recipe:
 GEMM inputs (activations x, weights w, output gradients g; optionally different specs for the
 operands of the two backward GEMMs), the accumulator, the storage of activations and gradients
 between GEMMs, the "sensitive" operations (normalisation, softmax, loss), the weights the optimiser

@@ -1,6 +1,6 @@
-"""Verifiable rewards for RLVR (Chapters 61-62).
+"""Verifiable rewards for RLVR (Chapters 63-64).
 
-Chapter 54 builds the full math verifier (SymPy equivalence, LaTeX normalisation).
+Chapter 56 builds the full math verifier (SymPy equivalence, LaTeX normalisation).
 Here we keep a small, dependency-free checker that is good enough for numeric
 answers and for the toy tasks used in the labs:
 

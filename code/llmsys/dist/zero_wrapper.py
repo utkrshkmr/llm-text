@@ -1,6 +1,6 @@
 """Element-wise optimizer-state sharding (ZeRO-1/2 "proper") around ANY optimizer (Ch. 15).
 
-Chapter 22's :class:`llmsys.dist.zero.ZeroAdamW` gives each rank ownership of *whole
+Chapter 24's :class:`llmsys.dist.zero.ZeroAdamW` gives each rank ownership of *whole
 parameter tensors* and synchronises with reduce + broadcast. That is easy to read, but the
 load is only balanced up to the size of the largest tensor, and every parameter's bytes travel
 through a single root.

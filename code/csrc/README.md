@@ -1,6 +1,6 @@
 # `csrc/`: the C++ and CUDA side of `llmsys`
 
-Chapters 29–34 and 47–48 (and the C++/CUDA extensions of earlier labs) compile into one extension
+Chapters 31–36 and 49–50 (and the C++/CUDA extensions of earlier labs) compile into one extension
 module, `llmsys._C`. Build it from `code/`:
 
 ```bash

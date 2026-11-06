@@ -1,4 +1,4 @@
-"""The anatomy of a CPU and on-device runtime in Python (Chapter 47).
+"""The anatomy of a CPU and on-device runtime in Python (Chapter 49).
 
 Four things every GGML-style engine has, in the smallest form that still runs:
 

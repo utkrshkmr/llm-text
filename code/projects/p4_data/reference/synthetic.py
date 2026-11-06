@@ -1,4 +1,4 @@
-"""A tiny synthetic crawl with planted structure, for acceptance tests and `--synthetic` runs (Chapter 28).
+"""A tiny synthetic crawl with planted structure, for acceptance tests and `--synthetic` runs (Chapter 30).
 
 The generator writes real WET files (gzipped WARC containers of ``conversion`` records, the format
 Common Crawl ships) plus a ground-truth file, so every pipeline stage runs on exactly the input

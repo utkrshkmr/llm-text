@@ -1,4 +1,4 @@
-"""llmsys.ops: one Python entry point per fused operator, with switchable backends (Chapter 29).
+"""llmsys.ops: one Python entry point per fused operator, with switchable backends (Chapter 31).
 
 Backends
     python  pure PyTorch reference (always available; the ground truth in tests)

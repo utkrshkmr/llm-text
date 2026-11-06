@@ -1,4 +1,4 @@
-# Brief: Project 20, Reasoning distillation under a budget (book/chapters/ch68_proj_distill.md {#ch:proj20}, kit code/projects/p20_distill NEW)
+# Brief: Project 20, Reasoning distillation under a budget (book/chapters/ch70_proj_distill.md {#ch:proj20}, kit code/projects/p20_distill NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P20", and the
 chapters this capstone of Part VII builds on: [@ch:distill], [@ch:grpo], [@ch:scaling], [@ch:eval]. Budget on 2×A100-40GB PCIe: ~20 GPU-h (estimate; calibrate in

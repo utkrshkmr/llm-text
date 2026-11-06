@@ -1,4 +1,4 @@
-"""Project 11: the optimiser side of a precision recipe, and update instrumentation (Chapter 5).
+"""Project 11: the optimiser side of a precision recipe, and update instrumentation (Chapter 7).
 
 ``LowPrecisionAdamW`` runs AdamW in fp32 and then stores the weights in the recipe's parameter
 format. With ``params="fp32"`` the stored weights *are* the master copy and the forward pass

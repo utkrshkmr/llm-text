@@ -1,4 +1,4 @@
-// Shared helpers for the llmsys._C extension (Chapter 29).
+// Shared helpers for the llmsys._C extension (Chapter 31).
 //
 // Every operator lives in its own translation unit and registers itself with the dispatcher:
 //

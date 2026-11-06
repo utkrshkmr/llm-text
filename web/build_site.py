@@ -170,7 +170,7 @@ def number_page(body: str, it: dict, labels: dict):
 
 
 def renumber_source(md: str, num) -> str:
-    """Numbers written into headings follow the book order: '## Lab 9:' takes the chapter's number."""
+    """Numbers written into headings follow the book order: '## Lab 11:' takes the chapter's number."""
     if num is None:
         return md
     return re.sub(r"^## Lab [0-9A-Z]+:", "## Lab %s:" % num, md, flags=re.M)
@@ -212,12 +212,14 @@ def fill_markers(body: str, texts):
     return body
 
 
-def resolve_xrefs(body: str, page_file: str, labels: dict, unresolved: dict):
+def resolve_xrefs(body: str, page_file: str, labels: dict, unresolved: dict, published=None):
     def link(lid, text):
         info = labels.get(lid)
         if not info:
             unresolved.setdefault(lid, set()).add(page_file)
             return '<span class="xref-missing">??</span>'
+        if published is not None and info["file"] not in published:
+            return '<span class="xref-unpub" title="Not published yet">%s</span>' % text
         target = ("" if info["file"] == page_file else info["file"]) + "#" + info.get("anchor", lid)
         return '<a href="%s">%s</a>' % (html.escape(target), text)
 
@@ -315,6 +317,8 @@ def main():
     ap.add_argument("--book", default="book")
     ap.add_argument("--out", default="site")
     ap.add_argument("--strict", action="store_true", help="fail on unresolved references")
+    ap.add_argument("--all", action="store_true",
+                    help="publish every written page, ignoring published_parts in book.yml (local preview)")
     args = ap.parse_args()
     book, out = Path(args.book), Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -322,6 +326,19 @@ def main():
     items, missing = book_items(book, spec)
     lua = HERE / "filters.lua"
     sol_page = spec["meta"].get("solutions_appendix")
+    # Publication: every page is converted (so numbers and labels are right), but only the parts that are
+    # finished get written to the site. Links into unpublished pages render as plain text.
+    n_parts = spec["meta"].get("published_parts")
+    pub_apps = set(spec["meta"].get("published_appendices", "").split())
+    part_names = [pt["title"] for pt in spec["parts"]]
+    for it in items:
+        if args.all or n_parts is None or it["kind"] == "front":
+            it["pub"] = True
+        elif it["kind"] == "chapter":
+            it["pub"] = part_names.index(it["part"]) < int(n_parts)
+        else:
+            it["pub"] = it["num"] in pub_apps
+    hidden_parts = [] if (args.all or n_parts is None) else part_names[int(n_parts):]
 
     print("[1/3] converting %d pages (%d planned pages not written yet)" % (len(items), len(missing)))
     for it in items:
@@ -329,7 +346,7 @@ def main():
         if sol_page and it["src"] == sol_page:
             for other in items:
                 sol = book / "solutions" / (other["stem"].split("_")[0] + "_solutions.md")
-                if other["kind"] != "front" and sol.exists():
+                if other["kind"] != "front" and other["pub"] and sol.exists():
                     md += "\n\n" + renumber_solutions(read(sol), other["num"])
         it["title"] = page_title(md, it["stem"])
         body, err = run_pandoc(md, lua)
@@ -352,9 +369,10 @@ def main():
         for kind, lid, num, text in it["texts"]:
             if kind in ("section", "subsection") and lid:
                 by_id[lid] = text
+    published = {it["file"] for it in items if it["pub"]}
     for it in items:
         body = fill_markers(it["body_raw"], it["texts"])
-        it["body"] = resolve_xrefs(body, it["file"], labels, unresolved)
+        it["body"] = resolve_xrefs(body, it["file"], labels, unresolved, published)
         toc = MARK.sub(lambda m: ('<span class="num">%s</span>' % by_id[html.unescape(m.group(2))])
                        if by_id.get(html.unescape(m.group(2))) else "", it["toc_raw"])
         toc = XREF.sub("", toc)
@@ -363,10 +381,19 @@ def main():
         it["toc"] = '<nav id="TOC" role="doc-toc">' + (tm.group(1) if tm else inner) + "</nav>"
 
     print("[3/3] assembling site")
+    built = items
+    items = [it for it in items if it["pub"]]
     if (out / "figures").exists():
         shutil.rmtree(out / "figures")
     if (book / "figures").exists():
         shutil.copytree(book / "figures", out / "figures")
+        if len(items) < len(built):              # ship only the figures that published pages use
+            used = set()
+            for it in items:
+                used |= set(re.findall(r'figures/([^"\'?#\s)]+)', it["body"]))
+            for f in (out / "figures").iterdir():
+                if f.name not in used:
+                    f.unlink()
         fig_problems = write_dark_figures(out)
         for name, bad in fig_problems:
             print("  figure colour the dark-mode converter cannot read:", name, bad)
@@ -396,6 +423,9 @@ def main():
         nav.append("</ul></div>")
     nav_html = "\n".join(nav)
 
+    for it in built:                             # pages withdrawn since an earlier build into this directory
+        if not it["pub"] and (out / it["file"]).exists():
+            (out / it["file"]).unlink()
     for i, it in enumerate(items):
         body = theme_figures(size_figures(it["body"], out))
         it["body"] = body
@@ -418,6 +448,9 @@ def main():
         cards.append('<li><a href="%s"><span class="num">%s</span> %s</a></li>' %
                      (it["file"], it["num"], html.escape(it["title"])))
     cards.append("</ul></section>")
+    if hidden_parts:
+        cards.append('<p class="parts-coming">Coming next, each published as it is completed: %s.</p>' %
+                     html.escape(", ".join(hidden_parts)))
     landing = read(HERE / "landing.html")
     landing = (landing.replace("$NAV$", nav_html).replace("$CARDS$", "\n".join(cards))
                .replace("$FIRST$", items[0]["file"]).replace("$PDF$", ""))
@@ -434,6 +467,9 @@ def main():
 
     dups = sorted(k for k, v in labels.items() if v.get("dup") and ":" in k)
     print("done:", out.resolve(), "pages:", len(items), "labels:", len(labels), "search entries:", len(idx))
+    if len(items) < len(built):
+        print("built but not published (%d): %s" % (len(built) - len(items),
+              ", ".join(it["stem"] for it in built if not it["pub"])))
     if missing:
         print("not written yet:", ", ".join(Path(m).stem for m in missing))
     if dups:

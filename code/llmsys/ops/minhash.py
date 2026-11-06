@@ -1,4 +1,4 @@
-"""MinHash shingling, signatures and LSH band keys with switchable backends (Chapter 28).
+"""MinHash shingling, signatures and LSH band keys with switchable backends (Chapter 30).
 
     from llmsys.ops import minhash
     sigs = minhash.signatures(texts, num_perm=128, ngram=5, seed=0)      # int64 [N, k]

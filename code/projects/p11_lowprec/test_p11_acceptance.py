@@ -1,4 +1,4 @@
-"""Acceptance tests for Project 11, a low-precision training study (Chapter 5).
+"""Acceptance tests for Project 11, a low-precision training study (Chapter 7).
 
     LAB_IMPL=solution python -m pytest -q projects/p11_lowprec     # the reference solution
     P11_IMPL=~/my_p11 python -m pytest -q projects/p11_lowprec     # your package (same modules)

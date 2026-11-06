@@ -1,13 +1,11 @@
-# Brief: additions to Chapter 19 "Pretraining Data" + lab extension
+# Brief: additions to Chapter 19 "Optimizers and the Training Loop" + lab extension
 
-Read first: BRIEF_conventions.md (all, esp. §7), the existing chapter book/chapters/ch19_pretraining_data.md (keep all
-content), its solutions file and code/labs/lab19_datapipe/*.
+Read first: BRIEF_conventions.md (all, esp. §7), the existing chapter book/chapters/ch19_optimizers.md (keep all
+content), its solutions file and code/labs/lab19_optim/*.
 
 
 ## Gap-check additions (owner request, 2026-11-05). Depth rules: BRIEF_conventions.md §7
-- Data-mixture optimisation: DoReMi (proxy model, group DRO weights), RegMix (regression over small-model mixtures),
-  online data mixing; implement a small DoReMi-style loop.
-- Synthetic data in depth: self-instruct and Evol-Instruct, textbook-style synthetic corpora (Phi line), rephrasing
-  web data, verification-filtered synthetic reasoning data; model collapse (theory and evidence) and how to avoid it
-  (mixing real data, provenance tracking).
-- Public corpora and their recipes: RedPajama, Dolma, FineWeb/FineWeb-Edu, DCLM, Nemotron-CC (what each filter does).
+- Memory-saving optimisers: 8-bit Adam (block-wise quantised states, dynamic exponent), Adafactor's factored second
+  moments, low-rank/projection methods (GaLore) with their memory accounting; schedule-free optimisation (Defazio et
+  al.: interpolation between iterate and average, why no decay phase is needed) implemented and compared with WSD.
+- Averaging: Polyak/EMA weights during training and their evaluation benefit; what averaging costs in memory.

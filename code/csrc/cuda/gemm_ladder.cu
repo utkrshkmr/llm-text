@@ -1,4 +1,4 @@
-// The GEMM ladder (Chapter 31): seven implementations of C = A @ B, each one rung faster.
+// The GEMM ladder (Chapter 33): seven implementations of C = A @ B, each one rung faster.
 //
 //   gemm(Tensor a, Tensor b, int variant) -> Tensor      a: (M, K), b: (K, N), row-major, fp32 or bf16
 //   gemm_variants() -> str[]                             the names of the variants, index = variant

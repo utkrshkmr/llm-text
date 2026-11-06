@@ -1,4 +1,4 @@
-// A safetensors reader (Chapter 51): 8-byte little-endian header length, a JSON header that maps
+// A safetensors reader (Chapter 53): 8-byte little-endian header length, a JSON header that maps
 // tensor names to dtype/shape/byte ranges, then the raw row-major tensor bytes. We map the file and
 // convert BF16/F16 to fp32 one tensor at a time while converting.
 #pragma once

@@ -1,4 +1,4 @@
-// SIMD dot-product kernels over quantised rows (Chapter 51).
+// SIMD dot-product kernels over quantised rows (Chapter 53).
 //
 // Decode is bandwidth-bound, so every kernel reads a row's bytes once, expands codes to fp32 in
 // registers, multiplies by the fp32 activation and never writes the weights back. AVX2, AVX-512 and

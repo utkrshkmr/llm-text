@@ -41,9 +41,15 @@ and project on the GPU machine. Run it after the work in `docs/PLAN.md` lands.
 
 ## 3. Lab-by-lab GPU work (T2–T4)
 
+Rows for Part I use the current numbering; the later rows still use an older numbering and are
+renumbered by the stage that verifies them.
+
 | Lab | GPU work |
 |---|---|
-| 2 roofline | Measure the matmul/copy roofline on A100; replace analytic plots with measured ones |
+| 2 PyTorch | `ddp_demo.py` under `torchrun --nproc_per_node 2` with NCCL; replicas bit-identical |
+| 3 roofline | Measure the matmul/copy roofline, kernel catalogue and checkpointed peak memory on A100 (`lab03_roofline/bench.py`); replace analytic plots with measured ones |
+| 4 numerics | Tensor-core probe, accumulation and FP8 promotion experiments on A100 (`lab04_numerics/bench.py`) |
+| 5 quant | Block-scaling, Hadamard, backward-scale, DeepSeek-recipe and loss-scaling experiments (`lab05_quant/bench.py`) |
 | 4, 16, 22 attention | SDPA vs Triton vs CUDA FlashAttention-2 (fwd/bwd) across sequence lengths; memory vs T |
 | 5, 7, 8, 10, 11 models | Logit agreement for loaded checkpoints (GPT-2, Qwen3, MoE models); throughput |
 | 9, 13 training | Short GPT-2-small pretraining runs: loss curves, tokens/s, MFU, schedule ablation on GPU |

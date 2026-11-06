@@ -1,4 +1,4 @@
-# Brief: Project 19, Agentic RL with tools (book/chapters/ch67_proj_agentic.md {#ch:proj19}, kit code/projects/p19_agentic NEW)
+# Brief: Project 19, Agentic RL with tools (book/chapters/ch69_proj_agentic.md {#ch:proj19}, kit code/projects/p19_agentic NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P19", and the
 chapters this capstone of Part VII builds on: [@ch:rlsetup], [@ch:grpo], [@ch:grpo2], [@ch:rlsys], [@ch:eval]. Budget on 2×A100-40GB PCIe: ~25 GPU-h (estimate; calibrate in

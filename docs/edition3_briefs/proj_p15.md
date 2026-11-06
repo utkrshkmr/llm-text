@@ -1,4 +1,4 @@
-# Brief: Project 15, A kernel library versus vendor libraries (book/chapters/ch38_proj_kernels.md {#ch:proj15}, kit code/projects/p15_kernels NEW)
+# Brief: Project 15, A kernel library versus vendor libraries (book/chapters/ch40_proj_kernels.md {#ch:proj15}, kit code/projects/p15_kernels NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P15", and the
 chapters this capstone of Part IV builds on: [@ch:cuda], [@ch:cudakernels], [@ch:gpuarch], [@ch:profiling], [@ch:cpp]. Budget on 2×A100-40GB PCIe: ~6 GPU-h (estimate; calibrate in

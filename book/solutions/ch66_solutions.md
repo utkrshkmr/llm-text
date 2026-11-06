@@ -1,42 +1,99 @@
-## Chapter 53: Project 5: Reasoning RL and Alignment {#chapter-53-project-5-reasoning-rl-and-alignment .unnumbered}
+## Chapter 47: Distillation for Efficient Reasoning {#chapter-47-distillation-for-efficient-reasoning .unnumbered}
 
-#### Exercise 53.1.
+#### Exercise 47.1 (Split balance).
 
-One configuration-seed is $200\times40\,\text{s}=8000$ s on two GPUs. Four variants $\times$ four
-seeds give $16\times8000\,\text{s}\times2\,\text{GPUs}\approx71$ GPU-hours. Pruning 30% of the 14 s
-training phase saves 4.2 s per step, a step of 35.8 s, or about 64 GPU-hours (10% less). Generation
-dominates, so pruning helps much less than its 30% suggests.
+With 25 validation examples drawn at random from a heavy-tailed length distribution, the validation
+mean length can differ noticeably from the training mean. Validation loss is length-sensitive
+because per-token loss varies along a trace (early reasoning tokens are harder to predict than
+formulaic later ones) and long traces contribute more tokens. A stratified split sorts examples by
+length, cuts them into $q$ quantile buckets, and draws $\lfloor 25/q\rfloor$ validation examples
+from each bucket with a fixed seed.
 
-#### Exercise 53.2.
+#### Exercise 47.2 (Without think tags).
 
-Per rollout batch: 26 s of generation, then $32\times0.5=16$ s of training (ignoring grading and
-sync). The cycle is 42 s; GPU 1 is idle for $16/42\approx38\%$ of it and GPU 0 for
-$26/42\approx62\%$. Optimizer steps per hour rise from $3600/40=90$ to $32\times3600/42\approx2700$,
-a $30\times$ increase in update frequency for the same rollouts. Whether this helps depends on how
-stale updates behave; that is what the experiment measures.
+Without tags the target is the trace followed by the answer with no delimiter; validation loss is
+usually similar (the tags are two easy tokens), so differences show up in behaviour rather than
+loss: tagged students can be parsed and can be switched between thinking and non-thinking modes by
+pre-filling an empty `<think></think>` block, which untagged students never saw. The lab's
+`bench.py` compares tagged, untagged and answer-only students on the synthetic task.
 
-#### Exercise 53.3.
+#### Exercise 47.3 (Loss identity).
 
-With independent misses at rate $m=0.04$, an observed success occurs with probability
-$0.5\times0.96=0.48$. Correct-but-missed responses receive the advantage of a failure (about $-0.48$
-instead of $+0.52$), so their tokens are pushed down. On average this scales the useful signal and
-adds noise, but it does not bias the direction. If misses concentrate in long responses, the noise
-becomes a systematic penalty on long correct reasoning: the policy learns to shorten or reformat
-answers for the parser rather than to be right. Inspect misses by length before trusting length
-trends.
+`answer_only_loss` averages $-\log p_\theta(y_t\mid x,y_{<t})$ over the $n$ positions whose targets
+are answer tokens (logit indices `prompt_len-1` to $T-2$), which by the chain rule is
+$-\frac1n\log p_\theta(y\mid x)$. For a batch, the token-level loss is
+$\sum_i n_i\bar\ell_i/\sum_i n_i$ and the average of per-example losses is
+$\frac1B\sum_i\bar\ell_i$; they are equal for all values of $\bar\ell_i$ iff all $n_i$ are equal.
 
-#### Exercise 53.4.
+#### Exercise 47.4 (Off-by-one).
 
-Colocated: $26+14+5=45$ s per step on one GPU, versus about 40 s on two GPUs. Wall-clock is 12.5%
-slower, but GPU-seconds per step drop from $80$ to $45$, so colocation is about $1.8\times$ more
-efficient per GPU-hour whenever the phases cannot overlap anyway.
+Starting at `prompt_len` removes the target at the first answer position, so the model is never
+trained to predict `<think>` after `<assistant>`. Its first generated token is then whatever the
+untrained distribution favours, typically not `<think>`; greedy decoding starts in the wrong mode,
+and even when the model recovers, the answer format differs from training. Expect the rate of
+`<think>`-first outputs to drop from $\approx100\%$ to near zero.
 
-#### Exercise 53.5.
+#### Exercise 47.5 (KD temperature).
 
-Policy GPU: bf16 weights 16 GB, bf16 gradients 16 GB, RMSprop square averages in fp32 32 GB, and
-optionally fp32 master weights 32 GB, for 64--96 GB. Activations for one pair of 512-token sequences
-are a few GB with FlashAttention, and the logits are about
-$2\times512\times128{,}256\times4\,\text{B}\approx0.5$ GB in fp32. The reference GPU needs about
-16 GB of weights plus small activations. To fit in 80 GB, first drop the fp32 master copy (or keep
-RMSprop state in bf16), then use activation checkpointing. Sharding is the next step if that is not
-enough.
+Let $q=\operatorname{softmax}(z/\tau)$ (student) and $p=\operatorname{softmax}(u/\tau)$ (teacher).
+$\operatorname{KL}(p\|q)=\sum_j p_j\log
+p_j-\sum_jp_j\log q_j$ and $\partial(-\sum_j p_j\log q_j)/\partial z_i=(q_i-p_i)/\tau$, so
+$\partial[\tau^2\operatorname{KL}]/\partial z_i=\tau(q_i-p_i)$. Without the $\tau^2$ factor the
+soft-target gradient would shrink as $1/\tau$ (and, for large $\tau$, as $1/\tau^2$ after expanding
+$q-p$ in the logit difference), so mixing it with the unit-temperature CE term would silently change
+the relative weight $\alpha$ with temperature.
+
+#### Exercise 47.6 (Top-$k$ storage).
+
+For 3,000 tokens: full bf16 distributions $3000\times151{,}936\times2\approx912$ MB; top-8 at 6
+bytes per entry $=144$ KB; top-32 $=576$ KB; top-128 $=2.3$ MB; token ids $=12$ KB. For a peaked
+teacher (most mass in a few tokens) the sparse-loss error is tiny already at $k=8$; for a flat
+teacher it decays slowly with $k$ because renormalising over the top-$k$ support sharpens the
+target.
+
+#### Exercise 47.7 (Forward vs. reverse KL).
+
+Minimising forward KL over Gaussians matches moments: for the mixture
+$\tfrac12\mathcal N(-2.2,0.6^2)
++\tfrac12\mathcal N(2.2,0.6^2)$ the fit has mean 0 and variance $0.6^2+2.2^2=5.2$ (std
+$\approx2.3$), placing mass in the valley. Reverse KL has two local minima, each close to one
+component ($\mu\approx\pm2.2$, $\sigma\approx0.6$). A capacity-limited student trained with forward
+KL hedges between reasoning strategies and may produce incoherent mixtures; with reverse KL it
+commits to one strategy and may lose coverage of the other.
+
+#### Exercise 47.8 (Logit memory).
+
+Weights+grads+Adam: $\approx9.5$ GB at every length. Activations without checkpointing: roughly 24k
+bf16 values per token per layer ($\approx47$ KB), $\times28$ layers $\approx1.3$ MB/token, i.e.
+$\approx2.7$, 10.8 and 43 GB at 2k, 8k and 32k; with per-layer checkpointing about $0.1$ MB/token
+($\approx0.2$, 0.8, 3.4 GB). Logits in fp32: 1.2, 5.0 and 19.9 GB (plus their gradient), capped at
+$\approx0.6$ GB by chunking. At 2k the optimizer state dominates; at 8k activations (without
+checkpointing); at 32k activations without checkpointing and the logits with it, which is why
+long-trace training needs both checkpointing and chunked/fused cross-entropy. (These are
+order-of-magnitude estimates; measure with `torch.cuda.max_memory_allocated`.)
+
+#### Exercise 47.9 (Packing for SFT).
+
+Make a differentiable variant of `varlen_forward` by removing `@torch.no_grad()` and returning
+logits for the packed row; build targets per segment with `IGNORE` on prompt positions and on the
+last token of each segment (no cross-segment target), then compute
+`cross_entropy(..., reduction="sum")` divided by the total number of answer tokens. Because
+attention is block-diagonal and positions restart per segment, each segment's logits equal its
+unpacked logits, so the packed loss equals the padded token-level loss.
+
+#### Exercise 47.10 (Cost per solved problem).
+
+A: $2100/0.33\approx6{,}364$ tokens per solved problem; B: $900/0.30=3{,}000$. B is $2.1\times$
+cheaper. A wins only if B's accuracy falls below $900/6364\approx14.1\%$.
+
+#### Exercise 47.11 (Teacher generation throughput).
+
+Qwen3-32B: $\approx65.5$ GB of bf16 weights, KV $=2\cdot64\cdot8\cdot128\cdot2\approx262$ KB per
+token. On 8 H100s (640 GB) with one TP$=8$ replica and $\sim$`<!-- -->`{=html}64 GB overhead,
+$\approx510$ GB holds KV for $\approx970$ sequences at 2k average live context. A decode step
+streams weights plus KV, $\approx576$ GB at $8\times3.35$ TB/s $\approx21$ ms, giving $\approx45$k
+tokens/s and $\approx 800$ s ($\approx13$ minutes) for 36M tokens as an upper bound. Compute is
+$\approx2N\times45\text{k}
+\approx3\times10^{15}$ FLOP/s, $\approx38\%$ of peak, so the job is bandwidth-bound but not far from
+the ridge; in practice expect a few times longer because of prefill, scheduling, the length tail,
+and imperfect TP scaling.

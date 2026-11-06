@@ -1,4 +1,4 @@
-// Read-only memory-mapped file (Chapter 51). Weights are never read into a buffer: the kernels
+// Read-only memory-mapped file (Chapter 53). Weights are never read into a buffer: the kernels
 // address the page cache directly, so a model loads in milliseconds and pages arrive on first touch.
 #pragma once
 #include <cstddef>

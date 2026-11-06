@@ -1,4 +1,4 @@
-# Project 11: a low-precision training study (Chapter 5). Run from this directory.
+# Project 11: a low-precision training study (Chapter 7). Run from this directory.
 PY ?= python
 OUT ?= results
 

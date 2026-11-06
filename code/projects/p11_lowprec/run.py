@@ -1,4 +1,4 @@
-"""Project 11: run the low-precision training study (Chapter 5).
+"""Project 11: run the low-precision training study (Chapter 7).
 
     python run.py --config configs/smoke.json --out results/smoke.json      # the smoke matrix
     python run.py --config configs/full.json  --out results/full.json       # the full study

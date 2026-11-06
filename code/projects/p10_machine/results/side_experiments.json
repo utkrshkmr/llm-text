@@ -89,8 +89,8 @@
   "tf32_on_ms": 1.1125760078430176
  },
  "baselines": {
-  "lab02_bf16_tflops": 214.883924492939,
-  "lab02_bw_gbs": 1327.5715009912522,
+  "lab03_bf16_tflops": 214.883924492939,
+  "lab03_bw_gbs": 1327.5715009912522,
   "do_bench_raw_bf16_tflops": 146.7376576670096,
   "do_bench_raw_copy_gbs": 1357.1164119027876,
   "perf_bench_bf16_tflops": 217.02275682736908,

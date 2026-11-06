@@ -1,5 +1,10 @@
 title: Big Book of LLMs
 subtitle: A Systems-First Textbook
+# Publication: only the first published_parts parts (and the listed appendix letters) are written to the
+# website; the rest are built for numbering and cross-references but stay hidden until they are finished.
+# Raise published_parts as each part passes its stage. `build_site.py --all` previews everything.
+published_parts: 1
+published_appendices: F H
 front:
   - frontmatter/preface.md
   - frontmatter/roadmap.md
@@ -9,85 +14,87 @@ parts:
   - title: Foundations
     chapters:
       - chapters/ch01_landscape.md
-      - chapters/ch02_pytorch_hardware.md
-      - chapters/ch03_numerics.md
-      - chapters/ch04_proj_machine.md
-      - chapters/ch05_proj_lowprec.md
+      - chapters/ch02_pytorch.md
+      - chapters/ch03_machine.md
+      - chapters/ch04_numerics.md
+      - chapters/ch05_quant.md
+      - chapters/ch06_proj_machine.md
+      - chapters/ch07_proj_lowprec.md
   - title: Building a Large Language Model
     chapters:
-      - chapters/ch06_text_data.md
-      - chapters/ch07_attention.md
-      - chapters/ch08_gpt.md
-      - chapters/ch09_modern_arch.md
-      - chapters/ch10_arch_design.md
-      - chapters/ch11_attention_alternatives.md
-      - chapters/ch12_encoders.md
-      - chapters/ch13_moe.md
-      - chapters/ch14_anatomy.md
-      - chapters/ch15_proj_bringup.md
-      - chapters/ch16_proj_mixers.md
+      - chapters/ch08_text_data.md
+      - chapters/ch09_attention.md
+      - chapters/ch10_gpt.md
+      - chapters/ch11_modern_arch.md
+      - chapters/ch12_arch_design.md
+      - chapters/ch13_attention_alternatives.md
+      - chapters/ch14_encoders.md
+      - chapters/ch15_moe.md
+      - chapters/ch16_anatomy.md
+      - chapters/ch17_proj_bringup.md
+      - chapters/ch18_proj_mixers.md
   - title: Pretraining at Scale
     chapters:
-      - chapters/ch17_optimizers.md
-      - chapters/ch18_pretraining.md
-      - chapters/ch19_pretraining_data.md
-      - chapters/ch20_scaling_laws.md
-      - chapters/ch21_perf_engineering.md
-      - chapters/ch22_distributed.md
-      - chapters/ch23_sharding.md
-      - chapters/ch24_shardcalc.md
-      - chapters/ch25_proj_basics.md
-      - chapters/ch26_proj_systems.md
-      - chapters/ch27_proj_scaling.md
-      - chapters/ch28_proj_data.md
+      - chapters/ch19_optimizers.md
+      - chapters/ch20_pretraining.md
+      - chapters/ch21_pretraining_data.md
+      - chapters/ch22_scaling_laws.md
+      - chapters/ch23_perf_engineering.md
+      - chapters/ch24_distributed.md
+      - chapters/ch25_sharding.md
+      - chapters/ch26_shardcalc.md
+      - chapters/ch27_proj_basics.md
+      - chapters/ch28_proj_systems.md
+      - chapters/ch29_proj_scaling.md
+      - chapters/ch30_proj_data.md
   - title: From Python to the Metal
     chapters:
-      - chapters/ch29_cpp_pytorch.md
-      - chapters/ch30_gpu_architecture.md
-      - chapters/ch31_cuda_kernels.md
-      - chapters/ch32_attn_moe_kernels.md
-      - chapters/ch33_profiling.md
-      - chapters/ch34_compilers.md
-      - chapters/ch35_memory_interconnects.md
-      - chapters/ch36_proj_moe.md
-      - chapters/ch37_proj_compiler.md
-      - chapters/ch38_proj_kernels.md
+      - chapters/ch31_cpp_pytorch.md
+      - chapters/ch32_gpu_architecture.md
+      - chapters/ch33_cuda_kernels.md
+      - chapters/ch34_attn_moe_kernels.md
+      - chapters/ch35_profiling.md
+      - chapters/ch36_compilers.md
+      - chapters/ch37_memory_interconnects.md
+      - chapters/ch38_proj_moe.md
+      - chapters/ch39_proj_compiler.md
+      - chapters/ch40_proj_kernels.md
   - title: Fine-Tuning
     chapters:
-      - chapters/ch39_classification.md
-      - chapters/ch40_instruction_lora.md
-      - chapters/ch41_proj_peft.md
-      - chapters/ch42_proj_specialist.md
+      - chapters/ch41_classification.md
+      - chapters/ch42_instruction_lora.md
+      - chapters/ch43_proj_peft.md
+      - chapters/ch44_proj_specialist.md
   - title: Inference and Serving
     chapters:
-      - chapters/ch43_inference.md
-      - chapters/ch44_serving_engine.md
-      - chapters/ch45_kv_cache.md
-      - chapters/ch46_efficient_inference.md
-      - chapters/ch47_ondevice.md
-      - chapters/ch48_retrieval.md
-      - chapters/ch49_data_movement_study.md
-      - chapters/ch50_proj_serving.md
-      - chapters/ch51_proj_cpu_runtime.md
-      - chapters/ch52_proj_profiler.md
-      - chapters/ch53_proj_longctx.md
+      - chapters/ch45_inference.md
+      - chapters/ch46_serving_engine.md
+      - chapters/ch47_kv_cache.md
+      - chapters/ch48_efficient_inference.md
+      - chapters/ch49_ondevice.md
+      - chapters/ch50_retrieval.md
+      - chapters/ch51_data_movement_study.md
+      - chapters/ch52_proj_serving.md
+      - chapters/ch53_proj_cpu_runtime.md
+      - chapters/ch54_proj_profiler.md
+      - chapters/ch55_proj_longctx.md
   - title: Reasoning and Post-Training
     chapters:
-      - chapters/ch54_evaluation.md
-      - chapters/ch55_inference_scaling.md
-      - chapters/ch56_self_refinement.md
-      - chapters/ch57_rl_setup.md
-      - chapters/ch58_policy_gradients.md
-      - chapters/ch59_rlhf_ppo.md
-      - chapters/ch60_dpo.md
-      - chapters/ch61_grpo.md
-      - chapters/ch62_improving_grpo.md
-      - chapters/ch63_rl_systems.md
-      - chapters/ch64_distillation.md
-      - chapters/ch65_alignment_multimodal.md
-      - chapters/ch66_proj_alignment.md
-      - chapters/ch67_proj_agentic.md
-      - chapters/ch68_proj_distill.md
+      - chapters/ch56_evaluation.md
+      - chapters/ch57_inference_scaling.md
+      - chapters/ch58_self_refinement.md
+      - chapters/ch59_rl_setup.md
+      - chapters/ch60_policy_gradients.md
+      - chapters/ch61_rlhf_ppo.md
+      - chapters/ch62_dpo.md
+      - chapters/ch63_grpo.md
+      - chapters/ch64_improving_grpo.md
+      - chapters/ch65_rl_systems.md
+      - chapters/ch66_distillation.md
+      - chapters/ch67_alignment_multimodal.md
+      - chapters/ch68_proj_alignment.md
+      - chapters/ch69_proj_agentic.md
+      - chapters/ch70_proj_distill.md
 appendices:
   - appendices/appA_triton.md
   - appendices/appB_accelerators.md

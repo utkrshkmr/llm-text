@@ -1,6 +1,6 @@
 """Near-duplicate removal with the compiled MinHash operators, and its evaluation on planted duplicates.
 
-``near_dedup`` is the Chapter 19 algorithm (shingle, MinHash, LSH bands, verify, union-find, one
+``near_dedup`` is the Chapter 21 algorithm (shingle, MinHash, LSH bands, verify, union-find, one
 survivor per cluster) on top of :mod:`llmsys.ops.minhash`, whose C++ backend is used when it is
 built and whose Python backend gives the same integers when it is not. The survivor of a cluster
 is its lowest global index: a rule that needs no random state, so a restarted job keeps the same

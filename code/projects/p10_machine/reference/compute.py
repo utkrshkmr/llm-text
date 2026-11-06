@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): compute ceilings, milestone 2 (Chapter 4).
+"""Project 10 (reference solution): compute ceilings, milestone 2 (Chapter 6).
 
 Tensor-core peaks per dtype come from large matrix multiplications (the only PyTorch operation
 that reaches them); the CUDA-core (SIMT) fp32 ceiling comes from a synthetic FLOP-bound kernel: a

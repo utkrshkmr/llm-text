@@ -1,4 +1,4 @@
-# Standalone binding examples for Chapter 29. Each subdirectory is also a complete project of its
+# Standalone binding examples for Chapter 31. Each subdirectory is also a complete project of its
 # own; this file only lets you build them all at once:
 #
 #   TORCH_CUDA_ARCH_LIST=8.0 cmake -S csrc/examples -B /dev/shm/ex-build -G Ninja \

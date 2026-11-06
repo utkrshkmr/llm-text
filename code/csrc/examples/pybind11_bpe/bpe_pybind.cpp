@@ -1,4 +1,4 @@
-// pybind11 binding of the BPE core (Chapter 29): the same algorithm as torch.ops.llmsys.bpe_*,
+// pybind11 binding of the BPE core (Chapter 31): the same algorithm as torch.ops.llmsys.bpe_*,
 // reached without PyTorch. Python bytes come in, Python lists go out; pybind11 converts both.
 //
 // Notice what the binding has to do by hand that the dispatcher did for us: own the merge table
@@ -68,7 +68,7 @@ static std::vector<Row> train(const std::vector<std::string>& words, const std::
 }
 
 PYBIND11_MODULE(bpe_pybind, m) {
-  m.doc() = "Byte-level BPE encoder and trainer (pybind11 example of Chapter 29)";
+  m.doc() = "Byte-level BPE encoder and trainer (pybind11 example of Chapter 31)";
   py::class_<Encoder>(m, "Encoder")
       .def(py::init<const std::vector<Row>&>(), py::arg("merges"),
            "merges: list of (a, b, new_id) rows in training order")

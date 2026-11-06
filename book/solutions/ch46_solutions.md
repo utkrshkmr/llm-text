@@ -1,115 +1,96 @@
-## Chapter 33: Making Inference Cheaper and Deploying It {#chapter-33-making-inference-cheaper-and-deploying-it .unnumbered}
+## Chapter 31: Batching and Serving Engines {#chapter-31-batching-and-serving-engines .unnumbered}
 
-#### Exercise 33.1.
+#### Exercise 31.1 (Per-row positions).
 
-Qwen3-0.6B stores $2\cdot28\cdot8\cdot128\cdot2=114{,}688$ bytes of KV per token, i.e. 235 MB per
-2048-token sequence. Its weights take 1.19 GB, so the two are equal at
-$B\approx1.19\cdot10^9/2.35\cdot10^8\approx5$. Beyond a handful of concurrent sequences the KV cache
-dominates the bytes per step. Weight-only quantization of a small model therefore barely helps a
-busy server; KV quantization, paging and prefix sharing matter far more.
+Compute $p_b$ = number of left pads of row $b$ and pass
+`position_ids = clamp(arange(T) - p_b, min=0)` for the prefill; during decoding, each row's next
+position is its previous position plus one. Replace `self.pos_emb(arange(start, start+T))` by
+`self.pos_emb(position_ids)`. With the fix, greedy outputs match single-sequence generation exactly
+(up to floating-point reordering). Without it, rows with padding see shifted learned position
+vectors; the logits change noticeably and greedy continuations often diverge after a few tokens.
 
-#### Exercise 33.2.
+#### Exercise 31.2 (Dropping finished rows).
 
-With $e$ uniform on $[-s/2,s/2]$, $\mathbb{E}[e^2]=\frac1s\int_{-s/2}^{s/2}e^2\,de=s^2/12$. A
-full-range signal uniform on $[-A,A]$ has power $A^2/3$, and $b$ bits give $s=2A/2^b$, so the noise
-power is $A^2/(3\cdot4^b)$. Hence $\mathrm{SQNR}=4^b$, or $10\log_{10}4^b\approx6.02\,b$ dB.
+After each step compute `keep = ~done`; index the next-token tensor, the validity mask and, for
+every layer, the cache tensors `k[layer] = k[layer][keep]` (same for `v`). Keep a map from active
+row to original request. With geometric output lengths (mean 200, cap 2,000) a static batch runs to
+near the cap while the mean row needs 200 steps, so dropping rows saves most decode work; the saving
+in wall time is smaller on a GPU at small batch sizes (where step time barely depends on $B$) and
+larger on CPUs or at large $B$.
 
-#### Exercise 33.3.
+#### Exercise 31.3 (Padding efficiency).
 
-Per row: $s=40/7\approx5.71$, and a value rounds to zero when $|x|<s/2\approx2.86$, which holds for
-$\approx99.6\%$ of standard normal draws. The row is destroyed. With $g=32$, only the outlier's
-group (31 normal values) suffers this. In the other groups the scale is set by the group's own
-maximum ($\approx2.3$), so only $|x|\lesssim0.17$ rounds to zero. A simulation gives $\approx34\%$
-zeros overall, almost all of them in the outlier's group.
+For i.i.d. $U(a,b)$ lengths, $\mathbb{E}[\max]=a+(b-a)\,B/(B+1)$, so
+$\eta=\frac{(a+b)/2}{a+(b-a)B/(B+1)}$. With $a=50,b=1500$: $\eta=1$ for $B=1$, $0.58$ for $B=8$,
+$0.52$ for $B=64$. Continuous batching has no idle decode slots ($\eta\approx1$); its only waste is
+the scheduler's inability to fill the batch when few requests are present.
 
-#### Exercise 33.4.
+#### Exercise 31.4 (Block size).
 
-\(a\) $4+(16+16)/64=4.5$ bits. (b) $4+8/32=4.25$ bits. (c) $4+8/16=4.5$ bits, plus a negligible
-per-tensor fp32 scale.
+Throughput is nearly flat for block sizes 4--64 in the simulator (which charges no indirection
+cost), while internal fragmentation grows roughly as $\text{bs}/2$ tokens per sequence; at 256 the
+waste becomes visible for short requests and reduces the effective batch under memory pressure. On a
+GPU, block size 1 turns every key read into a separate gather through the block table: poor memory
+coalescing, a table as large as the sequence, and many more address computations; blocks of 16--32
+tokens let a warp stream contiguous chunks of K/V and keep tables small.
 
-#### Exercise 33.5.
+#### Exercise 31.5 (Copy-on-write fork).
 
-For one row, the loss is
-$\ell(\boldsymbol{w}')=(\boldsymbol{w}'-\boldsymbol{w})^\top H(\boldsymbol{w}'-\boldsymbol{w})$.
-Minimise $\ell$ subject to $\boldsymbol{e}_i^\top(\boldsymbol{w}'-\boldsymbol{w})=q_i-w_i$. The
-Lagrangian gives $2H\boldsymbol\delta=\lambda\boldsymbol{e}_i$, so
-$\boldsymbol\delta=\frac{\lambda}{2}H^{-1}\boldsymbol{e}_i$, and the constraint fixes
-$\lambda/2=(q_i-w_i)/[H^{-1}]_{ii}$. Therefore
-$\boldsymbol\delta=-\frac{w_i-q_i}{[H^{-1}]_{ii}}H^{-1}_{:,i}$, whose $i$-th entry is exactly
-$q_i-w_i$ and whose other entries are the stated update. Substituting back,
-$\ell=\boldsymbol\delta^\top H\boldsymbol\delta=(w_i-q_i)^2/[H^{-1}]_{ii}$. GPTQ then removes row
-and column $i$ from $H^{-1}$ (a Schur-complement update), which is what the Cholesky formulation
-does implicitly.
+After the parent's prefill, each child copies the parent's block table and increments every block's
+reference count. Before a child appends to its last block, check its reference count; if $>1$,
+allocate a fresh block, copy the existing slots (K and V of all layers), decrement the shared block
+and replace the table entry. Give each child its own `torch.Generator`. For $n=16$ children of a
+$P$-token prompt, memory drops from $16(P+L)$ to $P+16L$ tokens (plus at most 16 partially copied
+blocks), and prefill compute drops by $16\times$.
 
-#### Exercise 33.6.
+#### Exercise 31.6 (Swap vs. recompute).
 
-$(X\,\mathrm{diag}(\boldsymbol{s})^{-1})(W\,\mathrm{diag}(\boldsymbol{s}))^\top
-=X\,\mathrm{diag}(\boldsymbol{s})^{-1}\mathrm{diag}(\boldsymbol{s})W^\top=XW^\top$. With
-$\alpha=\tfrac12$, $s_j=\sqrt{a_j/w_j}$ where $a_j=\max|X_{:,j}|$ and $w_j=\max|W_{:,j}|$. Then
-$\max|X'_{:,j}|=a_j/s_j=\sqrt{a_jw_j}=w_js_j=\max|W'_{:,j}|$. To fold the division, note that $X$ is
-the output of RMSNorm with per-channel gain $\gamma_j$; replace $\gamma_j$ by $\gamma_j/s_j$
-offline. (When several linears consume the same normalised input, e.g. Q, K and V, they must share
-$\boldsymbol{s}$.)
+Swap: $2\kappa/\beta=2\times147456\,\mathrm{B}/50\,\mathrm{GB/s}\approx5.9\,\mathrm{\micro s}$ per
+token. Recompute: $2N/\Pi\approx16.6\,\mathrm{\micro s}$ per token at peak plus attention, which
+grows with sequence length. For Qwen3-8B, swapping is cheaper at every length (ignoring fixed
+per-transfer latency), and the gap widens with length. With MHA (32 KV heads,
+$\kappa=576\,\mathrm{KiB}$) swapping costs 23.6 /token; recompute is cheaper until its attention
+term, $4LHd\cdot S/2$ FLOPs per token on average, adds the missing 7 , at $S\approx23{,}600$ tokens.
+An fp8 KV cache halves swap cost (2.9 /token) and makes swapping even more attractive. Real
+decisions also weigh PCIe contention, host memory capacity and prefix-cache hits that make
+recomputation partly free.
 
-#### Exercise 33.7.
+#### Exercise 31.7 (Budget trade-off).
 
-Let $x_1$ be emitted at position 1 with probability $p(x_1)$, by the proposition. Conditioned on the
-first draft having been accepted with value $x_1$, the second draft is sampled from
-$q(\cdot\mid x_1)$ and verified against $p(\cdot\mid x_1)$, because the target's second output row
-is computed with $x_1$ in its context. Applying the proposition to this conditional pair gives
-$\Pr[x_2\mid x_1]=p(x_2\mid x_1)$. If the first draft is rejected, the round ends and position 2 is
-produced in the next round, again conditioned on the emitted $x_1$. Either way the joint law is
-$p(x_1)p(x_2\mid x_1)$. Induction extends this to whole sequences.
+Small budgets keep every step short (low TPOT) but admit prefill slowly: TTFT explodes and
+throughput drops because steps are dominated by fixed overheads. Large budgets finish prefills
+quickly but make steps long, so TPOT rises; very large budgets can also hurt TTFT because a few long
+prefills monopolize steps. The curve is a Pareto front with a knee near the budget at which a step
+becomes compute-bound (a few hundred to a few thousand tokens on an H100 for an 8B model). With our
+default trace (`bench.py --exp budget`), budgets of 256--1024 give the best TTFT/TPOT compromise.
 
-#### Exercise 33.8.
+#### Exercise 31.8 (Multi-turn chat).
 
-Maximising $S(\gamma)=(1-\alpha^{\gamma+1})/((1-\alpha)(0.05\gamma+1))$ over integers gives
-$\gamma^{*}=4$ ($S\approx1.92$) for $\alpha=0.6$, $\gamma^{*}=8$ ($S\approx3.09$) for $\alpha=0.8$,
-and $\gamma^{*}=13$ ($S\approx4.67$) for $\alpha=0.9$. Going from $\gamma$ to $\gamma+1$ helps iff
-$S(\gamma+1)>S(\gamma)$, i.e. $\alpha^{\gamma+1}(1-\alpha)(c\gamma+1)>c\,(1-\alpha^{\gamma+1})$: the
-expected marginal token $\alpha^{\gamma+1}$ must outweigh the marginal drafting cost relative to the
-current expected yield.
+At turn $k$ the prompt is the whole conversation, whose length grows linearly in $k$, while only the
+newest user message (and the previous reply, if it was not cached during generation) is new. Without
+caching the cumulative prefill over $K$ turns is quadratic in $K$; with caching it is linear, and
+the hit rate approaches $1-(\text{new tokens})/(\text{conversation length})\to1$. Caching generated
+blocks too (our engine publishes every full block, including output blocks) makes even the previous
+reply a hit.
 
-#### Exercise 33.9.
+#### Exercise 31.9 (Disaggregation sizing).
 
-The step reads $16.4$ GB of weights plus $128\cdot2048\cdot147.5$ KB$\approx38.7$ GB of KV:
-$t_{\text{mem}}\approx16.4$ ms. With $\gamma+1=5$, the step processes 640 tokens:
-$\approx2\cdot8.19\cdot10^9\cdot640\approx
-1.05\cdot10^{13}$ matmul FLOPs, plus $\approx0.8\cdot10^{12}$ for attention, so
-$t_{\text{comp}}\approx11.4$ ms at peak. That is still memory-bound on paper, but at a realistic
-50--60% of peak the compute time reaches $\approx20$ ms, which exceeds the memory time. Every
-rejected draft then costs real time. Choose $\gamma\le2$ (or adapt $\gamma$ to load), and turn
-speculation off entirely at higher batch sizes.
+Prefill of 3,000 tokens:
+$3000\times15.1\,\mathrm{GFLOP}/(0.6\times989\,\mathrm{TFLOP/s})\approx76\,\mathrm{ms}$, so one
+prefill GPU serves $\approx13$ requests/s. Decode: the KV pool of $\approx52\,\mathrm{GB}$ holds
+$\approx111$ sequences of $\approx3{,}150$ tokens; a step then reads
+$16.4+111\times3150\times147\,\mathrm{KB}\approx68\,\mathrm{GB}$: $\approx20\,\mathrm{ms}$, under
+the 30  target. Each decode GPU completes $111/(300\times0.020)\approx18$ requests/s, so roughly 1.4
+prefill GPUs per decode GPU. For the reasoning workload (prompt 300, output 8,000), prefill takes
+$\approx8\,\mathrm{ms}$ (130 requests/s per GPU) while a decode GPU holds only $\approx42$ sequences
+and completes $\approx0.4$ requests/s: about 300 decode GPUs per prefill GPU. Disaggregation buys
+little there; the system is entirely decode-bound and KV memory is the lever.
 
-#### Exercise 33.10.
+#### Exercise 31.10 (Fairness).
 
-The message size is $m=5120\cdot2=10$ KB per sequence, which is negligible on NVLink
-($m/\beta\approx0.02\,\mu$s). If the per-collective latency is constant ($a=8\,\mu$s, one-shot
-all-reduce), $t(P)=19.6/P+2\cdot64\cdot0.008$ ms$=19.6/P+1.02$ ms. This decreases monotonically:
-10.8 ms at $P=2$, 5.9 ms at $P=4$, 3.5 ms at $P=8$. So use the whole NVLink domain. If the latency
-instead grows like a ring all-reduce, $a(P)=2(P-1)\alpha$ with $\alpha=2\,\mu$s, then $t=10.3$,
-$6.4$ and $6.0$ ms for $P=2,4,8$: diminishing returns, and a two-node $P=16$ would be slower.
-Collective latency, not bandwidth, sets the limit on TP for decode.
-
-#### Exercise 33.11.
-
-In a closed loop a new request is issued only when an old one completes, so the number in the system
-is capped at 64 and the offered load automatically drops when the server slows down. No queue can
-build up, and latency stays bounded by construction. Real traffic is open-loop: Poisson bursts
-arrive regardless of server state. During a burst the queue and the KV cache fill up, and preemption
-and queueing delay grow superlinearly near capacity (Little's law plus queueing theory). Closed-loop
-tools also suffer from "coordinated omission": the slow periods generate fewer samples, so they are
-under-represented in the percentiles.
-
-#### Exercise 33.12.
-
-Assume every message is 150 tokens. The prompt at turn $k$ is about $300(k-1)+150$ tokens, so
-without reuse the total prefill is $\sum_{k=1}^{20}(300k-150)=60{,}000$ tokens. With perfect reuse
-each turn prefills only the new user message plus a few template tokens (and the one generated token
-that was never fed back): about $20\cdot150=3{,}000$ tokens, a $20\times$ reduction. With the
-official Qwen3 template, pitfall (1) strikes first: the earlier assistant turns' `<think>` blocks
-are stripped when the history is re-serialised, so the common prefix ends at the start of the most
-recent assistant reply. Fixes: store in the history exactly what the template will emit (the reply
-without its think block) and accept re-prefilling that shorter reply once, or keep a cache keyed on
-the template's output. Engine-level prefix caching (radix trees) handles this automatically, at
-block granularity.
+Keep `served[tenant]` (input tokens weighted plus output tokens) and, when admitting, pick the
+waiting request whose tenant has the smallest counter (lifting a newly active tenant's counter to
+the minimum of the active ones, so idle time is not banked). In the simulator, a heavy tenant at
+$10\times$ the light tenant's rate then fills only the capacity the light tenant leaves unused; the
+light tenant's TTFT stays close to its value in isolation instead of growing with the heavy tenant's
+queue.

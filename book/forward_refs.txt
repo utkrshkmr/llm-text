@@ -8,8 +8,8 @@ ch:moe            # stage 2
 ch:ondevice       # stage 6b
 ch:retrieval      # stage 6b
 ch:shardcalc      # stage 3
-sec:encoders:lab      # stage 2 (ch12 draft)
-sec:encoders:serving  # stage 2 (ch12 draft)
+sec:encoders:lab      # stage 2 (ch14 draft)
+sec:encoders:serving  # stage 2 (ch14 draft)
 sec:jax:cmm           # stage 8 (appendix C draft)
 sec:jax:shardmap      # stage 8 (appendix C draft)
 # expanded scope (stage 0 outline): new chapters, appendices and capstones not written yet

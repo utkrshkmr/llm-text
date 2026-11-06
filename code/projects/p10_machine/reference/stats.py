@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): robust statistics for microbenchmarks (Chapter 4).
+"""Project 10 (reference solution): robust statistics for microbenchmarks (Chapter 6).
 
 A benchmark returns a *distribution*, not a number. These helpers turn raw samples into the
 summary the spec sheet reports (median with p10/p90 and a bootstrap confidence interval), drop

@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): the 20-kernel validation zoo, milestone 4 (Chapter 4).
+"""Project 10 (reference solution): the 20-kernel validation zoo, milestone 4 (Chapter 6).
 
 Each kernel comes with its analytic cost: FLOPs, the minimum HBM bytes it must move, the number of
 kernel launches, and which compute ceiling applies (a matmul dtype, or "simt" for CUDA-core

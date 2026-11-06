@@ -1,4 +1,4 @@
-# A pybind11 extension module built with CMake (Chapter 29).
+# A pybind11 extension module built with CMake (Chapter 31).
 #
 #   cmake -S . -B build -G Ninja -DPython_EXECUTABLE=$(which python) && cmake --build build
 #   PYTHONPATH=build python driver.py

@@ -1,4 +1,4 @@
-"""RMSNorm with switchable backends (Chapter 29): the template every operator module follows.
+"""RMSNorm with switchable backends (Chapter 31): the template every operator module follows.
 
     from llmsys.ops import rmsnorm
     y = rmsnorm.rmsnorm(x, weight, eps)                 # backend chosen by LLMSYS_BACKEND / device
@@ -6,7 +6,7 @@
 
 The compiled kernels (``torch.ops.llmsys.rmsnorm``, from ``csrc/cpu/rmsnorm.cpp`` and
 ``csrc/cuda/rmsnorm.cu``) implement the forward pass. The backward goes through the compiled
-``torch.ops.llmsys.rmsnorm_backward`` (Chapter 31, ``csrc/cpu/rmsnorm_bwd.cpp`` and
+``torch.ops.llmsys.rmsnorm_backward`` (Chapter 33, ``csrc/cpu/rmsnorm_bwd.cpp`` and
 ``csrc/cuda/rmsnorm_bwd.cu``) when that kernel exists for the tensor's device, and through the same
 formula in Python otherwise. The fake kernels make the ops traceable under ``torch.compile`` and let
 ``torch.library.opcheck`` pass.

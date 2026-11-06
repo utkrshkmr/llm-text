@@ -1,4 +1,4 @@
-# Project 10: know your machine (Chapter 4). Run from this directory.
+# Project 10: know your machine (Chapter 6). Run from this directory.
 PY ?= python
 OUT ?= results
 

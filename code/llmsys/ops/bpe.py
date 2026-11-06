@@ -1,4 +1,4 @@
-"""Byte-level BPE encoding and training with switchable backends (Chapter 29).
+"""Byte-level BPE encoding and training with switchable backends (Chapter 31).
 
     from llmsys.ops import bpe
     ids = bpe.encode(text, tok.merges)                 # python or cpp, chosen by LLMSYS_BACKEND

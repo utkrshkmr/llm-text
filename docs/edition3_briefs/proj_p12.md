@@ -1,4 +1,4 @@
-# Brief: Project 12, Bring up a new open model from its files (book/chapters/ch15_proj_bringup.md {#ch:proj12}, kit code/projects/p12_bringup NEW)
+# Brief: Project 12, Bring up a new open model from its files (book/chapters/ch17_proj_bringup.md {#ch:proj12}, kit code/projects/p12_bringup NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P12", and the
 chapters this capstone of Part II builds on: [@ch:modern], [@ch:anatomy] (incl. its model-files section), [@ch:moe]. Budget on 2×A100-40GB PCIe: ~2 GPU-h (estimate; calibrate in

@@ -1,4 +1,4 @@
-// C ABI over the BPE core (Chapter 29), for ctypes (or any other language).
+// C ABI over the BPE core (Chapter 31), for ctypes (or any other language).
 //
 // extern "C" turns off name mangling and C++ calling conventions, so the symbols are stable
 // across compilers and can be looked up by name. Everything crosses the boundary as plain

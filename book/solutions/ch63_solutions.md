@@ -1,99 +1,119 @@
-## Chapter 46: RL Training Systems {#chapter-46-rl-training-systems .unnumbered}
+## Chapter 44: Reinforcement Learning with Verifiable Rewards: GRPO {#chapter-44-reinforcement-learning-with-verifiable-rewards-grpo .unnumbered}
 
-#### Exercise 46.1 (Optimal split).
+#### Exercise 44.1
 
-Let $x=G_{\text{gen}}$. $T(x)=W_g/x+W_t/(G-x)+T_{\text{sync}}$; setting $T'(x)=0$ gives
-$W_g/x^2=W_t/(G-x)^2$, so $x^\star/G=\sqrt{W_g}/(\sqrt{W_g}+\sqrt{W_t})$ and
-$T^\star=(\sqrt{W_g}+\sqrt{W_t})^2/G+T_{\text{sync}}=(W_g+W_t+2\sqrt{W_gW_t})/G+T_{\text{sync}}$.
-Since $2\sqrt{W_gW_t}\ge0$, $T^\star\ge (W_g+W_t)/G=T_{\text{coloc}}-T_{\text{switch}}$ (ignoring
-$T_{\text{sync}}$), with equality iff $W_gW_t=0$. The synchronous split wins iff
-$T_{\text{switch}}>2\sqrt{W_gW_t}/G+T_{\text{sync}}$, i.e. only when switching is very expensive.
+With partial credit the rewards of [@fig:grpo:step] become $(1,1,0.5,0)$: mean $0.625$,
+unbiased std $0.479$, advantages $(+0.783,+0.783,-0.261,-1.305)$. The unboxed "7" is still pushed
+down, but by a third of its previous weight, and the wrong boxed "8" is now pushed down hardest. The
+loss is $-\frac14[0.783(-2.269)+0.783(-3.059)-0.261(-1.299)-1.305(-3.400)]=-0.151$. Partial credit
+makes *correctness* the dominant signal early (correct-but-unboxed answers are no longer lumped with
+wrong ones), which helps when the model is rarely correct. It weakens the pressure to adopt the
+format, since an unboxed correct answer is only mildly penalised, so format adoption is slower. A
+common compromise is to anneal the partial credit to 0.
 
-#### Exercise 46.2 (KV budget).
+#### Exercise 44.2
 
-Qwen3-4B has $\approx$`<!-- -->`{=html}4.02B parameters ($\approx$`<!-- -->`{=html}8.0 GB in bf16).
-Its KV cost is the same as the 8B model's, $2\cdot36\cdot8\cdot128\cdot2=147$ KB per token, because
-layer count and KV heads match. Budget $\approx 80-8.0-8=64$ GB; at 6,000 live tokens per sequence,
-$64\text{e}9/(147\text{e}3\cdot
-6000)\approx 72$ sequences. Each decode step streams $\approx72$ GB, $\approx21.5$ ms at 3.35 TB/s,
-so the bound is $\approx 72/0.0215\approx 3{,}400$ tokens/s per GPU---long contexts make KV, not
-weights, the dominant traffic.
+With identical rewards, $r-\bar r=0$ for every rollout, the advantages are exactly 0, the loss is
+$-0\cdot\sum\log\pi=0$ and autograd propagates zeros to every parameter (the optimiser step is still
+taken; AdamW's weight decay is the only change, and it is zero in our loop). This is desirable
+because the group carries no information about *which* behaviour is better. For $p\sim U[0,1]$,
+$\mathbb{E}[p^G+(1-p)^G]=\frac2{G+1}$: 40% wasted for $G=4$ and 11.8% for $G=16$.
 
-#### Exercise 46.3 (Staleness bound).
+#### Exercise 44.3
 
-Batch $k$ starts generating at time $\ge$ the completion of training step $k-s-1$, so at least $k-s$
-updates have been applied; its version $v\ge k-s$. It is consumed by training step $k$, after which
-the policy has version $k+1$; the update to $\theta_{k+1}$ uses data from $\theta_v$, staleness
-$k-v\le s$. With $s=0$, batch $k$ cannot start until step $k-1$ finishes, which is the synchronous
-split schedule ([@fig:rlsys:timelines]a with separate pools).
+With $k$ correct rollouts, $\bar r=p=k/G$ and $\sum_i(r_i-\bar r)^2=k(1-p)^2+(G-k)p^2=Gp(1-p)$, so
+$s^2=\frac{G}{G-1}p(1-p)$, giving $A^+=(1-p)/s$ and $A^-=-p/s$. Then
+$\sum_iA_i=[k(1-p)-(G-k)p]/s=G(p-p)/s=0$, and $\frac1{G-1}\sum_iA_i^2=\frac{Gp(1-p)}{(G-1)s^2}=1$
+exactly (ignoring $\epsilon$). As $p\to1/G$ with $G$ large,
+$A^+=(1-p)/s\approx\sqrt{(1-p)/p}\approx\sqrt{G}$: a single success in a large group receives an
+advantage of order $\sqrt G$.
 
-#### Exercise 46.4 (Loss normalisation).
+#### Exercise 44.4
 
-\(a\) $(\ell_1+\ell_2)/2$, each micro-batch weighted equally regardless of size. (b)
-$(100\ell_1+1000\ell_2)/1100$. Fix: before the accumulation loop all-reduce the total number of loss
-tokens $N_{\text{glob}}$ over micro-batches and ranks, compute each micro-batch loss as
-`(tok_loss * mask).sum() / N_glob`, and do not divide by the number of micro-batches or ranks again
-(set the DDP gradient averaging accordingly, or multiply by the world size).
+$b_i$ is a function of the other samples only, which are independent of $y_i$ given $x$, so
+$\mathbb{E}[b_i\nabla\log\pi(y_i)]=\mathbb{E}[b_i]\,\mathbb{E}[\nabla\log\pi(y_i)]=0$ and the
+estimator is unbiased. Algebra: $r_i-b_i=r_i-\frac{G\bar r-r_i}{G-1}=\frac{G}{G-1}(r_i-\bar r)$. So
+GRPO's mean-centred advantage equals the RLOO advantage times $\frac{G-1}{G}$, a constant that the
+learning rate absorbs. The "bias" of including $r_i$ in its own baseline is therefore only a
+rescaling. Dividing by the std adds a genuine per-prompt reweighting.
 
-#### Exercise 46.5 (TIS bias).
+#### Exercise 44.5
 
-With $\log\rho\sim\mathcal{N}(-s^2/2,s^2)$ (so $\mathbb{E}[\rho]=1$),
-$\mathbb{E}[\min(\rho,C)]=\Phi\!\big(\tfrac{\ln C-s^2/2}{s}\big)+C\big(1-\Phi\big(\tfrac{\ln C+s^2/2}{s}\big)\big)$.
-For $C=2$ the bias $\mathbb{E}[\min(\rho,C)]-1$ is $\approx0$ at $s=0.1$, $-0.0015$ at $s=0.3$,
-$-0.026$ at $s=0.5$ and $-0.19$ at $s=1$. Mismatch is usually small ($s\ll1$), so the bias is
-negligible while the variance reduction from removing the heavy right tail is large; when $s$ is
-large the bias is a warning that the engine and trainer disagree too much.
+\(a\) Summed loss: every token of rollout $i$ has gradient weight $A_i/G$, independent of length.
+(b) Per-sequence mean: each token has weight $A_i/(G|y_i|)$. For correct answers of lengths 20 and
+2000, the per-token push ratio is $1:1$ under (a) and $100:1$ under (b). Under (a) the total push on
+a sequence's log-likelihood is the same for both, but because $\log\pi$ of the long sequence is a
+sum of 100 times more terms, raising it is "harder". In practice the summed objective most
+efficiently increases the probability of the *short* correct answer. Under (b), long sequences are
+barely pushed per token, so long *wrong* answers are barely penalised. That is the length bias DAPO
+and Dr. GRPO criticise ([@ch:grpo2]).
 
-#### Exercise 46.6 (Packing efficiency).
+#### Exercise 44.6
 
-At most one bin in a first-fit packing is at most half full: if bins $i<j$ were both at most half
-full, the items of $j$ would have fit into $i$ when they were placed. Hence with $k$ bins the total
-size exceeds $(k-1)\cdot\text{cap}/2$, and $\mathrm{OPT}\ge$ total/cap gives $k<2\,\mathrm{OPT}+1$.
-Empirically, padded efficiency falls quickly with $\sigma$ (e.g. $\approx$`<!-- -->`{=html}0.4 at
-$\sigma=0.8$ for batches of 8), sorting recovers a large part, and FFD packing stays above 0.9.
+PyTorch raises *"Inference tensors cannot be saved for backward"* when the sampled ids (created
+inside inference mode) are fed through `nn.Embedding` in the differentiable pass. The embedding
+saves its index input for backward. Fixes: sample under `no_grad`; or keep inference mode for
+sampling but `.clone()` the ids outside it (cloning outside inference mode produces a normal
+tensor).
 
-#### Exercise 46.7 (Partial-rollout bias).
+#### Exercise 44.7
 
-Record `[r.length for r in fin]` per step. In the first steps the consumed mean length is well below
-the generated mean (short responses finish first); as carried-over long responses complete, later
-batches contain them and the consumed distribution approaches the generated one after a few steps.
-Larger `oversample` increases the bias in each step (more short responses compete for the $B$ slots)
-but also increases throughput; the steady-state mixed-policy fraction grows with it.
+$16\times4096\times151936\times4\,\text{B}\approx39.8$ GB for the log-softmax, and the same again
+for its gradient, so $\approx80$ GB. Chunked version:
 
-#### Exercise 46.8 (Weight sync across sites).
+``` python
+def sequence_logprob_chunked(model, ids, prompt_len, C=512):
+    h = model_hidden_states(model, ids)          # (T, d) before the LM head
+    total = 0.0
+    for s in range(prompt_len - 1, ids.numel() - 1, C):
+        logits = model.out_head(model.final_norm(h[s:s+C])).float()
+        lp = torch.log_softmax(logits, -1)
+        total = total + lp.gather(1, ids[s+1:s+1+C, None]).sum()
+    return total
+```
 
-Qwen3-32B has $\approx32.8$B parameters: bf16 $\approx65.5$ GB, i.e. $\approx5.2$ s at 12.5 GB/s;
-fp8 $\approx2.6$ s. LoRA rank 64 on all seven projections of 64 layers is
-$64\cdot64\cdot\sum(d_{\text{in}}+d_{\text{out}})\approx 537$M parameters, $\approx1.07$ GB in bf16,
-$\approx0.09$ s. With full weights, use bounded-staleness asynchronous RL so the 5 s transfer
-overlaps generation; with LoRA, even a synchronous schedule pays little.
+Peak memory scales with $C\cdot|\mathcal V|$ instead of $T\cdot|\mathcal V|$. With activation
+checkpointing per chunk the backward is bounded the same way. (Exposing hidden states requires a
+small model hook; `llmsys.rl.logprobs.token_logprobs(chunk=...)` chunks after the LM head, which
+bounds the float32 copy but not the bf16 logits.)
 
-#### Exercise 46.9 (Attacking the grader).
+#### Exercise 44.8
 
-\(1\) `os._exit(0)` or `sys.exit(0)` before the tests run---run tests in a separate process that
-imports the candidate, and require a sentinel printed after all tests; (2) returning an object whose
-`__eq__` always returns `True`---compare with type checks or serialise results; (3) monkeypatching
-`assert`-like helpers, `unittest` or builtins---execute tests in a fresh namespace after the
-candidate code and verify the runner's integrity; (4) reading expected outputs from disk or
-environment---keep tests outside the sandbox, mount nothing, empty environment; (5) exhausting
-memory/CPU so the grader crashes into a default---treat every abnormal exit as failure and count
-resources. Writing (1) and (2) as tests against [@lst:rlsys:sandbox] shows that the
-teaching sandbox is vulnerable to both.
+Sequentially, $t_{\text{sample}}$ grows linearly in both $G$ and $T$ (one forward per token per
+rollout); on CPU the toy gives $a$ of the order of milliseconds per token. $t_{\text{train}}$ is
+also linear in $G\cdot T$ but with a smaller constant per token, since a prefill-style forward
+processes all tokens in parallel. With `sample_rollouts` the $G$ rollouts share each decode step, so
+$t_{\text{sample}}\approx a'\,T$ with $a'$ almost independent of $G$ until the batch stops being
+memory-bound. This is the decode roofline: weights are streamed once per step regardless of batch
+size.
 
-#### Exercise 46.10 (Measurement).
+#### Exercise 44.9
 
-An `async+partial` policy runs the partial-rollout generator in its own pool while the previous
-batch trains. Expect throughput above both `async` and `partial` for heavy tails, with mean
-staleness between 1 and 2 and a mixed-policy fraction similar to `partial`; throughput rises and
-saturates with `oversample` while staleness and length bias grow.
+Qwen3-4B: 36 layers, 8 KV heads, head dim 128, so the KV cache is
+$2\cdot36\cdot8\cdot128\cdot2=147$ KB per token. (i) $256$ sequences $\times4352$ tokens
+$\approx1.11\times10^6$ tokens, about 164 GB. (ii) Weights $\approx8.0$ GB in bf16. Each of the 4096
+decode steps streams the weights plus a cache that grows from 9.7 GB to 164 GB, about 95 GB on
+average, so roughly $4096\times95\,\text{GB}/3.35\,\text{TB/s}\approx116$ s. (iii) Training FLOPs
+$6\cdot4.0\times10^9\cdot1.11\times10^6\approx2.7\times10^{16}$, about 68 s at 40% MFU. The cache
+does not fit next to the weights on one 80 GB GPU ($\approx72$ GB free). It needs
+$\lceil164/72\rceil=3$ waves (or 3+ GPUs), which roughly preserves total sampling time, since each
+wave streams the weights 4096 times.
 
-#### Exercise 46.11 (Design).
+#### Exercise 44.10
 
-One reasonable answer: 14B bf16 weights are $\approx29$ GB, KV $\approx 2\cdot40\cdot8\cdot128\cdot2
-\approx164$ KB/token. Responses average 6k tokens and are capped at 32k, so the tail is severe: use
-split pools with bounded-staleness async plus partial rollouts. Generation: 12 GPUs as TP$=2$
-engines (6 replicas, $\sim$`<!-- -->`{=html}100 GB KV each for $\sim$`<!-- -->`{=html}100--150
-concurrent long sequences per replica); training: 20 GPUs with FSDP (16 B/param $\Rightarrow$ 224 GB
-of state, $\approx11$ GB per GPU) plus activation checkpointing and token-budget packing. Balance
-the pools by measuring $W_g$ and $W_t$ in the first steps, drop the reference model (KL$=0$) to save
-memory, enable TIS and log mismatch, and stream rewards to a CPU verifier pool.
+Examples: (1) "`\boxed{7}` ... actually `\boxed{8}`" (first-box readers accept the wrong final
+answer); (2) "`\boxed{17}`" with truth 7 (substring match accepts); (3) "`\boxed{7.0}`" (no
+normalisation rejects a correct answer); (4) "`\boxed{\frac{14}{2}}`" (rejected without fraction
+handling); (5) "`\boxed{1, 2, 3, 4, 5, 6, 7}`" (substring or "contains" accepts). Harden by taking
+the last box, comparing normalised values exactly, and rejecting boxed lists when a scalar is
+expected. RL is most likely to discover the cheap ones (many boxes, lists), because they increase
+reward on *every* prompt without solving anything.
+
+#### Exercise 44.11
+
+With 20 held-out facts, GRPO transfers the *format* almost perfectly (boxing is prompt-independent
+behaviour). Correctness on held-out facts improves little, because a 76k-parameter model trained on
+80 facts has not learned an addition algorithm, and RL with an outcome reward cannot teach a fact it
+never produces. This mirrors the MATH/MATH-500 split: RLVR mostly improves how existing knowledge is
+deployed (format, persistence, self-checking), and held-out evaluation is what separates that from
+memorising the training prompts.

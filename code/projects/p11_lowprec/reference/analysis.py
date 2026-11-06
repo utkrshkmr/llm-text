@@ -1,4 +1,4 @@
-"""Project 11, milestones 4-5: verdicts, the half-ulp reproduction and the report (Chapter 5).
+"""Project 11, milestones 4-5: verdicts, the half-ulp reproduction and the report (Chapter 7).
 
 Every run is compared with the fp32 baseline of the same model and seed through its *excess*
 validation loss, the final loss minus the task's known floor. The gap

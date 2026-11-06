@@ -4,7 +4,7 @@ Companion lab of Appendix C. You rewrite the book's tiny GPT as pure JAX functio
 parameter pytree, check it against `llmsys.gpt.GPTModel` on the same weights, then shard a
 matmul three ways on a simulated `(dp=2, tp=4)` device mesh: with `jit` and declared
 shardings (the compiler picks the collectives), with `shard_map` and hand-written collectives
-(you pick them, the four cases of Chapter 24), and as a collective matmul whose all-gather is
+(you pick them, the four cases of Chapter 26), and as a collective matmul whose all-gather is
 a `ppermute` ring. Finally you read the StableHLO and optimised HLO that XLA produced and count
 the collectives in it.
 
@@ -30,7 +30,7 @@ Everything runs on the CPU. Eight simulated devices come from
 7. **Reading HLO**: `count_collectives` counts collective *instructions* in HLO or StableHLO
    text (async start/done pairs once; metadata strings never).
 8. **The overlap model**: `ring_overlap_time_s`, sequential vs ring time for all-gather +
-   matmul with the PCIe alpha-beta numbers of Chapter 24.
+   matmul with the PCIe alpha-beta numbers of Chapter 26.
 
 ## Running
 

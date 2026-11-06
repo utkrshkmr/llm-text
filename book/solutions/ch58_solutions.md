@@ -1,85 +1,72 @@
-## Chapter 41: Policy-Gradient Foundations for LLM Reinforcement Learning {#chapter-41-policy-gradient-foundations-for-llm-reinforcement-learning .unnumbered}
+## Chapter 39: Self-Refinement and Scoring {#chapter-39-self-refinement-and-scoring .unnumbered}
 
-#### Exercise 41.1.
+#### Exercise 39.1
 
-$f(b)=\mathbb{E}[(r-b)^2\|g\|^2]=\mathbb{E}[r^2\|g\|^2]-2b\,\mathbb{E}[r\|g\|^2]+b^2\mathbb{E}[\|g\|^2]$
-is a convex quadratic, so $f'(b)=0$ gives $b^\star=\mathbb{E}[r\|g\|^2]/\mathbb{E}[\|g\|^2]$. Per
-coordinate, minimising $\mathbb{E}[(r-b_k)^2g_k^2]$ separately gives
-$b_k^\star=\mathbb{E}[r g_k^2]/\mathbb{E}[g_k^2]$. For an LLM this needs a running estimate of two
-statistics per parameter (two extra model-sized buffers), and it needs per-sample gradients rather
-than the batch-summed gradient autograd produces, so it is impractical. Group and critic baselines
-are per-prompt scalars instead.
+With `logits[1:]`, the row used for target token $i{+}1$ is the distribution for token $i{+}2$, so
+every answer token is scored under the wrong context (and the gather still succeeds, because shapes
+match after the targets are sliced accordingly). The values are log-probabilities of real tokens
+under some distribution, hence plausible negative numbers. `test_token_logprobs_match_incremental`
+catches it, because it compares each entry with a token-by-token incremental computation.
 
-#### Exercise 41.2.
+#### Exercise 39.2
 
-$\pi=(0.506,0.307,0.186)$. The exact gradient with respect to the logits is
-$\sum_a\pi_a r_a(e_a-\pi)=\pi\odot r-\pi\,(\pi^\top r)=(0.219,-0.113,-0.106)$. The total variance at
-$b=0$ is $0.126$ and $b^\star=0.384$ (variance $0.036$), matching [@fig:pg:variance].
+$\log\sum_j e^{z_j} = \log\bigl(e^M\sum_j e^{z_j - M}\bigr) = M + \log\sum_j
+e^{z_j-M}$. All exponents are $\le 0$, so no term overflows; the term with $z_j = M$ equals 1, so
+the sum lies in $[1, V]$ and its log in $[0, \log V]$ --- no underflow to $\log 0$. The output for
+the argmax entry is $M - \mathrm{LSE} = -\log\sum_j e^{z_j - M} \in [-\log V, 0]$, and it is the
+largest output entry.
 
-#### Exercise 41.3.
+#### Exercise 39.3
 
-$b_j=\frac{1}{G-1}\sum_{k\ne j}r_k$ is a function of samples independent of $y_j$, so conditioning
-on them and applying [@prop:pg:baseline] gives
-$\mathbb{E}[b_j\nabla\log\pi(y_j)]=\mathbb{E}[b_j]\cdot0=0$. Algebra:
-$r_j-\frac{S-r_j}{G-1}=\frac{Gr_j-S}{G-1}=\frac{G}{G-1}\big(r_j-\frac{S}{G}\big)$ with
-$S=\sum_k r_k$.
+Appending tokens adds terms $\log p < 0$, so the joint log-probability strictly decreases. The
+average can increase: an answer with token log-probs $(-3, -3)$ (mean $-3$) extended by
+$(-0.1, -0.1)$ has mean $-1.55$. To compare a 50-token and a 500-token solution use a
+length-normalized score (mean log-prob or perplexity), ideally restricted to the final-answer tokens
+if you care about the result rather than the prose.
 
-#### Exercise 41.4.
+#### Exercise 39.4
 
-With $\kappa(\mu)=\mu$, the limit is $\eta(x)\nabla\eta(x)$, so $w(x)=\operatorname{sg}[\eta(x)]$:
-the weight grows linearly with the success rate. The scheme emphasises prompts the model already
-solves and nearly ignores hard ones, the opposite of the example in the text. Equivalently it
-ascends $\tfrac12\mathbb{E}_x[\eta(x)^2]$.
+Compute $\bar\ell$ for each answer under the original prompt, grade with the verifier, bin by score
+decile and plot per-bin accuracy. A useful scorer shows accuracy rising with the decile; small base
+models are often only weakly calibrated, and the minimum-token or boxed-tokens-only variants can be
+more informative than the plain mean. Report the area under the ROC curve of score versus
+correctness as a single-number summary.
 
-#### Exercise 41.5.
+#### Exercise 39.5
 
-Total weight per response is (tokens) $\times$ (per-token weight). *Sequence mean:* every response
-gets $1/N=0.25$. *Token mean* ($\sum|y|=1860$): $0.016,\,0.016,\,0.161,\,0.806$. *Constant*
-($Z=8192$): $0.0037,\,0.0037,\,0.037,\,0.183$. The long wrong answer ($-1$, 1500 tokens) receives
-the smallest share of the batch's push under the sequence mean ($0.25$ versus $0.81$ under token
-mean), so sequence-mean aggregation makes long wrong answers cheapest to keep.
+Loop over position chunks of size $C$: run the model once to get the hidden states (or logits), and
+for each chunk compute `log_softmax` in float32 on $C$ rows and gather the targets, keeping only the
+gathered values. Peak extra memory drops from $TV\times 4$ B ($\approx 2.5$ GB at $T = 4096$) to
+$CV\times 4$ B ($\approx 39$ MB at $C = 64$). Going further and chunking the final projection avoids
+materializing full logits at all.
 
-#### Exercise 41.6.
+#### Exercise 39.6
 
-The exact rule gives every token weight $1/1000$. The buggy rule gives
-$\frac12\cdot\frac{1}{100}=1/200$ in the first micro-batch ($5\times$ too large) and
-$\frac12\cdot\frac{1}{900}=1/1800$ in the second ($0.56\times$). The error depends on the arbitrary
-split, so the same data give different gradients under different micro-batch sizes.
+Report the three rates per scorer. Typically: no scorer has the highest harm rate (correct drafts
+broken by spurious critiques); the heuristic scorer mainly rejects revisions that lose the box or
+ramble; the log-prob scorer rejects many revisions and therefore has a low harm rate but also a low
+fix rate. The best ratio of fixes to harms is model-dependent, which is the point of measuring it.
 
-#### Exercise 41.7.
+#### Exercise 39.7
 
-$\chi^2=\sum p_1^2/p_0-1\approx0.0112$. The variance is $(1.0112)^{256}-1\approx16$ at $L=256$ and
-$\approx5.7\times10^{19}$ at $L=4096$. Since $\mathbb{E}[w^2]\approx5.7\times10^{19}$ while
-$\mathbb{E}[w]=1$, the effective sample size $1024/\mathbb{E}[w^2]$ is far below one: in practice a
-single sequence carries essentially all the weight.
+Ask the draft to state a checkable consequence (e.g. substitute the answer into the original
+equation) and evaluate it with SymPy; if the check fails, put "Substituting your answer gives ...,
+which is not equal to ..." into the review. With external feedback, revisions are triggered only by
+real errors and carry specific information, which typically improves the fix rate and nearly
+eliminates harm on correct drafts.
 
-#### Exercise 41.8.
+#### Exercise 39.8
 
-Gradient flows for $(1.3,-1)$, $(0.7,+1)$, $(1.1,+1)$ and $(0.9,-1)$; it is masked for $(1.3,+1)$
-(already raised beyond $1+\epsilon$) and $(0.7,-1)$ (already lowered below $1-\epsilon$). Clipping
-only removes incentive to move *further* in the advantage's direction; moves that undo an over-shoot
-are always allowed.
+Order each call as `[question][draft][critique][instruction]` (or run the loop as one growing
+conversation), so each call's prompt is the previous call's prompt plus its output plus a short
+instruction. Then, with perfect prefix caching, each call prefills only its new instruction: total
+prefill $\approx q = 150$ tokens instead of $q + k(2q + 2a + c) = 150 +
+2(300 + 1000 + 120) = 2990$, a saving of $\approx 2840$ tokens (95%). Decode work is unchanged.
 
-#### Exercise 41.9.
+#### Exercise 39.9
 
-$4\times8192\times152{,}064\times4\,\text{B}\approx19.9$ GB. A chunk of $r$ rows costs
-$r\times152{,}064\times4$ B, so $r\le1644$ keeps it under 1 GB; 1024 rows (0.62 GB) is a convenient
-choice. Slicing hidden states to response positions before the LM head removes 25% of the LM-head
-FLOPs and of the logit memory; with large vocabularies the LM head is a significant share of a
-forward pass, so this is a cheap, real saving.
-
-#### Exercise 41.10.
-
-At initialisation $\eta$ is low (about 0.09 on the toy task), so most groups are all-zero and the
-group baselines mostly produce zero rows; no-baseline variance is dominated by the few lucky
-successes. After 20 GRPO steps $\eta$ is near 0.3, where baselines help most. Expect the
-leave-one-out and group-mean variances to match up to the $(G/(G-1))^2$ factor, and both to be
-several times lower than no baseline.
-
-#### Exercise 41.11.
-
-$\int_0^1\big(p^G+(1-p)^G\big)dp=\frac{2}{G+1}=2/17\approx11.8\%$ of groups. Pruning removes their
-forward and backward passes, about 12% of trainer time when the step is trainer-bound. It cannot
-save rollout time: a group's rewards, and therefore whether it is prunable, are known only after its
-rollouts have been generated. Saving rollout time requires predicting difficulty in advance
-(filtering or curriculum), not pruning.
+At $\approx$`<!-- -->`{=html}2000 decode tokens, best-of-4 decodes four 500-token answers in one
+batched call and scores them with four prefills; refinement with $k = 2$ makes five sequential
+calls. Expect best-of-4 to have roughly a third of the latency; which is more accurate depends on
+the scorer's calibration (best-of-$n$) versus the critique's quality (refinement), and must be
+measured.

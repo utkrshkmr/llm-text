@@ -1,4 +1,4 @@
-# Brief: Project 14, A tiny tensor compiler (book/chapters/ch37_proj_compiler.md {#ch:proj14}, kit code/projects/p14_compiler NEW)
+# Brief: Project 14, A tiny tensor compiler (book/chapters/ch39_proj_compiler.md {#ch:proj14}, kit code/projects/p14_compiler NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P14", and the
 chapters this capstone of Part IV builds on: [@ch:compilers], [@ch:cuda], [@ch:gpuarch], [@app:triton] is used for code generation. Budget on 2×A100-40GB PCIe: ~4 GPU-h (estimate; calibrate in

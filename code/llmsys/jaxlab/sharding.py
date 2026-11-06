@@ -8,7 +8,7 @@ Three levels of control over the same device mesh:
 3. ``jax.shard_map``: write the per-device program yourself, with explicit ``psum``,
    ``all_gather``, ``psum_scatter`` and ``ppermute``.
 
-The four sharded-matmul cases of Chapter 24 are written at levels 1 and 3, and the collective
+The four sharded-matmul cases of Chapter 26 are written at levels 1 and 3, and the collective
 (ring) matmuls at level 3. Everything runs on simulated CPU devices (see ``jaxlab/__init__``).
 """
 from __future__ import annotations
@@ -68,7 +68,7 @@ def sharded_matmul_auto(mesh: Mesh, a_spec: Spec, b_spec: Spec,
     """``jit(a @ b)`` with declared input (and optional output) shardings.
 
     XLA's SPMD partitioner decides the collective from the specs alone: it is the compiler's
-    version of the calculus of Chapter 24. Inspect its choice with ``hlo.compiled_text``.
+    version of the calculus of Chapter 26. Inspect its choice with ``hlo.compiled_text``.
     """
     out = None if out_spec is None else named(mesh, *out_spec)
     return jax.jit(lambda a, b: a @ b,
@@ -260,7 +260,7 @@ def collective_matmul_reducescatter(mesh: Mesh, axis: str = "tp") -> Callable:
 
 # --------------------------------------------------------------------------- cost model
 def ring_collective_bytes(kind: str, total_bytes: int, n: int) -> int:
-    """Bytes each device sends for a ring collective over ``n`` devices (Chapter 22's model)."""
+    """Bytes each device sends for a ring collective over ``n`` devices (Chapter 24's model)."""
     if n <= 1:
         return 0
     per_direction = (n - 1) * total_bytes // n
@@ -270,7 +270,7 @@ def ring_collective_bytes(kind: str, total_bytes: int, n: int) -> int:
 
 def collective_time_s(kind: str, total_bytes: int, n: int, alpha_s: float = 25e-6,
                       beta_Bps: float = 22e9) -> float:
-    """alpha-beta time of a ring collective; defaults are Chapter 24's PCIe link (two A100s)."""
+    """alpha-beta time of a ring collective; defaults are Chapter 26's PCIe link (two A100s)."""
     steps = {"all-gather": n - 1, "reduce-scatter": n - 1, "all-reduce": 2 * (n - 1),
              "ppermute": 1}[kind]
     return steps * alpha_s + ring_collective_bytes(kind, total_bytes, n) / beta_Bps
@@ -321,7 +321,7 @@ def matmul_grad(fn: Callable) -> Callable:
 
 def calculus_vs_compiler(mesh: Mesh, a_spec: Spec, b_spec: Spec, shape_a: Sequence[int],
                          shape_b: Sequence[int]) -> dict:
-    """Compare the plan of Chapter 24's ``matmul_plan`` with what XLA actually compiled.
+    """Compare the plan of Chapter 26's ``matmul_plan`` with what XLA actually compiled.
 
     Returns the case, the calculus's collectives and output spec, and the collectives and output
     spec of the compiled ``jit(a @ b)`` with a free output sharding.

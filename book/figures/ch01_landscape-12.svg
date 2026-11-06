@@ -17,18 +17,24 @@
 <text x="14" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Foundations</text>
 <rect x="150.0" y="58.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
 <text x="199.5" y="83.5" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Landscape</text>
-<rect x="255.0" y="58.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
-<text x="304.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">PyTorch and</text>
-<text x="304.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">the machine</text>
+<rect x="255.0" y="58.0" width="99" height="42" rx="5" fill="#e3ecf5" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="304.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">PyTorch</text>
+<text x="304.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">essentials</text>
 <rect x="360.0" y="58.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
-<text x="409.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Numbers on</text>
-<text x="409.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">the machine</text>
-<rect x="465.0" y="58.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
-<text x="514.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P10 Know</text>
-<text x="514.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">your machine</text>
-<rect x="570.0" y="58.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
-<text x="619.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P11 Low-</text>
-<text x="619.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">precision training</text>
+<text x="409.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">The machine</text>
+<text x="409.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">underneath</text>
+<rect x="465.0" y="58.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="514.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Numbers on</text>
+<text x="514.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">the machine</text>
+<rect x="570.0" y="58.0" width="99" height="42" rx="5" fill="#f6ecd9" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="619.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">Scaling and</text>
+<text x="619.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">quantisation</text>
+<rect x="675.0" y="58.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="724.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P10 Know</text>
+<text x="724.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">your machine</text>
+<rect x="780.0" y="58.0" width="99" height="42" rx="5" fill="#ffffff" stroke="#9b2c2c" stroke-width="2.0" stroke-dasharray="5,3"/>
+<text x="829.5" y="76.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">P11 Low-</text>
+<text x="829.5" y="91.0" font-family="Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" fill="#1a1a1a">precision training</text>
 <rect x="4" y="114" width="992" height="102" rx="6" fill="#f7f7f7" stroke="#bbbbbb" stroke-width="0.8"/>
 <text x="14" y="161.0" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1a1a1a">Part II</text>
 <text x="14" y="177.0" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a1a1a">Building an LLM</text>

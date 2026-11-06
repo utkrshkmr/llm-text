@@ -1,7 +1,7 @@
 # Project 4 infrastructure: filtering web data for language modeling
 
 Generic tooling for Project 4; it contains **no filter implementations**
-(see Chapter 28 for the guide and Chapter 19 for the concepts).
+(see Chapter 30 for the guide and Chapter 21 for the concepts).
 
 | script | purpose |
 |---|---|

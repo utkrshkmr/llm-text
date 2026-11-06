@@ -1,4 +1,4 @@
-"""FlashAttention-2 reference implementations in plain PyTorch (Chapter 21).
+"""FlashAttention-2 reference implementations in plain PyTorch (Chapter 23).
 
 These mirror, loop for loop, the Triton kernels in ``flash2_triton.py`` so that each kernel
 can be debugged against a readable model of what it should compute:

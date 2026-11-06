@@ -12,6 +12,15 @@ python3 -m http.server -d site 8000               # preview at http://localhost:
 
 Requirements: Python 3.9+ and pandoc >= 3. Nothing else.
 
+## Publishing part by part
+
+`published_parts: N` in `book/book.yml` publishes only the first N parts, plus the appendices whose
+letters are listed in `published_appendices`. Every written page is still converted, so chapter
+numbers and cross-references are those of the whole book. Pages, navigation entries, landing cards,
+search entries, solutions and figures of the hidden parts are left out of the site, and a reference
+into a hidden chapter renders as plain text (its number, no link). Raise `published_parts` when a
+part passes its stage. `--all` builds everything for a local preview.
+
 ## Writing a chapter
 
 `book/book.yml` lists the parts and chapters in reading order. A listed file that does not exist
@@ -26,7 +35,7 @@ Markdown file:
 $$\mathrm{RMSNorm}(\boldsymbol{x}) = \boldsymbol{\gamma}\odot\frac{\boldsymbol{x}}{\mathrm{RMS}(\boldsymbol{x})}
 \label{eq:modern:rms}$$
 
-![Caption text.](figures/ch09_modern_arch-2.svg){#fig:modern:rmsvsln}
+![Caption text.](figures/ch11_modern_arch-2.svg){#fig:modern:rmsvsln}
 
 ``` {#lst:modern:rms .python caption="RMSNorm with an fp32 accumulation."}
 ...

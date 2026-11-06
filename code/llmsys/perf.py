@@ -1,4 +1,4 @@
-"""Single-device performance engineering toolkit (Chapter 21).
+"""Single-device performance engineering toolkit (Chapter 23).
 
 Benchmarking
     ``warm_up``            run a function for a fixed wall time (lets GPU clocks ramp up).

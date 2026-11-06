@@ -1,7 +1,7 @@
 """Launch helpers: run ``fn(rank, world_size, *args)`` in ``world_size`` CPU processes.
 
 The gloo backend implements the same collective API as NCCL, so every algorithm in
-Chapter 22 can be developed and unit-tested on a laptop and later run unchanged on GPUs
+Chapter 24 can be developed and unit-tested on a laptop and later run unchanged on GPUs
 with ``backend="nccl"``.
 """
 from __future__ import annotations

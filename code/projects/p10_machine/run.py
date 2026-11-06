@@ -1,4 +1,4 @@
-"""Project 10: run the microbenchmark suite and write the spec sheet (Chapter 4).
+"""Project 10: run the microbenchmark suite and write the spec sheet (Chapter 6).
 
     python run.py --config configs/smoke.json --out results/smoke.json        # ~2 min, 1 GPU (+P2P)
     python run.py --config configs/full.json  --out results/full.json         # the full study

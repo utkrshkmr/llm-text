@@ -1,4 +1,4 @@
-"""Project 11: measuring rounding bias directly (Chapter 5).
+"""Project 11: measuring rounding bias directly (Chapter 7).
 
 ``rounding_bias`` takes a captured tensor (for example the logit gradient entering the output head)
 and the activation it multiplies, quantises the tensor with a given spec, and reports

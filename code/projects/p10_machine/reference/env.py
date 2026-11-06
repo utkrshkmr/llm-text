@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): record the environment every number depends on (Chapter 4).
+"""Project 10 (reference solution): record the environment every number depends on (Chapter 6).
 
 A bandwidth or FLOP/s figure without the GPU model, driver, CUDA, PyTorch version, clocks, power
 cap and topology cannot be compared with anything, including your own run next month.

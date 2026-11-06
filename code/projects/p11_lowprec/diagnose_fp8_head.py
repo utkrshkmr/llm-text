@@ -1,4 +1,4 @@
-"""Project 11: the FP8 output-head diagnostic of the chapter (Chapter 5).
+"""Project 11: the FP8 output-head diagnostic of the chapter (Chapter 7).
 
     CUDA_VISIBLE_DEVICES=1 python diagnose_fp8_head.py --out results/diag_fp8_head_a100_pcie.json
 

@@ -1,4 +1,4 @@
-"""Evaluation toolkit (Chapter 54): math verifier, MCQ scoring, preference ranking,
+"""Evaluation toolkit (Chapter 56): math verifier, MCQ scoring, preference ranking,
 LLM-as-a-judge, and a batched/cached evaluation harness."""
 from .math_verifier import (extract_final_candidate, grade_answer, grade_response,  # noqa: F401
                             last_boxed, normalize_text, render_math_prompt, sympy_parse,

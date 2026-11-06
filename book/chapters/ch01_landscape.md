@@ -575,7 +575,7 @@ FLOP/s.](figures/ch01_landscape-9.svg){#fig:landscape:lifecyclecost}
 they turn FLOPs into progress. Pretraining runs large dense matrix multiplications and can sustain
 40--50% MFU on well-tuned clusters. Decoding (serving, and RL rollouts) is dominated by
 matrix--vector products whose arithmetic intensity is near 1 FLOP/byte at batch 1, versus the
-$\sim$`<!-- -->`{=html}295 FLOP/byte an H100 needs to be compute-bound ([@ch:pytorch]);
+$\sim$`<!-- -->`{=html}295 FLOP/byte an H100 needs to be compute-bound ([@ch:machine]);
 without large batches, utilisation can fall to a few percent. That is why RL rollouts often take the
 majority of wall-clock time in reasoning training despite being a small FLOP fraction, and why
 serving engines obsess over batching.
@@ -711,9 +711,12 @@ specification framed as research questions, milestones with automated acceptance
 baselines, a compute budget sized for two A100-40GB GPUs connected over PCIe, and a reference
 solution.
 
-- **Part I, Foundations.** This chapter; PyTorch and the machine underneath it, with the roofline
-  as the book's first performance model ([@ch:pytorch]); and how numbers are represented, rounded
-  and accumulated on the machine, from fp32 to fp8 and integer formats ([@ch:numerics]).
+- **Part I, Foundations.** This chapter; PyTorch from tensors to multi-GPU training
+  ([@ch:pytorch]); the machine underneath it, with the roofline as the book's first performance
+  model and the discipline of measuring it ([@ch:machine]); how numbers are represented, rounded
+  and accumulated on the machine, from fp32 to fp4 and integer formats ([@ch:numerics]); and how
+  scales, quantisation grids and mixed-precision recipes make the narrow formats usable
+  ([@ch:quant]).
   Capstones: characterising your own machine ([@ch:proj10]) and a low-precision training study
   ([@ch:proj11]).
 
@@ -769,12 +772,12 @@ in LLM systems ([@app:research]), and worked solutions to the exercises ([@app:s
 The chapters are written to be read in order, but there are shorter paths. Four of them cover the
 readers we have in mind; each ends at capstones that test it.
 
-- **Systems researcher.** [@ch:landscape; @ch:pytorch; @ch:numerics], then [@ch:proj10]; the
+- **Systems researcher.** Part I, then [@ch:proj10]; the
   Systems Lens boxes of Part II; [@ch:perf; @ch:distributed; @ch:sharding; @ch:shardcalc]; all
   of Part IV; [@ch:inference; @ch:serving; @ch:kvcache; @ch:movestudy]; [@ch:rlsys]; appendices
   [@app:accel; @app:jax; @app:research]. Capstones: [@ch:proj2; @ch:proj14; @ch:proj15; @ch:proj9].
 
-- **Inference engineer.** [@ch:pytorch; @ch:numerics]; [@ch:attention; @ch:modern; @ch:moe;
+- **Inference engineer.** [@ch:pytorch; @ch:machine; @ch:numerics; @ch:quant]; [@ch:attention; @ch:modern; @ch:moe;
   @ch:anatomy]; [@ch:gpuarch; @ch:cudakernels; @ch:profiling; @ch:memory]; all of Part VI; then
   [@ch:scaling] for the serving cost of reasoning. Capstones: [@ch:proj6; @ch:proj7; @ch:proj18].
 
@@ -782,7 +785,7 @@ readers we have in mind; each ends at capstones that test it.
   [@ch:compilers; @ch:memory]; [@ch:instruct]. Capstones: [@ch:proj1; @ch:proj2; @ch:proj3;
   @ch:proj11].
 
-- **Post-training and RL researcher.** [@ch:landscape; @ch:pytorch]; [@ch:gpt; @ch:modern];
+- **Post-training and RL researcher.** [@ch:landscape; @ch:pytorch; @ch:machine]; [@ch:gpt; @ch:modern];
   [@ch:instruct]; [@ch:inference; @ch:serving]; then Part VII in order, starting with
   [@ch:eval; @ch:rlsetup]. Capstones: [@ch:proj5; @ch:proj19; @ch:proj20].
 
@@ -834,7 +837,7 @@ stop growing linearly with context, and the kernels become irregular ([@ch:moe; 
 scaling (DeepSeek-AI, 2024, "V3"); block-scaled microscaling formats (Rouhani et al., 2023) push to
 6 and 4 bits. Precision is now a scaling-law variable in its own right (Kumar et al., 2024), and
 the open questions are where each format is safe (weights, activations, gradients, optimiser
-state, KV cache) and how to know before a long run diverges ([@ch:numerics; @ch:proj11]).
+state, KV cache) and how to know before a long run diverges ([@ch:numerics; @ch:quant; @ch:proj11]).
 
 **Disaggregated and memory-centric serving.** Prefill is compute-bound and decode is
 bandwidth-bound ([@tab:landscape:bottlenecks]); running them on the same GPUs makes each slow the
@@ -891,9 +894,9 @@ the next chips (Zhao et al., 2025). At the other extreme, training across poorly
   on an H100, because peak FLOP/s grew $3.2\times$ while bandwidth grew $1.6\times$, and back down
   to about 206 on the H200, which kept the H100's compute and added bandwidth. Counting the
   lower-precision tensor cores, the ridge climbs steeply: about 562 FLOP/byte in fp8 and 1,125 in fp4
-  on a B200 ([@ch:pytorch]).
+  on a B200 ([@ch:machine]).
 - *"bf16 is the working precision."* fp8 training and 4-bit inference are in production; formats
-  are becoming per-tensor design decisions ([@ch:numerics]).
+  are becoming per-tensor design decisions ([@ch:numerics; @ch:quant]).
 - *"GPUs in a job are connected by a fast fabric."* Boxes like ours (PCIe only), multi-site
   training and disaggregated serving make the slowest link the design point.
 
@@ -1080,7 +1083,7 @@ Predict with `report.py --hw A100-40GB-PCIe` the batch-1 decode time per token o
 H100 numbers of [@tab:landscape:qwen3napkin]. Then measure the decode step with the benchmark of
 [@lab:inference], in eager mode and with `torch.compile`. Which of the predicted and measured
 ratios between the two GPUs would you expect to agree, and which not? Explain the gap between
-prediction and measurement with the three regimes of [@fig:pytorch:async].
+prediction and measurement with the three regimes of [@fig:machine:async].
 :::
 
 ## Lab 1: A napkin-math calculator for LLMs {#sec:landscape:lab}
@@ -1139,7 +1142,7 @@ so every formula can be checked against a model built from the same dictionary.
 Run `python labs/lab01_napkin/report.py` to regenerate [@tab:landscape:qwen3napkin] for the
 GPT-2 and Qwen3 families. Then use `--hw A100-40GB-PCIe` (this book's reference box),
 `--hw A100-80GB-SXM` and `--hw RTX-4090` and note how the critical batch size tracks the ratio of
-peak FLOP/s to bandwidth (the *ridge point*, [@ch:pytorch]) rather than the model. Expect critical
+peak FLOP/s to bandwidth (the *ridge point*, [@ch:machine]) rather than the model. Expect critical
 batches of a few hundred on datacentre GPUs: about 200 on the A100-40GB PCIe and about 300 on the
 H100 for Qwen3-0.6B. `python labs/lab01_napkin/figures.py` redraws the book map of
 [@fig:landscape:bookmap].

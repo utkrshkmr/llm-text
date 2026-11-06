@@ -1,4 +1,4 @@
-"""Pruning and low-rank factorisation for small-device inference (Chapter 47).
+"""Pruning and low-rank factorisation for small-device inference (Chapter 49).
 
 Every mask function returns a bool tensor with True for weights that are KEPT, and removes exactly
 ``round(sparsity * numel)`` weights, ties broken by position so results are deterministic.

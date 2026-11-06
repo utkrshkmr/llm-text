@@ -26,7 +26,7 @@ Out of scope: diffusion and other non-autoregressive language models.
 
 ---
 
-## 1. Structure after the expansion (68 chapters including 20 capstones, 8 appendices)
+## 1. Structure after the expansion (70 chapters including 20 capstones, 8 appendices)
 
 Existing chapters keep all of their content. **NEW** = new chapter; **+** = existing chapter gaining sections.
 Every part ends with **at least two capstone projects** that use only that part and earlier ones. Numbers are
@@ -34,16 +34,16 @@ assigned by the site build from `book/book.yml`; files and labs were renumbered 
 
 | Part | Chapters | Capstones |
 |---|---|---|
-| I Foundations | 1 Landscape · 2 PyTorch and the machine **+** · 3 **NEW** Numbers on the machine | 4 P10 Know your machine · 5 P11 Low-precision training study |
-| II Building an LLM | 6 Text **+** · 7 Attention **+** · 8 GPT · 9 Qwen3 **+** · 10 Design space **+** · 11 Beyond softmax **+** · 12 **NEW** Encoders · 13 **NEW** MoE · 14 **NEW** Anatomy of open models (+ model files) | 15 P12 Bring up a new open model · 16 P13 Sequence mixers at long context |
-| III Pretraining at Scale | 17 Optimizers · 18 Pretraining **+** · 19 Data · 20 Scaling laws **+** · 21 Single-GPU performance **+** · 22 Distributed **+** · 23 FSDP · 24 **NEW** Sharded computation | 25 P1 LM from scratch · 26 P2 Training systems · 27 P3 Scaling study · 28 P4 Web data |
-| IV From Python to the Metal | 29 **NEW** C++ for PyTorch · 30 **NEW** GPU and accelerator architecture · 31 **NEW** CUDA kernels · 32 **NEW** Attention and MoE kernels · 33 **NEW** Profiling toolchain · 34 **NEW** Compilers · 35 **NEW** Memory, data movement, interconnects (+ weight streaming) | 36 P8 MoE systems · 37 P14 A tiny tensor compiler · 38 P15 A kernel library |
-| V Fine-Tuning | 39 Classification · 40 Instruction tuning, LoRA in depth **+** | 41 P16 PEFT study · 42 P17 A domain specialist end to end |
-| VI Inference and Serving | 43 Inference **+** · 44 Serving engines **+** (MoE serving) · 45 **NEW** KV-cache management · 46 Cheaper inference **+** (offloaded inference) · 47 **NEW** On-device · 48 **NEW** Retrieval · 49 **NEW** Long-haul data-movement study | 50 P6 Serving engine · 51 P7 CPU runtime · 52 P9 Profiler · 53 P18 Long-context multi-agent serving |
-| VII Reasoning and Post-Training | 54 Evaluation · 55 Inference-time scaling · 56 Self-refinement · 57 **NEW** RL setup · 58 Policy gradients · 59 RLHF/PPO **+** · 60 DPO · 61 GRPO · 62 Improving GRPO · 63 RL systems **+** · 64 Distillation · 65 Alignment and multimodality **+** | 66 P5 Post-training · 67 P19 Agentic RL with tools · 68 P20 Reasoning distillation under a budget |
+| I Foundations | 1 Landscape · 2 PyTorch essentials **+** · 3 The machine underneath (split from 2) · 4 **NEW** Numbers on the machine · 5 Scaling, quantisation and mixed precision (split from 4) | 6 P10 Know your machine · 7 P11 Low-precision training study |
+| II Building an LLM | 8 Text **+** · 9 Attention **+** · 10 GPT · 11 Qwen3 **+** · 12 Design space **+** · 13 Beyond softmax **+** · 14 **NEW** Encoders · 15 **NEW** MoE · 16 **NEW** Anatomy of open models (+ model files) | 17 P12 Bring up a new open model · 18 P13 Sequence mixers at long context |
+| III Pretraining at Scale | 19 Optimizers · 20 Pretraining **+** · 21 Data · 22 Scaling laws **+** · 23 Single-GPU performance **+** · 24 Distributed **+** · 25 FSDP · 26 **NEW** Sharded computation | 27 P1 LM from scratch · 28 P2 Training systems · 29 P3 Scaling study · 30 P4 Web data |
+| IV From Python to the Metal | 31 **NEW** C++ for PyTorch · 32 **NEW** GPU and accelerator architecture · 33 **NEW** CUDA kernels · 34 **NEW** Attention and MoE kernels · 35 **NEW** Profiling toolchain · 36 **NEW** Compilers · 37 **NEW** Memory, data movement, interconnects (+ weight streaming) | 38 P8 MoE systems · 39 P14 A tiny tensor compiler · 40 P15 A kernel library |
+| V Fine-Tuning | 41 Classification · 42 Instruction tuning, LoRA in depth **+** | 43 P16 PEFT study · 44 P17 A domain specialist end to end |
+| VI Inference and Serving | 45 Inference **+** · 46 Serving engines **+** (MoE serving) · 47 **NEW** KV-cache management · 48 Cheaper inference **+** (offloaded inference) · 49 **NEW** On-device · 50 **NEW** Retrieval · 51 **NEW** Long-haul data-movement study | 52 P6 Serving engine · 53 P7 CPU runtime · 54 P9 Profiler · 55 P18 Long-context multi-agent serving |
+| VII Reasoning and Post-Training | 56 Evaluation · 57 Inference-time scaling · 58 Self-refinement · 59 **NEW** RL setup · 60 Policy gradients · 61 RLHF/PPO **+** · 62 DPO · 63 GRPO · 64 Improving GRPO · 65 RL systems **+** · 66 Distillation · 67 Alignment and multimodality **+** | 68 P5 Post-training · 69 P19 Agentic RL with tools · 70 P20 Reasoning distillation under a budget |
 | Appendices | A Triton · B Accelerators **+** · C **NEW** JAX and XLA · D Lab setup **+** · E **NEW** Containers · F References · G **NEW** Doing LLM systems research · H Solutions | |
 
-The new chapters added in the expanded scope (3, 22, 25, 27, 32, 36, 40, appendices E and G) are specified
+The new chapters added in the expanded scope (Part I's numerics chapters, GPU architecture, profiling, memory and interconnects, KV-cache management, the data-movement study, the RL setup, appendices E and G) are specified
 in their briefs in `docs/edition3_briefs/`; section 1.1 below describes the chapters planned earlier.
 
 ### 1.1 New chapters
@@ -133,7 +133,7 @@ architectures and reproduce reference logits to tolerance.
 - A paged-attention decode kernel with split-K / flash-decoding.
 - Sliding-window and sink masks; dequantising an int8 KV cache inside the kernel.
 - Grouped GEMM and token dispatch/combine kernels for MoE.
-- Each kernel is wired three ways: as an autograd op for training, as a backend of the Chapter 44
+- Each kernel is wired three ways: as an autograd op for training, as a backend of the Chapter 46
   serving engine, and benchmarked against PyTorch SDPA, Triton and reference libraries.
 - Hopper and Blackwell designs (warp specialisation, asynchronous copies, FP8, tensor memory) are
   explained conceptually; they cannot run on A100.
@@ -439,22 +439,22 @@ owner's go-ahead**.
 | Stage | Scope |
 |---|---|
 | 0 | Restructure: rename, outline, renumbering, dark-mode figures, briefs, ledger (no new prose) |
-| 1 | Part I chapters 1–3 (new ch 3) — **done** |
+| 1 | Part I chapters 1–5 (new ch 4; ch 2 and ch 4 each split in two after review) — **done** |
 | 1P | Part I capstones: P10, P11 — **done** |
-| 2 | Part II chapters 6–14 (finish ch 12; write ch 13, 14) |
+| 2 | Part II chapters 8–16 (finish ch 14; write ch 15, 16) |
 | 2P | Part II capstones: P12, P13 |
-| 3 | Part III chapters 17–24 (write ch 24) |
+| 3 | Part III chapters 19–26 (write ch 26) |
 | 3P | Part III capstones: P1, P2, P3, P4 |
-| 4a | Part IV first half: ch 29, 30, 31, 33 |
-| 4b | Part IV second half: ch 32, 34, 35 |
+| 4a | Part IV first half: ch 31, 32, 33, 35 |
+| 4b | Part IV second half: ch 34, 36, 37 |
 | 4P | Part IV capstones: P8, P14, P15 |
-| 5 | Part V chapters 39–40 |
+| 5 | Part V chapters 41–42 |
 | 5P | Part V capstones: P16, P17 |
-| 6a | Part VI first half: ch 43–46 |
-| 6b | Part VI second half: ch 47–49 |
+| 6a | Part VI first half: ch 45–48 |
+| 6b | Part VI second half: ch 49–51 |
 | 6P | Part VI capstones: P6, P7, P9, P18 |
-| 7a | Part VII RL: ch 57–63 |
-| 7b | Part VII rest: ch 54–56, 64–65 |
+| 7a | Part VII RL: ch 59–65 |
+| 7b | Part VII rest: ch 56–58, 66–67 |
 | 7P | Part VII capstones: P5, P19, P20 |
 | 8 | Appendices A–H (new E, G) |
 | 9 | Whole book: zero unresolved references, full CPU+GPU test run, CI deploy of gh-pages |
@@ -466,5 +466,5 @@ Every stage also retrofits its existing chapters with the §7 depth rules (Resea
 box, research-style exercises).
 
 Known failing tests at the end of stage 0 (partial, unverified code from earlier writers; fixed in the stage that
-owns them): lab29_cpp `test_silu_mul_gradcheck_fp64` (stage 4a), lab34_compilers
-`test_match_rmsnorm_finds_all_four_norms` and one more (stage 4b), lab48_retrieval 4 tests (stage 6b).
+owns them): lab31_cpp `test_silu_mul_gradcheck_fp64` (stage 4a), lab36_compilers
+`test_match_rmsnorm_finds_all_four_norms` and one more (stage 4b), lab50_retrieval 4 tests (stage 6b).

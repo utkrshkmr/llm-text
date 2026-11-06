@@ -1,4 +1,4 @@
-"""Project 3 (reference solution): pre-registered predictions (Chapter 27).
+"""Project 3 (reference solution): pre-registered predictions (Chapter 29).
 
 A prediction is only a prediction if it is written down before the run it predicts, and if
 nobody can quietly swap the data it was fitted on. The prediction file therefore records a

@@ -1,4 +1,4 @@
-"""Fused row softmax, forward and backward (Chapter 31).
+"""Fused row softmax, forward and backward (Chapter 33).
 
     from llmsys.ops import softmax
     y = softmax.softmax(x)                       # CUDA kernel on a GPU when built, else the reference

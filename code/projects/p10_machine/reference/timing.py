@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): timers for microbenchmarks (Chapter 4).
+"""Project 10 (reference solution): timers for microbenchmarks (Chapter 6).
 
 Three ways to time a GPU operation, each answering a different question:
 

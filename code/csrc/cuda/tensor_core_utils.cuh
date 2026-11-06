@@ -1,4 +1,4 @@
-// Tensor-core building blocks shared by the attention and MoE kernels (Chapter 32).
+// Tensor-core building blocks shared by the attention and MoE kernels (Chapter 34).
 //
 // Everything here is a thin wrapper around one PTX instruction, so that the kernels read as the
 // algorithm (load a tile, multiply fragments, rescale) rather than as inline assembly:

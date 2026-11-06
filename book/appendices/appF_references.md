@@ -14,6 +14,9 @@ DeepSpeed, veRL, OpenRLHF, TRL, JAX and Triton.
 ## Cited works {#cited-works .unnumbered}
 
 ::: enumerate
+Abadi, M., Barham, P., Chen, J., et al. (2016). TensorFlow: A System for Large-Scale Machine
+Learning. USENIX Symposium on Operating Systems Design and Implementation (OSDI).
+
 Abbas, A., Tirumala, K., Simig, D., Ganguli, S., Morcos, A. S. (2023). SemDeDup: Data-Efficient
 Learning at Web-Scale through Semantic Deduplication. arXiv:2303.09540.
 
@@ -335,6 +338,9 @@ Quantization for Generative Pre-trained Transformers. ICLR.
 Frantar, E., Castro, R. L., Chen, J., Hoefler, T., & Alistarh, D. (2025). MARLIN: Mixed-Precision
 Auto-Regressive Parallel Inference on Large Language Models. PPoPP.
 
+Frostig, R., Johnson, M. J., Leary, C. (2018). Compiling Machine Learning Programs via High-Level
+Tracing. SysML Conference.
+
 Fu, W., Gao, J., Shen, X., et al. (2025). AReaL: A Large-Scale Asynchronous Reinforcement Learning
 System for Language Reasoning. arXiv:2505.24298.
 
@@ -498,6 +504,10 @@ Case Study on Optimizing Transformers. MLSys.
 Jacobs, S. A., Tanaka, M., Zhang, C., et al. (2023). DeepSpeed Ulysses: System Optimizations for
 Enabling Training of Extreme Long Sequence Transformer Models. arXiv:2309.14509.
 
+Jain, P., Jain, A., Nrusimha, A., Gholami, A., Abbeel, P., Keutzer, K., Stoica, I., Gonzalez, J. E.
+(2020). Checkmate: Breaking the Memory Wall with Optimal Tensor Rematerialization. Proceedings of
+Machine Learning and Systems (MLSys).
+
 Jia, Z., Maggioni, M., Staiger, B., Scarpazza, D. P. (2018). Dissecting the NVIDIA Volta GPU
 Architecture via Microbenchmarking. arXiv:1804.06826.
 
@@ -548,6 +558,10 @@ All at Once. arXiv:2403.19270.
 Kimi Team (2025). Kimi k1.5: Scaling Reinforcement Learning with LLMs. arXiv:2501.12599.
 
 Kingma, D. P., Ba, J. (2015). Adam: A Method for Stochastic Optimization. ICLR.
+
+Kirisame, M., Lyubomirsky, S., Haan, A., Brennan, J., He, M., Roesch, J., Chen, T., Tatlock, Z.
+(2021). Dynamic Tensor Rematerialization. International Conference on Learning Representations
+(ICLR).
 
 Kocetkov, D., Li, R., Ben Allal, L., et al. (2022). The Stack: 3 TB of Permissively Licensed Source
 Code. arXiv:2211.15533.
@@ -698,6 +712,10 @@ Self-Feedback. NeurIPS.
 Magnusson, I., Bhagia, A., Hofmann, V., et al. (2023). Paloma: A Benchmark for Evaluating Language
 Model Fit. arXiv:2312.10523.
 
+Malladi, S., Gao, T., Nichani, E., Damian, A., Lee, J. D., Chen, D., Arora, S. (2023). Fine-Tuning
+Language Models with Just Forward Passes. Advances in Neural Information Processing Systems
+(NeurIPS).
+
 Mazeika, M., Phan, L., Yin, X., et al. (2024). HarmBench: A Standardized Evaluation Framework for
 Automated Red Teaming and Robust Refusal. ICML.
 
@@ -735,6 +753,9 @@ arXiv:2506.13585.
 
 Mishra, A., Stosic, D., Layton, S., Micikevicius, P. (2025). Recipes for Pre-training LLMs with
 MXFP8. arXiv:2506.08027.
+
+Mohan, J., Phanishayee, A., Raniwala, A., Chidambaram, V. (2021). Analyzing and Mitigating Data
+Stalls in DNN Training. Proceedings of the VLDB Endowment 14(5).
 
 Moore, R. C., Lewis, W. (2010). Intelligent Selection of Language Model Training Data. ACL.
 

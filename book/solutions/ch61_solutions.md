@@ -1,119 +1,105 @@
-## Chapter 44: Reinforcement Learning with Verifiable Rewards: GRPO {#chapter-44-reinforcement-learning-with-verifiable-rewards-grpo .unnumbered}
+## Chapter 42: RLHF: Reward Models, Value Functions, and PPO {#chapter-42-rlhf-reward-models-value-functions-and-ppo .unnumbered}
 
-#### Exercise 44.1
+#### Exercise 42.1
 
-With partial credit the rewards of [@fig:grpo:step] become $(1,1,0.5,0)$: mean $0.625$,
-unbiased std $0.479$, advantages $(+0.783,+0.783,-0.261,-1.305)$. The unboxed "7" is still pushed
-down, but by a third of its previous weight, and the wrong boxed "8" is now pushed down hardest. The
-loss is $-\frac14[0.783(-2.269)+0.783(-3.059)-0.261(-1.299)-1.305(-3.400)]=-0.151$. Partial credit
-makes *correctness* the dominant signal early (correct-but-unboxed answers are no longer lumped with
-wrong ones), which helps when the model is rarely correct. It weakens the pressure to adopt the
-format, since an unboxed correct answer is only mildly penalised, so format adoption is slower. A
-common compromise is to anneal the partial credit to 0.
+The difference of two independent standard Gumbel variables is standard logistic, with CDF
+$\sigma(z)$. Hence $\Pr[u_w>u_l]=\Pr[\epsilon_l-\epsilon_w<r_w-r_l]=\sigma(r_w-r_l)$. With Gaussian
+noise of variance $s^2$ each, the difference is $\mathcal N(0,2s^2)$ and the choice probability is
+$\Phi\big((r_w-r_l)/(\sqrt2 s)\big)$, the Thurstone (probit) model. The fitted rewards change only
+by an approximately constant rescaling, because the logistic and probit curves are close after
+scaling by about $1.7$.
 
-#### Exercise 44.2
+#### Exercise 42.2
 
-With identical rewards, $r-\bar r=0$ for every rollout, the advantages are exactly 0, the loss is
-$-0\cdot\sum\log\pi=0$ and autograd propagates zeros to every parameter (the optimiser step is still
-taken; AdamW's weight decay is the only change, and it is zero in our loop). This is desirable
-because the group carries no information about *which* behaviour is better. For $p\sim U[0,1]$,
-$\mathbb{E}[p^G+(1-p)^G]=\frac2{G+1}$: 40% wasted for $G=4$ and 11.8% for $G=16$.
+With $\Delta=r_w-r_l$,
+$\partial(-\log\sigma(\Delta))/\partial r_w=-(1-\sigma(\Delta))=-\sigma(-\Delta)$ and
+$\partial/\partial r_l=+\sigma(-\Delta)$. Gradient descent raises $r_w$ and lowers $r_l$ in
+proportion to the probability the model currently assigns to the *wrong* ordering. Late in training,
+correctly ranked pairs with large margins contribute almost nothing, so the gradient is dominated by
+mis-ranked and borderline pairs (including label noise). A margin $m$ replaces $\Delta$ by
+$\Delta-m$: pairs must be separated by at least $m$ before their gradient fades, which keeps
+strong-preference pairs active longer.
 
-#### Exercise 44.3
+#### Exercise 42.3
 
-With $k$ correct rollouts, $\bar r=p=k/G$ and $\sum_i(r_i-\bar r)^2=k(1-p)^2+(G-k)p^2=Gp(1-p)$, so
-$s^2=\frac{G}{G-1}p(1-p)$, giving $A^+=(1-p)/s$ and $A^-=-p/s$. Then
-$\sum_iA_i=[k(1-p)-(G-k)p]/s=G(p-p)/s=0$, and $\frac1{G-1}\sum_iA_i^2=\frac{Gp(1-p)}{(G-1)s^2}=1$
-exactly (ignoring $\epsilon$). As $p\to1/G$ with $G$ large,
-$A^+=(1-p)/s\approx\sqrt{(1-p)/p}\approx\sqrt{G}$: a single success in a large group receives an
-advantage of order $\sqrt G$.
+Grouped: $K=6$ forward passes per prompt, producing all $\binom{6}{2}=15$ pair terms in one step.
+Independent pairs: $15$ pairs $\times$ 2 responses $=30$ forward passes. Each response appears in
+$K-1=5$ pairs, so with independent shuffling it contributes to 5 separate gradient steps per epoch,
+versus one step when grouped. That repetition is what drives the one-epoch overfitting InstructGPT
+reported.
 
-#### Exercise 44.4
+#### Exercise 42.4
 
-$b_i$ is a function of the other samples only, which are independent of $y_i$ given $x$, so
-$\mathbb{E}[b_i\nabla\log\pi(y_i)]=\mathbb{E}[b_i]\,\mathbb{E}[\nabla\log\pi(y_i)]=0$ and the
-estimator is unbiased. Algebra: $r_i-b_i=r_i-\frac{G\bar r-r_i}{G-1}=\frac{G}{G-1}(r_i-\bar r)$. So
-GRPO's mean-centred advantage equals the RLOO advantage times $\frac{G-1}{G}$, a constant that the
-learning rate absorbs. The "bias" of including $r_i$ in its own baseline is therefore only a
-rescaling. Dividing by the std adds a genuine per-prompt reweighting.
+With $\gamma=\lambda=1$,
+$\hat A_t=\sum_{l\ge0}\delta_{t+l}=\sum_{l}\big(r_{t+l}+V_{t+l+1}-V_{t+l}\big)$, which telescopes to
+$\sum_{k\ge t}r_k-V_t$ since $V_{T+1}=0$. With $\lambda=0$ only $l=0$ survives, so
+$\hat A_t=\delta_t$. For $\lambda=0.5$, with $\delta=(0.28,0.40,0.45,0.39)$: $\hat A_4=0.39$,
+$\hat A_3=0.45+0.5\cdot0.39=0.645$, $\hat A_2=0.40+0.5\cdot0.645=0.7225$,
+$\hat A_1=0.28+0.5\cdot0.7225=0.64125$.
 
-#### Exercise 44.5
+#### Exercise 42.5
 
-\(a\) Summed loss: every token of rollout $i$ has gradient weight $A_i/G$, independent of length.
-(b) Per-sequence mean: each token has weight $A_i/(G|y_i|)$. For correct answers of lengths 20 and
-2000, the per-token push ratio is $1:1$ under (a) and $100:1$ under (b). Under (a) the total push on
-a sequence's log-likelihood is the same for both, but because $\log\pi$ of the long sequence is a
-sum of 100 times more terms, raising it is "harder". In practice the summed objective most
-efficiently increases the probability of the *short* correct answer. Under (b), long sequences are
-barely pushed per token, so long *wrong* answers are barely penalised. That is the length bias DAPO
-and Dr. GRPO criticise ([@ch:grpo2]).
+With $r=\pi/\pi_{\text{ref}}$ and samples from $\pi=\mathrm{Bern}(0.6)$:
 
-#### Exercise 44.6
+::: center
+| $p_{\text{ref}}$ | exact KL | $\mathbb{E}[k_1]$ | $\mathbb{E}[k_2]$ | $\mathbb{E}[k_3]$ | $\mathrm{Var}[k_1]$ / $\mathrm{Var}[k_2]$ / $\mathrm{Var}[k_3]$ |
+|:---|:--:|:--:|:--:|:--:|:--:|
+| 0.5 | 0.02014 | 0.02014 | 0.01993 | 0.02014 | 0.0395 / 0.000016 / 0.000030 |
+| 0.2 | 0.38191 | 0.38191 | 0.45818 | 0.38191 | 0.770 / 0.0317 / 0.0038 |
+:::
 
-PyTorch raises *"Inference tensors cannot be saved for backward"* when the sampled ids (created
-inside inference mode) are fed through `nn.Embedding` in the differentiable pass. The embedding
-saves its index input for backward. Fixes: sample under `no_grad`; or keep inference mode for
-sampling but `.clone()` the ids outside it (cloning outside inference mode produces a normal
-tensor).
+$k_1$ and $k_3$ are unbiased because $\mathbb{E}_\pi[\pi_{\text{ref}}/\pi-1]=0$; $k_2$ is biased,
+slightly low when the distributions are close and substantially high when they are far apart. $k_3$
+combines unbiasedness with low variance and is never negative. $k_1$ is unbiased but noisy and takes
+negative values on individual samples.
 
-#### Exercise 44.7
+#### Exercise 42.6
 
-$16\times4096\times151936\times4\,\text{B}\approx39.8$ GB for the log-softmax, and the same again
-for its gradient, so $\approx80$ GB. Chunked version:
+The critic now values the state *after* token $t$, i.e. it has seen the token whose advantage is
+being estimated. Its targets become easier to fit (explained variance can rise), but the advantages
+$\delta_t=r_t+V(s_{t+1})-V(s_t)$ are computed with mismatched states. With $\gamma=1$ the
+telescoping sum no longer cancels correctly at the boundaries. The typical result is a slower and
+noisier reward curve, or a policy that improves early and then stalls. Running the lab with the
+modified slice shows this. The general lesson is to assert the alignment of logits and values in a
+unit test.
 
-``` python
-def sequence_logprob_chunked(model, ids, prompt_len, C=512):
-    h = model_hidden_states(model, ids)          # (T, d) before the LM head
-    total = 0.0
-    for s in range(prompt_len - 1, ids.numel() - 1, C):
-        logits = model.out_head(model.final_norm(h[s:s+C])).float()
-        lp = torch.log_softmax(logits, -1)
-        total = total + lp.gather(1, ids[s+1:s+1+C, None]).sum()
-    return total
-```
+#### Exercise 42.7
 
-Peak memory scales with $C\cdot|\mathcal V|$ instead of $T\cdot|\mathcal V|$. With activation
-checkpointing per chunk the backward is bounded the same way. (Exposing hidden states requires a
-small model hook; `llmsys.rl.logprobs.token_logprobs(chunk=...)` chunks after the LM head, which
-bounds the float32 copy but not the bf16 logits.)
+Assume the policy is trained with LoRA so the reference is free (adapters disabled). Policy base
+weights frozen in bf16: $32\times10^9\cdot2=64$ GB, plus adapter states (negligible for small
+ranks). Critic initialised from the 7B reward model and fully trained: $7\times10^9\cdot16=112$ GB.
+Reward model frozen: $14$ GB. Total $\approx190$ GB, so $\lceil190/56\rceil=4$ GPUs with full
+sharding. If instead the policy is fully fine-tuned with a separate bf16 reference, the total is
+$512+112+14+64=702$ GB, which needs 13 GPUs. LoRA is what makes this configuration fit on a single
+8-GPU node.
 
-#### Exercise 44.8
+#### Exercise 42.8
 
-Sequentially, $t_{\text{sample}}$ grows linearly in both $G$ and $T$ (one forward per token per
-rollout); on CPU the toy gives $a$ of the order of milliseconds per token. $t_{\text{train}}$ is
-also linear in $G\cdot T$ but with a smaller constant per token, since a prefill-style forward
-processes all tokens in parallel. With `sample_rollouts` the $G$ rollouts share each decode step, so
-$t_{\text{sample}}\approx a'\,T$ with $a'$ almost independent of $G$ until the batch stops being
-memory-bound. This is the decode roofline: weights are streamed once per step regardless of batch
-size.
+The best-of-$n$ distribution assigns the $i$-th ranked sample probability proportional to the chance
+that it beats $n-1$ others; integrating $\log\big(n F(r)^{n-1}\big)$ against its density gives
+$\log n-\frac{n-1}{n}$ for continuous rewards, and ties can only reduce it, hence the upper bound.
+The lab's $\beta=0.2$ run settles near $3.5$ nats, which corresponds to $\log n-1\approx3.5$,
+i.e. $n\approx e^{4.5}\approx90$. A run at 8 nats corresponds to $n\approx e^9\approx8{,}000$
+samples per prompt, impractical at inference time, which is why PPO's KL "budget" is cheaper to
+spend through training.
 
-#### Exercise 44.9
+#### Exercise 42.9
 
-Qwen3-4B: 36 layers, 8 KV heads, head dim 128, so the KV cache is
-$2\cdot36\cdot8\cdot128\cdot2=147$ KB per token. (i) $256$ sequences $\times4352$ tokens
-$\approx1.11\times10^6$ tokens, about 164 GB. (ii) Weights $\approx8.0$ GB in bf16. Each of the 4096
-decode steps streams the weights plus a cache that grows from 9.7 GB to 164 GB, about 95 GB on
-average, so roughly $4096\times95\,\text{GB}/3.35\,\text{TB/s}\approx116$ s. (iii) Training FLOPs
-$6\cdot4.0\times10^9\cdot1.11\times10^6\approx2.7\times10^{16}$, about 68 s at 40% MFU. The cache
-does not fit next to the weights on one 80 GB GPU ($\approx72$ GB free). It needs
-$\lceil164/72\rceil=3$ waves (or 3+ GPUs), which roughly preserves total sampling time, since each
-wave streams the weights 4096 times.
+Expected outcome: with a small target (1 nat) the controller raises $\beta$ until the policy barely
+moves; the true score improves a little and never degrades. With 3 nats the true score is near its
+best. With 10 nats the controller lets the policy spend KL on the repetition exploit, and the true
+score peaks and then falls while the RM score keeps rising. Plotting true score against final KL
+traces the rise-then-fall curve of Gao et al.
 
-#### Exercise 44.10
+#### Exercise 42.10
 
-Examples: (1) "`\boxed{7}` ... actually `\boxed{8}`" (first-box readers accept the wrong final
-answer); (2) "`\boxed{17}`" with truth 7 (substring match accepts); (3) "`\boxed{7.0}`" (no
-normalisation rejects a correct answer); (4) "`\boxed{\frac{14}{2}}`" (rejected without fraction
-handling); (5) "`\boxed{1, 2, 3, 4, 5, 6, 7}`" (substring or "contains" accepts). Harden by taking
-the last box, comparing normalised values exactly, and rejecting boxed lists when a scalar is
-expected. RL is most likely to discover the cheap ones (many boxes, lists), because they increase
-reward on *every* prompt without solving anything.
-
-#### Exercise 44.11
-
-With 20 held-out facts, GRPO transfers the *format* almost perfectly (boxing is prompt-independent
-behaviour). Correctness on held-out facts improves little, because a 76k-parameter model trained on
-80 facts has not learned an addition algorithm, and RL with an outcome reward cannot teach a fact it
-never produces. This mirrors the MATH/MATH-500 split: RLVR mostly improves how existing knowledge is
-deployed (format, persistence, self-checking), and held-out evaluation is what separates that from
-memorising the training prompts.
+With prompt plus rubric $\approx288$ tokens and responses of $512$, each judge call processes
+$\approx800$ tokens: $2\cdot70\times10^9\cdot800\cdot512\approx5.7\times10^{16}$ FLOPs per
+iteration. For the 8B policy ($T\approx768$ tokens per sequence): generation
+$\approx6.3\times10^{15}$, scoring with policy, reference and value $\approx1.9\times10^{16}$, and
+two PPO epochs over actor and critic $\approx7.5\times10^{16}$. The judge is therefore about $36\%$
+of the FLOPs, and since it sits between generation and learning it adds directly to the iteration
+time. Two remedies: (i) score asynchronously, sending each response to a separate judge pool as soon
+as it finishes so judging overlaps with ongoing generation (and with the previous iteration's
+learning, at one step of staleness, [@sec:rlsys:async]); (ii) distil the judge into a small
+reward model trained on its labels, and call the judge only on a sample to monitor drift.

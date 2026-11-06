@@ -1,4 +1,4 @@
-"""Optimizers, schedules and training-loop plumbing written from first principles (Chapter 17).
+"""Optimizers, schedules and training-loop plumbing written from first principles (Chapter 19).
 
 Everything here is deliberately small and readable, but complete enough to train real models:
 
@@ -319,7 +319,7 @@ class WSD:
     """Warmup-Stable-Decay ("trapezoidal"): warmup, a long constant phase, and a short
     final decay (``decay_frac`` of the run) to ``floor``. Because the stable phase does not
     depend on the run length, one long run can be branched into several decayed checkpoints
-    (one per token budget), which makes scaling studies cheap (Chapter 20)."""
+    (one per token budget), which makes scaling studies cheap (Chapter 22)."""
     peak: float
     total: int
     warmup: int = 0

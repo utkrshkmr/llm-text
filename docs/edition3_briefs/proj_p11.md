@@ -1,7 +1,7 @@
-# Brief: Project 11, A low-precision training study (book/chapters/ch05_proj_lowprec.md {#ch:proj11}, kit code/projects/p11_lowprec NEW)
+# Brief: Project 11, A low-precision training study (book/chapters/ch07_proj_lowprec.md {#ch:proj11}, kit code/projects/p11_lowprec NEW)
 
 Read projects_common.md first (all of it), then BRIEF_conventions.md (esp. §7), docs/PLAN.md §4 "P11", and the
-chapters this capstone of Part I builds on: [@ch:pytorch], [@ch:numerics]. Budget on 2×A100-40GB PCIe: ~10 GPU-h (estimate; calibrate in
+chapters this capstone of Part I builds on: [@ch:pytorch], [@ch:machine], [@ch:numerics], [@ch:quant]. Budget on 2×A100-40GB PCIe: ~10 GPU-h (estimate; calibrate in
 the GPU stage).
 
 Research questions: for small MLPs and a tiny transformer (model code provided in the kit, since Part II comes later),

@@ -1,4 +1,4 @@
-"""Acceptance tests for Project 10, know your machine (Chapter 4).
+"""Acceptance tests for Project 10, know your machine (Chapter 6).
 
     LAB_IMPL=solution python -m pytest -q projects/p10_machine     # the reference solution
     P10_IMPL=~/my_p10 python -m pytest -q projects/p10_machine     # your package (same modules)

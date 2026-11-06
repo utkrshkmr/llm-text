@@ -5,26 +5,26 @@ project ships with" list) and docs/TEST_PLAN.md §5, then the existing project k
 one, and the book chapters your project draws on.
 
 Mapping (project -> chapter file, label, kit dir):
-- P1 -> book/chapters/ch25_proj_basics.md, ch:proj1, code/projects/p1_lm
-- P2 -> ch26_proj_systems.md, ch:proj2, p2_systems
-- P3 -> ch27_proj_scaling.md, ch:proj3, p3_scaling
-- P4 -> ch28_proj_data.md, ch:proj4, p4_data
-- P5 -> ch66_proj_alignment.md, ch:proj5, p5_reasoning_rl
-- P6 NEW -> ch50_proj_serving.md, ch:proj6, p6_serving
-- P7 NEW -> ch51_proj_cpu_runtime.md, ch:proj7, p7_cpu_runtime (+ code/runtime/, standalone CMake C++ engine)
-- P8 NEW -> ch36_proj_moe.md, ch:proj8, p8_moe
-- P9 NEW -> ch52_proj_profiler.md, ch:proj9, p9_profiler
-- P10 NEW -> ch04_proj_machine.md, ch:proj10, p10_machine
-- P11 NEW -> ch05_proj_lowprec.md, ch:proj11, p11_lowprec
-- P12 NEW -> ch15_proj_bringup.md, ch:proj12, p12_bringup
-- P13 NEW -> ch16_proj_mixers.md, ch:proj13, p13_mixers
-- P14 NEW -> ch37_proj_compiler.md, ch:proj14, p14_compiler
-- P15 NEW -> ch38_proj_kernels.md, ch:proj15, p15_kernels
-- P16 NEW -> ch41_proj_peft.md, ch:proj16, p16_peft
-- P17 NEW -> ch42_proj_specialist.md, ch:proj17, p17_specialist
-- P18 NEW -> ch53_proj_longctx.md, ch:proj18, p18_longctx
-- P19 NEW -> ch67_proj_agentic.md, ch:proj19, p19_agentic
-- P20 NEW -> ch68_proj_distill.md, ch:proj20, p20_distill
+- P1 -> book/chapters/ch27_proj_basics.md, ch:proj1, code/projects/p1_lm
+- P2 -> ch28_proj_systems.md, ch:proj2, p2_systems
+- P3 -> ch29_proj_scaling.md, ch:proj3, p3_scaling
+- P4 -> ch30_proj_data.md, ch:proj4, p4_data
+- P5 -> ch68_proj_alignment.md, ch:proj5, p5_reasoning_rl
+- P6 NEW -> ch52_proj_serving.md, ch:proj6, p6_serving
+- P7 NEW -> ch53_proj_cpu_runtime.md, ch:proj7, p7_cpu_runtime (+ code/runtime/, standalone CMake C++ engine)
+- P8 NEW -> ch38_proj_moe.md, ch:proj8, p8_moe
+- P9 NEW -> ch54_proj_profiler.md, ch:proj9, p9_profiler
+- P10 NEW -> ch06_proj_machine.md, ch:proj10, p10_machine
+- P11 NEW -> ch07_proj_lowprec.md, ch:proj11, p11_lowprec
+- P12 NEW -> ch17_proj_bringup.md, ch:proj12, p12_bringup
+- P13 NEW -> ch18_proj_mixers.md, ch:proj13, p13_mixers
+- P14 NEW -> ch39_proj_compiler.md, ch:proj14, p14_compiler
+- P15 NEW -> ch40_proj_kernels.md, ch:proj15, p15_kernels
+- P16 NEW -> ch43_proj_peft.md, ch:proj16, p16_peft
+- P17 NEW -> ch44_proj_specialist.md, ch:proj17, p17_specialist
+- P18 NEW -> ch55_proj_longctx.md, ch:proj18, p18_longctx
+- P19 NEW -> ch69_proj_agentic.md, ch:proj19, p19_agentic
+- P20 NEW -> ch70_proj_distill.md, ch:proj20, p20_distill
 
 Placement rule: every part of the book ends with its capstones, and a capstone may use only its own part and earlier
 parts (state prerequisites at the top of the chapter with [@ch:...] references; anything from later parts is an

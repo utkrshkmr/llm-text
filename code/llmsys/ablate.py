@@ -1,6 +1,6 @@
-"""A configurable decoder-only LM for architecture ablations (Chapter 10).
+"""A configurable decoder-only LM for architecture ablations (Chapter 12).
 
-Every design choice that Chapter 10 discusses is a field of :class:`ArchConfig`:
+Every design choice that Chapter 12 discusses is a field of :class:`ArchConfig`:
 norm type and placement, positional encoding, MLP activation/gating, QK-norm,
 z-loss, logit soft-capping, tied embeddings, parallel blocks, biases, and
 initialisation. Linear and embedding layers are written from scratch with

@@ -1,4 +1,4 @@
-// FlashAttention-2 backward on tensor cores (Chapter 32).
+// FlashAttention-2 backward on tensor cores (Chapter 34).
 //
 //   flash_attn_bwd(do, q, k, v, o, lse, causal, window, sinks, scale) -> (dq, dk, dv)
 //   q, o, do, dq: (B, H, T, D);  k, v, dk, dv: (B, G, S, D) with H % G == 0 (GQA)

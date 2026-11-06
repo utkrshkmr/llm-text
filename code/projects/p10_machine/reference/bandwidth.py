@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): the bandwidth suite, milestone 1 (Chapter 4).
+"""Project 10 (reference solution): the bandwidth suite, milestone 1 (Chapter 6).
 
 On-device streams (copy/read/write/triad) swept over working-set size expose the L2 plateau, the
 HBM plateau and the knee between them; host<->device copies compare pageable with pinned memory

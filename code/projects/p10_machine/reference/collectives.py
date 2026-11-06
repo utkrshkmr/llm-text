@@ -1,5 +1,5 @@
 """Project 10 (reference solution): is the NCCL path between two GPUs correct, and how fast?
-(Chapter 4)
+(Chapter 6)
 
 The peer-copy check of ``bandwidth.p2p_bandwidth`` tests PyTorch's direct device-to-device copy.
 Distributed training uses NCCL instead, which picks its own transport from the topology. This

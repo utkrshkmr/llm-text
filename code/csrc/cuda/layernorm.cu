@@ -1,4 +1,4 @@
-// LayerNorm forward and backward on the GPU (Chapter 31).
+// LayerNorm forward and backward on the GPU (Chapter 33).
 //
 //   layernorm_fwd(Tensor x, Tensor weight, Tensor bias, float eps) -> (Tensor y, Tensor mean, Tensor rstd)
 //   layernorm_bwd(Tensor grad_out, Tensor x, Tensor mean, Tensor rstd, Tensor weight)

@@ -22,7 +22,7 @@ compiler.](figures/appB_accelerators-1.svg){#fig:accel:taxonomy}
 
 ## One roofline, many machines {#sec:accel:roofline}
 
-The roofline of [@ch:pytorch] applies to every design. A kernel with arithmetic intensity $I$
+The roofline of [@ch:machine] applies to every design. A kernel with arithmetic intensity $I$
 (FLOPs per byte of off-chip traffic) runs at most at $\min(C, I\cdot B)$ FLOP/s, where $C$ is peak
 compute and $B$ the off-chip bandwidth. The ridge point $C/B$ is the intensity a kernel needs to be
 compute-bound. [@fig:accel:roofline] overlays four accelerators.

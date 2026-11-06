@@ -2,7 +2,7 @@
 
 Both readers yield :class:`llmsys.datapipe.pipeline.Doc` records in file order, so a shard job is
 deterministic whichever reader a machine has. WARC response records are decoded and extracted
-(Resiliparse when installed, the Chapter 19 extractor otherwise); WET conversion records already hold
+(Resiliparse when installed, the Chapter 21 extractor otherwise); WET conversion records already hold
 plain text. FastWARC reads a gzipped WET file several times faster than the pure-Python reader, which
 matters for the real crawl and not at all for the synthetic one.
 """

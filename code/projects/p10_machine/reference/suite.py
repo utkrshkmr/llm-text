@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): the whole suite, milestones 1-5 in order (Chapter 4).
+"""Project 10 (reference solution): the whole suite, milestones 1-5 in order (Chapter 6).
 
     doc = run(load_config("configs/smoke.json"), device="cuda", out="results/smoke.json")
 

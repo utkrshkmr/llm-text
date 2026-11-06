@@ -1,4 +1,4 @@
-"""Project 10 (reference solution): latency and overhead suite, milestone 3 (Chapter 4).
+"""Project 10 (reference solution): latency and overhead suite, milestone 3 (Chapter 6).
 
 The fixed costs that the roofline ignores: how long the host takes to enqueue one kernel, how long
 the device takes to run an empty one, what a synchronisation or a scalar read-back costs, how slow

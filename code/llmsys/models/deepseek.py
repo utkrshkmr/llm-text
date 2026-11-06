@@ -1,4 +1,4 @@
-"""DeepSeek-V2/V3-style decoder (Chapter 14).
+"""DeepSeek-V2/V3-style decoder (Chapter 16).
 
 Three ingredients that the other families do not have:
 

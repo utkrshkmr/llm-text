@@ -1,109 +1,92 @@
-## Chapter 45: Improving GRPO {#chapter-45-improving-grpo .unnumbered}
+## Chapter 43: Direct Preference Optimization and Its Family {#chapter-43-direct-preference-optimization-and-its-family .unnumbered}
 
-#### Exercise 45.1
+#### Exercise 43.1
 
-All three edits give 0: a typo makes the tag a different token sequence, so `index` raises; reversed
-order fails the `<` test; a missing tag raises. The string check catches the same three. The
-id-based check can be broken by tokenisation: if the tokenizer does not treat `<think>` as a special
-token (the Qwen3 *base* tokenizer splits it into three pieces), the text contains the tag but the
-single id never occurs, so the id check returns 0 while the string check returns 1. Conversely, the
-model may emit pieces that decode to the tag without the special id.
+$\pi^*\propto\pi_{\text{ref}}e^{r/\beta}$. For $\beta=0.1$:
+$\pi^*\approx(0.0000,\,0.0001,\,0.9999)$; for $\beta=1$: $(0.179,\,0.292,\,0.529)$; for $\beta=10$:
+$(0.465,\,0.308,\,0.227)$. The maximum objective equals $\beta\log Z$ (from the proof of
+[@prop:dpo:gibbs]): $1.839$, $1.027$, $0.731$ respectively. Sampling random $\pi$ from a
+Dirichlet and evaluating $\mathbb{E}_\pi[r]-\beta\operatorname{KL}(\pi\|\pi_{\text{ref}})$ never
+exceeds these values, and the gap equals $\beta\operatorname{KL}(\pi\|\pi^*)$.
 
-#### Exercise 45.2
+#### Exercise 43.2
 
-In our runs (two seeds, 150 steps), every format variant drove `format_avg` to $\approx$ 0.99 within
-about 30 steps, because the SFT model already emitted `<think>` 20% of the time and the tag is the
-easiest reward available. Unconditional weight 1 reached a late-run `correct_avg` of about 0.74 and
-greedy accuracy of 0.84--0.87, below the baseline (0.83 and 0.89--0.96). Weight 0.1 behaved the
-same, since even a small weight breaks ties between otherwise identical rollouts. The conditional
-variant recovered the baseline's correctness (0.80--0.86, greedy 0.91--0.96). In
-[@fig:grpo2:formatfig], under plain summation a wrong-but-tagged rollout ties with a
-right-but-untagged one, so early gradient mainly teaches tagging. Conditioning makes correctness a
-prerequisite for any reward.
+BT depends on $r(x,y_w)-r(x,y_l)$, in which $f(x)$ cancels. In ([-@eq:dpo:gibbs]),
+$e^{(r+f)/\beta}=e^{f/\beta}e^{r/\beta}$ and $e^{f(x)/\beta}$ is absorbed by $Z(x)$, so $\pi^*$ is
+unchanged. Rewards, and therefore DPO's implicit rewards, are identifiable only up to a per-prompt
+offset: compare them only between responses to the same prompt.
 
-#### Exercise 45.3
+#### Exercise 43.3
 
-With `inner_epochs`$=1$ the clip fraction is exactly 0 (every ratio is 1). In our `clip_reuse4` runs
-(4 full-batch passes, learning rate $3\times10^{-4}$) the late-run clip fraction was only 2--3%, yet
-the clipped run kept the baseline's accuracy (0.88--0.95) while the unclipped one degraded to
-0.50--0.62. A small fraction of clipped tokens can carry most of the damage, because they are
-exactly the tokens whose probability is running away. The clip fraction grows with the number of
-passes and with the learning rate; where it crosses 0.2 depends on both, so measure it. Wall-clock
-time per update falls roughly as $(t_{\text{sample}}+k\,t_{\text{update}})/k$, so the saving
-saturates once $k\,t_{\text{update}}$ dominates. On real reasoning workloads, where sampling
-dominates, $k=2$--4 is the usual sweet spot.
+With $h=\hat r_w-\hat r_l$, $\partial(-\log\sigma(h))/\partial h=-\sigma(-h)$ and
+$\nabla_\theta h=\beta(\nabla\log\pi_\theta(y_w\mid x)-\nabla\log\pi_\theta(y_l\mid x))$ (the
+reference terms are constants), giving ([-@eq:dpo:grad]). At initialisation $h=0$ and
+$\sigma(0)=1/2$, so
+$\nabla\mathcal{L}=-\frac{\beta}{2}\nabla(\log\pi_\theta(y_w)-\log\pi_\theta(y_l))$. This is why the
+first steps of DPO resemble "SFT on winners minus SFT on losers" at half strength.
 
-#### Exercise 45.4
+#### Exercise 43.4
 
-$\mathbb{E}_p[r]=\sum_yp(y)\frac{q(y)}{p(y)}=1$, so
-$\mathbb{E}_p[k_3]=1-1-\mathbb{E}_p[\log r]=\mathbb{E}_p[\log\frac{p}{q}]=\operatorname{KL}(p\|q)$.
-Pointwise, $f(r)=r-1-\log r$ has $f(1)=0$, $f'(r)=1-1/r$ and $f''>0$, so $f\ge0$. Numerically, all
-three sample means converge to the true KL ($k_2$ to a slightly different value, being biased).
-$k_1$ has the largest variance and negative samples; $k_3$ typically has the smallest variance when
-$p$ and $q$ are close.
+Setting the derivative $-(1-\varepsilon)\sigma(-h)+\varepsilon\sigma(h)$ to zero gives
+$\sigma(h^*)=1-\varepsilon$, i.e. $h^*=\log\frac{1-\varepsilon}{\varepsilon}$ ($\log 9\approx2.20$
+for $\varepsilon=0.1$). The minimum is the binary entropy
+$-(1-\varepsilon)\log(1-\varepsilon)-\varepsilon\log\varepsilon$. As $\varepsilon\to0$,
+$h^*\to\infty$: plain DPO has no finite optimum on a single, always-agreeing pair.
 
-#### Exercise 45.5
+#### Exercise 43.5
 
-With zero advantages, the sequence surrogate's gradient is $\beta\nabla\sum_t\log\pi_\theta(y_t)$ on
-the fixed sampled tokens. Descending it lowers the probability of exactly those tokens, so
-probability flows to everything else, the sampled-token probability falls and entropy rises
-monotonically. The per-token $k_3$ term has gradient $\beta(1-r_t)\nabla\log\pi_\theta(y_t)$ with
-$r_t=\pi_{\text{ref}}/\pi_\theta$. It is zero when the policy equals the reference and *changes
-sign* when the policy undershoots ($r_t>1$ raises the token's probability again). It therefore pulls
-toward $\pi_{\text{ref}}$ rather than away from the samples, and entropy returns to the reference's
-level.
+With uniform $\pi_{\text{ref}}$ the reference terms cancel and the log-ratio margin is
+$h_0=\log\sigma(z)-\log\sigma(-z)=z$. DPO: $-\log\sigma(\beta z)$ decreases monotonically in $z$, so
+the infimum is at $z\to\infty$, i.e. $\pi(y_w)\to1$ (deterministic). IPO: $(z-\frac{1}{2\tau})^2$ is
+minimised at $z^*=1/(2\tau)$, so $\pi(y_w)=\sigma(1/(2\tau))<1$. The squared loss keeps the policy
+at a finite distance from $\pi_{\text{ref}}$, controlled by $\tau$.
 
-#### Exercise 45.6
+#### Exercise 43.6
 
-Per-token gradient weights for (short $+1$, long $-1$):
+Mean log-probs give $h=\beta\big[\frac{1}{|y_w|}\Delta_w-\frac{1}{|y_l|}\Delta_l\big]$ with
+$\Delta=\log\pi_\theta-\log\pi_{\text{ref}}$, i.e. DPO with $\beta_y=\beta/|y|$. A winner twice as
+long as the loser has its log-ratio down-weighted by $2\times$ relative to the loser's. Compared
+with standard DPO, where a long winner accumulates log-ratio over more tokens, this removes the
+incentive to lengthen responses. Relative to summed DPO, it favours shorter outputs.
 
-::: center
-| rule                                 | per token (short) | per token (long) | total long |
-|:-------------------------------------|:-----------------:|:----------------:|:----------:|
-| `seq_mean_token_mean`                |    $1/20=0.05$    | $1/2000=0.0005$  |   $0.5$    |
-| `token_mean`                         |     $1/1010$      |     $1/1010$     |   $0.99$   |
-| `seq_mean_token_sum_norm` ($L=1000$) |     $1/2000$      |     $1/2000$     |   $0.5$    |
-:::
+#### Exercise 43.7
 
-Per-sequence averaging lets each token of the long wrong answer off 100 times more lightly than a
-token of the short right answer, which over many updates favours long wrong answers. Token-level and
-constant normalisation treat tokens equally.
+With mismatched truncation, the prompt or response tokens differ between cache and policy, so at
+step 0 the per-pair log-ratios are not zero: the loss deviates from $\ln 2$, the margins are
+non-zero, and reward accuracy is not $1/2$. Dropout in the policy pass adds zero-mean noise to the
+log-ratios, so the loss is slightly *above* $\ln 2$ on average and accuracy is random around $1/2$.
+Assertions after the first micro-batch:
 
-#### Exercise 45.7
+``` python
+assert abs(loss0 - math.log(2)) < 1e-3, "policy != reference at step 0"
+assert margins0.abs().max() < 1e-4,      "cache/template/truncation mismatch"
+assert not policy.training or no_dropout(policy), "disable dropout for DPO"
+```
 
-With std scaling, $\sum_i|A_i|=\frac{2Gp(1-p)}{s}
-=2\sqrt{G(G-1)}\sqrt{p(1-p)}$. Without it, $2Gp(1-p)$. The ratio (with/without) is $1/s$, which is
-largest when $p(1-p)$ is small, i.e. for nearly-always-solved and nearly-never-solved prompts. For
-$G=8$: at $p=\frac18$ the scaled weight is 4.95 versus 1.75 unscaled; at $p=\frac12$ it is 7.48
-versus 4. Std scaling up-weights edge cases relative to medium-difficulty prompts. Dr. GRPO calls
-this a difficulty bias. One could argue the reverse, that rare successes on hard prompts are the
-most informative, which is why DeepSeek-V3.2 keeps it.
+#### Exercise 43.8
 
-#### Exercise 45.8
+Pack $[x, y_w, y_l]$ into one row with positions $0..T_p{-}1$, $T_p..T_p{+}T_w{-}1$,
+$T_p..T_p{+}T_l{-}1$, and a mask in which $y_l$ attends to $x$ and causally to itself but not to
+$y_w$. The log-probs then match the pair batch to float precision. With toy responses of about 6
+tokens, tokens per pair are $2T_p+12$ (naive) vs $T_p+12$ (shared): 20 vs 16 for $T_p=4$, 44 vs 28
+for $T_p=16$, 140 vs 76 for $T_p=64$. The saving approaches 50% as prompts dominate.
 
-Full `token_entropy` on a $(4096,151936)$ tensor creates float32 copies of the logits, log-probs and
-their product: about three times 2.5 GB. The chunked version holds
-$\approx3\times C\times|\mathcal V|\times4$ B, i.e. $\approx$ 0.47 GB at $C=256$ and
-$\approx$ 1.9 GB at $C=1024$, with run time almost unchanged above $C\approx128$ (each chunk is
-still a large, efficient kernel). Below that, launch overhead dominates.
+#### Exercise 43.9
 
-#### Exercise 45.9
+$2\cdot4\cdot2048\cdot151936\cdot4\approx9.96$ GB of fp32 logits. (a) Slicing to the response half
+before the LM head halves it, to $\approx4.98$ GB. (b) Chunking over 8 sequence chunks keeps only
+one chunk's logits alive: $\approx1.24$ GB peak (plus the saved per-token log-probs, which are
+negligible). (c) bf16 logits halve storage, to $\approx4.98$ GB unchunked; compute `logsumexp` in
+fp32 per chunk to avoid precision loss.
 
-The policy with AdamW needs $32\times10^9\times16\,\text{B}/16=32$ GB per GPU when FSDP-sharded. (a)
-A full bf16 reference adds 64 GB per GPU, 96 GB in total, which does not fit on 80 GB GPUs. (b)
-Sharding it like the policy adds 4 GB per GPU, plus an all-gather of $\approx64$ GB of reference
-weights per forward pass (each GPU receives $\frac{15}{16}\cdot64$ GB per step): $\approx0.15$ s at
-400 GB/s NVLink, over a second across 50 GB/s InfiniBand, overlappable layer by layer. (c) The
-rollout workers compute reference log-probs. That costs trainer memory nothing and ships only 4
-bytes per token (4 MB per million tokens), but the rollout fleet must hold an extra 64 GB copy (or
-reuse the base weights if the policy is a LoRA adapter). Option (c) is common in disaggregated
-systems, and (b) in colocated ones.
+#### Exercise 43.10
 
-#### Exercise 45.10
-
-Casting to bf16 changes per-token log-probs by roughly $10^{-3}$--$10^{-2}$ nats, with heavy tails
-on low-probability tokens. On the toy task, training is stable either way, because sequences are
-short and the mismatch is small. The truncated weights mostly sit within $[0.99,1.01]$, with a few
-capped outliers. The effect becomes important on long sequences (thousands of tokens, where small
-per-token differences compound) and with aggressive sampler optimisations such as FP8 KV caches or
-speculative decoding.
+Per round: $8\times10^4$ responses of $\sim$`<!-- -->`{=html}512 tokens is $\approx4\times10^7$
+generated tokens. Decode for a 7B model is memory-bound ([@ch:inference]); with large batches
+an H100 sustains on the order of $10^4$ tokens/s, so 8 GPUs take
+$\approx40\text{M}/(8\cdot1.5\times10^4)\approx5$--6 minutes. Scoring with a 1B reward model costs
+$\approx2\cdot10^9\cdot768\cdot8\times10^4\approx1.2\times10^{17}$ FLOPs, under a minute. Training
+on $2\times10^4$ pairs of $2(256+512)=1536$ tokens at $8N$ FLOPs/token (policy plus reference) is
+$\approx1.7\times10^{18}$ FLOPs, about 9 minutes at 40% MFU on 8 H100s. The phases are batched and
+of similar length, so time-share all 8 GPUs (generate, score, train, sync weights once per round)
+rather than splitting them: a disaggregated layout would leave half the GPUs idle in every phase.

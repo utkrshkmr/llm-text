@@ -1,86 +1,117 @@
-## Chapter 18: Distributed Training Systems {#chapter-18-distributed-training-systems .unnumbered}
+## Chapter 16: Scaling Laws in Practice {#chapter-16-scaling-laws-in-practice .unnumbered}
 
-#### Exercise 18.1 (Ring all-reduce cost).
+#### Exercise 16.1
 
-Each of the $p-1$ reduce-scatter steps and $p-1$ all-gather steps sends one chunk of $n/p$ bytes per
-rank, all links busy in parallel: $2(p-1)(\alpha+\frac np\beta)$, which is [@eq:dist:ring].
-Recursive halving: in round $j=1..\log_2p$ each rank exchanges half of its current working set with
-a partner at distance $p/2^j$, i.e. $n/2,n/4,\dots,n/p$ bytes, summing to $n(p-1)/p$ in $\log_2p$
-messages; recursive doubling for the all-gather mirrors it. Total
-$2\log_2p\,\alpha+2\frac{p-1}{p}n\beta$.
+Minimise $E+AN^{-\alpha}+BD^{-\beta}$ subject to $6ND=C$. With $D=C/(6N)$ the objective is
+$f(N)=E+AN^{-\alpha}+B(6N/C)^{\beta}$, and $f'(N)=0$ gives
+$\alpha AN^{-\alpha}=\beta B(6N/C)^{\beta}=\beta BD^{-\beta}$. That is the stated $1:1$ ratio: at
+the optimum the *marginal* gains from a relative increase in $N$ and in $D$ are equal, so no
+reallocation helps. Solving $\alpha AN^{-\alpha}=\beta B(6N/C)^{\beta}$ gives
+$N^{\alpha+\beta}=\frac{\alpha A}{\beta B}(C/6)^{\beta}$, so
+$N_{\text{opt}}=G(C/6)^{\beta/(\alpha+\beta)}$ with $G=(\alpha A/\beta B)^{1/(\alpha+\beta)}$, and
+$D_{\text{opt}}=(C/6)/N_{\text{opt}}=G^{-1}(C/6)^{\alpha/(\alpha+\beta)}$.
 
-#### Exercise 18.2 (Two-level all-reduce).
+#### Exercise 16.2
 
-Reduce-scatter inside the node: $\frac78\,n/B_1$; all-reduce of the $n/8$ shards across $N$ nodes
-(each GPU uses its own NIC): $2\frac{N-1}{N}\frac n8/B_2$; all-gather inside the node:
-$\frac78\,n/B_1$. For large $N$: $\approx1.75\,n/B_1+0.25\,n/B_2$. A flat ring over $8N$ GPUs is
-limited by its inter-node hops: $\approx2n/B_2$. With $B_1=450$, $B_2=50$ GB/s: $0.0089\,n$ vs
-$0.040\,n$ seconds per GB, about $4.5\times$ faster hierarchically (latency terms aside).
+The minimum of each IsoFLOP profile is exactly the constrained optimum of 12.1, so the minima lie on
+$N_{\text{opt}}\propto C^{\beta/(\alpha+\beta)}$ with no approximation. With $C=6(N+Vd)D$, the
+tokens a budget buys are $D=C/(6(N+Vd))$. At small $N$, where $Vd$ is comparable with $N$, a model
+gets fewer tokens than the $6ND$ rule assumes. This shifts the small-budget optima towards smaller
+$N$, where the per-token cost is relatively lower. As $C$ grows the embedding term fades, the optima
+move back onto the ideal line, and the fitted exponent over a small-scale range comes out *larger*
+than $\beta/(\alpha+\beta)$. This is one of the mechanisms behind Kaplan's larger exponent.
 
-#### Exercise 18.3 (Bucket size).
+#### Exercise 16.3
 
-Require $\alpha\le0.05\,n\beta$,
-i.e. $n\ge20\alpha/\beta=20\cdot20\,\mathrm{\micro s}\cdot50\,\mathrm{GB/s}
-=20\,\mathrm{MB}$. Very large buckets fill late: the first all-reduce starts only after a large
-fraction of the backward pass, and the final (exposed) bucket is large, so less communication is
-hidden.
+Qwen3-0.6B: $L=28$, $d=1024$, 16 query heads of dimension 128 (query width 2048), 8 KV heads (K and
+V width 1024), $d_{\text{ff}}=3072$, $V=151{,}936$, tied embeddings. Per layer: $Q$ $1024\cdot2048$,
+$K$ and $V$ $1024\cdot1024$ each, $O$ $2048\cdot1024$, which is $6.29$M for attention; MLP
+$3\cdot1024\cdot3072=9.44$M; per layer $15.73$M, so $N_{\text{ne}}=440.4$M. The tied embedding holds
+$155.6$M ($26\%$ of all weights). Training FLOPs per token: $6(440.4+155.6)\text{M}=3.58\times10^9$
+for the matmuls (the tied table is still a full $V\times d$ matmul at the output), plus attention
+$6\cdot L\cdot T\cdot(Hd_h)=6\cdot28\cdot4096\cdot2048
+=1.41\times10^9$, which is 39% on top of $6N$. At long context the attention term is not negligible.
+The assumptions behind $12Ld^2$ that break here: query width $\neq d$ ($Hd_h=2d$), GQA shrinks K and
+V, $d_{\text{ff}}/d=3$ rather than $8/3$, and tied embeddings.
 
-#### Exercise 18.4 (No-sync accumulation).
+#### Exercise 16.4
 
-Add a flag `self.sync=True` and a context manager that sets it to `False`; in `_on_grad_ready`
-return immediately when `not self.sync` (gradients simply keep accumulating in `.grad`); on the last
-micro-batch the flag is `True` and buckets launch as usual, carrying the accumulated sums. Without
-it, $k$-step accumulation performs $k$ all-reduces; with it, one---so communication time drops by
-$\approx k\times$.
+Write $x=\log N$ and assume locally $L(x)=L^*+\tfrac\kappa2(x-x^*)^2$. On a grid with spacing
+$\ln r$, the nearest grid point is at most $\tfrac12\ln r$ from $x^*$, so the min reading has
+$|\Delta x|\le\tfrac12\ln r$ and $0\le\Delta L\le\kappa(\ln r)^2/8$. With noise of standard
+deviation $\sigma$ per run, the min reading can also pick the wrong neighbour whenever the loss gap
+between neighbours ($\approx\kappa(\ln r)^2/2$ one step from the optimum) is comparable to $\sigma$.
+A parabola through $k$ points averages the noise and interpolates, so it helps when
+$\sigma\lesssim\kappa(\ln r)^2/2$ and the valley is well approximated by a parabola over the grid;
+for very wide grids the quartic terms bias the vertex, which favours several sizes close to the
+minimum over a very wide sweep.
 
-#### Exercise 18.5 (ZeRO arithmetic).
+#### Exercise 16.5
 
-[@tab:dist:zero] follows from $\Psi=7.5$B, $N_d=64$, $K=12$. For 13B on 16 GPUs: DP 208 GB
-(no); ZeRO-1 $(4+12/16)\cdot13=61.8$ GB (18 GB left, no); ZeRO-2 $(2+14/16)\cdot13=37.4$ GB (42.6 GB
-left, yes). ZeRO-2 is the lowest stage that works.
+With $E=BS$ and $E_{\min}=B_{\text{crit}}S_{\min}$, write $s=S/S_{\min}$: then
+$E/E_{\min}=(B/B_{\text{crit}})s$ and $(s-1)\bigl((B/B_{\text{crit}})s-1\bigr)=1$ reduces to
+$s\bigl((B/B_{\text{crit}})s-B/B_{\text{crit}}-1\bigr)=0$, so $s=1+B_{\text{crit}}/B$. Hence
+$S=S_{\min}(1+B_{\text{crit}}/B)$ and $E=BS=E_{\min}(1+B/B_{\text{crit}})$. The time to target is
+$T(B)=S_{\min}(1+B_{\text{crit}}/B)(t_0+B/R)$, and $T'(B)=0$ gives $1/R=B_{\text{crit}}t_0/B^2$, so
+$B^*=\sqrt{B_{\text{crit}}\,t_0R}$. This exceeds $B_{\text{crit}}$ exactly when
+$t_0R>B_{\text{crit}}$: when the fixed per-step overhead (launches, communication latency, optimizer
+step) is worth more than $B_{\text{crit}}$ examples of throughput, it pays to take fewer, larger
+steps even though they waste data.
 
-#### Exercise 18.6 (TP backward).
+#### Exercise 16.6
 
-$\mathbf{Y}_r=\mathbf{X}\mathbf{W}_r^\top$ for every $r$, so $\mathcal L$ depends on $\mathbf{X}$
-through all $\mathbf{Y}_r$ and
-$\partial\mathcal L/\partial\mathbf{X}=\sum_r(\partial\mathcal L/\partial\mathbf{Y}_r)\mathbf{W}_r$.
-Rank $r$ only knows its own term, hence the all-reduce in the backward of $f$. For the row-parallel
-layer $\mathbf{Y}=\sum_r\mathbf{X}_r\mathbf{W}_r^\top$, so $\partial\mathcal L/\partial\mathbf{X}_r=
-(\partial\mathcal L/\partial\mathbf{Y})\mathbf{W}_r$: the output gradient is replicated after $g$'s
-(identity) backward, and each rank needs only its own $\mathbf{W}_r$---no communication.
+In the synthetic service, intermediate losses of a cosine run sit above finished runs of the same
+length by an amount proportional to the not-yet-decayed LR. The early points are inflated most, so
+loss appears to fall faster with $D$ than it really does. One reference run (a 50M-parameter model,
+16 evaluations, separate runs for comparison) gave $\hat\beta\approx0.35$ from the intermediate
+losses versus $0.29$ from separate runs, which matches the hidden truth. An overestimated $\beta$
+makes data look more valuable and biases the allocation toward smaller models. With WSD, a short
+decay from a stable-phase checkpoint produces a genuinely finished run of that length, which removes
+the bias at the cost of the decays.
 
-#### Exercise 18.7 (Attention under TP).
+#### Exercise 16.7
 
-Give each rank $H/t$ query heads with their Q/K/V columns (column-parallel) and the matching
-$H/t\cdot d_{h}$ input columns of the output projection (row-parallel); softmax and the causal mask
-act per head, so they stay local. Constraint: $t$ divides $H$. With GQA, each rank also needs the KV
-heads its query heads use; if $t$ exceeds the number of KV groups $G$, KV heads must be replicated
-on $t/G$ ranks (and their gradients all-reduced among those replicas), which wastes memory and
-compute and caps useful TP at $G$ for KV projections.
+Durations $D_{\max}2^{-j}$, $j=0..k-1$. Cosine: $m\sum_j D_{\max}2^{-j}\to
+2mD_{\max}$. WSD: $m\bigl(D_{\max}+f\sum_jD_{\max}2^{-j}\bigr)\to mD_{\max}(1+2f)$. The saving tends
+to $1-(1+2f)/2=\tfrac12-f$, which is $40\%$ for $f=0.1$. For $k=4$ the totals are $15/8$ versus
+$1+0.1\cdot15/8$ (in units of $mD_{\max}$), a $37\%$ saving, as in the napkin box.
 
-#### Exercise 18.8 (Bubbles).
+#### Exercise 16.8
 
-For $p=8$ both schedules give $7/(m+7)$: $46.7\%$, $30.4\%$, $17.9\%$, $9.9\%$ for $m=8,16,32,64$.
-Peak in-flight micro-batches: GPipe $m$ on every stage; 1F1B $\min(8-s,m)$, i.e. at most 8. With
-$v=2$ interleaving the bubble becomes $3.5/(m+3.5)$ (e.g. $9.9\%$ at $m=32$).
+Adam's update has entries $\pm\eta$ (the sign of the normalised gradient). For a linear layer the
+gradient is an outer product $g x^\top$, so the update is aligned with $x$:
+$\Delta W\approx\eta\,\mathrm{sign}(g)\,\mathrm{sign}(x)^\top$. Then
+$(\Delta W x)_i\approx\eta\sum_j|x_j|=\Theta(\eta n)$, because the $n$ terms add coherently. Keeping
+the change $\Theta(1)$ requires $\eta\propto1/n$. With SGD the update is $\eta g x^\top$, and
+$(\Delta Wx)_i=\eta g_i\|x\|^2=\Theta(\eta n g_i)$. Since the backpropagated $g_i$ to a hidden layer
+scales as $1/n$ in $\mu$P, SGD's hidden-layer LR ends up width-independent: the rule depends on the
+optimizer because Adam normalises the gradient's scale away.
 
-#### Exercise 18.9 (Causal load balance).
+#### Exercise 16.9
 
-With contiguous chunks, device $i$'s queries attend to key blocks $0..i$: $i+1$ block pairs (the
-diagonal one half-masked), so device $c-1$ does $c$ times the work of device 0. Split the sequence
-into $2c$ chunks and give device $i$ chunks $i$ and $2c-1-i$: it computes $(i+1)+(2c-i)=2c+1$ block
-pairs, the same for every device.
+The constraint $6ND+2ND_{\text{inf}}=C$ gives $D=(C-2ND_{\text{inf}})/(6N)$, so each extra parameter
+now also costs inference compute, which moves the stationary point to smaller $N$ than in 12.1 (the
+extra term only increases the marginal cost of $N$). Numerically, for `GroundTruth()` at $C=10^{21}$
+and $D_{\text{inf}}=10^{11}$: the Chinchilla optimum is $N\approx1.77\times10^9$ at about 53 tokens
+per parameter, while the inference-aware optimum is $N\approx1.08\times10^9$, trained on
+$1.2\times10^{11}$ tokens, about 112 tokens per parameter.
 
-#### Exercise 18.10 (Plan a 405B run).
+#### Exercise 16.10
 
-One defensible plan (close to the layout Meta reported for Llama 3 405B at 8k context): TP $=8$ (one
-node), PP $=16$ ($\approx8$ layers per stage, first/last stage lighter), CP $=1$, DP $=128$ with
-ZeRO-1. Parameters per GPU $405\text{B}/128=3.2$B; ZeRO-1 states $(4+12/128)\cdot3.2\approx13$ GB.
-Global batch 16M tokens $=2{,}048$ sequences, i.e. 16 micro-batches per pipeline. Plain 1F1B would
-idle $15/31\approx48\%$, so use interleaving with $v=4$ virtual stages: $3.75/(16+3.75)\approx19\%$.
-Activations with FlashAttention and TP+SP: $8192\cdot16{,}384\cdot34/8\approx0.57$ GB per layer per
-micro-batch; stage 0 can hold up to 16 micro-batches $\times$ 8 layers, so selective or full
-recomputation is needed (full recompute: $\approx4$ GB). DP traffic: each rank reduces a 6.4 GB bf16
-gradient shard over 128 replicas, $\approx0.26$ s at 50 GB/s, well hidden behind $\approx6$ s of
-compute per step at 40% MFU. The remaining inefficiency is the pipeline bubble, which is why larger
-batches or zero-bubble schedules are attractive at this scale.
+Let the true runtime be $t=\hat t\,e^{\varepsilon}$ with $\varepsilon\sim\mathcal N(0,0.15^2)$, and
+let $p(s)=\Phi(\ln s/0.15)$ be the completion probability. The expected charge per *useful* run is
+$\bigl(\mathbb{E}[t;\,t<s\hat t]+s\hat t(1-p)\bigr)/p$. It decreases monotonically in $s$, from
+$1.33\hat t$ at $s=1.1$ to $1.08\hat t$ at $1.25$, $1.015\hat t$ at $1.5$ and $1.011\hat t$ (the
+mean runtime) beyond $2$, because refunds make large reservations free. Calendar throughput is
+different: with at most $R/(s\hat t)$ runs in flight, each occupying a slot for
+$\mathbb{E}[\min(t,s\hat t)]$, useful runs per hour are proportional to
+$p(s)/(s\,\mathbb{E}[\min(t,s\hat t)])$, which peaks at $s\approx1.23$. A margin of 1.2--1.5$\times$
+trades a few percent of budget for much better concurrency. Calibrate $\sigma$ on your own runs.
+
+#### Exercise 16.11
+
+Answers vary with the seeds. On the reference pipeline the regret is typically a few thousandths of
+a nat on the default truth and a few hundredths on randomised truths (`GroundTruth.sample`). Most of
+the spread comes from the LR transfer law and from the fixed aspect ratio, so the cheapest
+improvements are a wider LR sweep at the largest affordable size and a small aspect-ratio sweep. The
+prediction error is dominated by $E$ and is cut most by the verification run.

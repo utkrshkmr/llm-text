@@ -1,143 +1,101 @@
-## Chapter 19: Sharded Data Parallelism from Scratch {#chapter-19-sharded-data-parallelism-from-scratch .unnumbered}
+## Chapter 17: Performance Engineering on One GPU {#chapter-17-performance-engineering-on-one-gpu .unnumbered}
 
-#### Exercise 19.1
+#### Exercise 17.1
 
-Algorithm bandwidth is $n/t$. A bandwidth-bound ring all-reduce takes
-$t = 2\frac{p-1}{p}\frac{n}{W}$, so $\frac{n}{t}\cdot\frac{2(p-1)}{p} = W$: the bus bandwidth equals
-the link bandwidth for every $p$, which is what makes it comparable across world sizes. An
-all-gather of a tensor whose full size is $n$ takes $t = \frac{p-1}{p}\frac{n}{W}$ (each rank
-receives every chunk but its own once), so the matching correction factor is $\frac{p-1}{p}$, and
-again bus bandwidth $=W$.
+One-time costs: CUDA context creation and kernel-module loading; cuBLAS handle creation and
+heuristic or autotuning selection per new GEMM shape; Triton JIT compilation and `triton.autotune`
+sweeps; `torch.compile` tracing (Dynamo), joint-graph partitioning (AOTAutograd) and code generation
+(Inductor); caching-allocator growth (one `cudaMalloc` per new segment); CUDA-graph capture if
+enabled; GPU clock ramp-up. Experiment: wrap "import + model construction", "first forward", "first
+backward", "first optimizer step", "second step" and "steps 3--20" in separate NVTX ranges and
+profile without a capture range. Compile and autotune appear as long host-side ranges with no
+kernels; allocator growth appears as `cudaMalloc` calls in the CUDA API row; clock ramp-up shows as
+identical kernels getting faster over the first iterations (also visible with `nvidia-smi dmon`).
 
-#### Exercise 19.2
+#### Exercise 17.2
 
-Gradients appear at rate $G/T_b$, so a bucket of $b$ bytes is filled every $bT_b/G$ seconds and
-costs $A(b) = 2(p-1)\alpha + 2\frac{p-1}{p}b\beta$ to all-reduce. If $A(b) \le bT_b/G$,
-communication keeps pace with backward and only the last bucket is exposed, costing $A(b)$, which
-grows with $b$. If $A(b) > bT_b/G$, a queue builds and the exposed time is roughly
-$\frac{G}{b}A(b) - T_b$, which *falls* with $b$. The minimum is therefore at the smallest bucket
-that keeps pace: $$b^\star = \frac{2(p-1)\alpha}{T_b/G - 2\frac{p-1}{p}\beta}.$$ With $G=1.2$ GB,
-$T_b=50\,\mathrm{\milli\second}$, $p=8$, $\alpha=10\,\mathrm{\micro\second}$ and 450 GB/s:
-$T_b/G = 4.17\times10^{-11}$ s/B and $2\frac78\beta = 3.89\times10^{-12}$ s/B, so
-$b^\star \approx 1.4\times10^{-4}/3.78\times10^{-11}\approx3.7$ MB, and the exposed tail is
-$A(b^\star)\approx0.15\,\mathrm{\milli\second}$. In practice one uses a somewhat larger bucket to
-absorb uneven gradient arrival, and a small first bucket.
+Any launch-bound workload: for example, 1000 small elementwise kernels on $10^4$-element tensors.
+Each kernel runs for about $2\,\mu$s on the device, but the host needs about $5$--$10\,\mu$s per
+launch, so CUDA events (device time, roughly the sum of kernel durations when the queue never
+empties) report much less than wall-clock time, which includes the launch bottleneck. Report device
+time (events or `do_bench`) for a kernel paper, because the claim is about the kernel; report
+synchronised wall-clock time for training throughput, because host overhead is part of the real
+cost.
 
-#### Exercise 19.3
+#### Exercise 17.3
 
-After the reduce-scatter each rank holds averaged gradients for its shard only. Compute the local
-squared norm $s_r = \lVert g^{(r)}\rVert_2^2$ (padding elements are zero, so they do not
-contribute), all-reduce the scalar to get $\sum_r s_r$, take the square root, and scale the shard
-gradient by $\min(1, c/(\lVert g\rVert + \epsilon))$. That is one scalar all-reduce, 4--8 bytes and
-pure latency. The test spawns 3 ranks, trains one step on a model whose gradients exceed the clip
-threshold (scale the loss up), and compares the updated parameters with a single process that calls
-`torch.nn.utils.clip_grad_norm_` before `AdamW.step()`, to $10^{-6}$.
+For `fc3(silu(fc1(x)) * fc2(x))` in eager mode: `fc1` and `fc2` save $x$ (the same storage, counted
+once): $BTd\cdot4$ bytes. `silu` saves its input $g=\texttt{fc1}(x)$: $BTh\cdot4$. The product saves
+both operands, `silu`$(g)$ and $u=\texttt{fc2}(x)$: $2BTh\cdot4$. `fc3` saves its input (the
+product): $BTh\cdot4$. Total $4BT(d+4h)$ bytes, i.e. $1+4h/d$ units of the residual stream (about 13
+for $h=3d$). Under `torch.compile` the partitioner typically keeps $x$, $g$ and $u$ and recomputes
+`silu`$(g)$ and the product in the backward kernel, dropping two $h$-wide tensors (about $1+2h/d$
+units). Verify by printing `tr.table()` in both modes.
 
-#### Exercise 19.4
+#### Exercise 17.4
 
-Save, per parameter group, the parameter shapes, the unpadded flat length $N$, the old world size
-$p$ (hence shard size $s=\lceil N/p\rceil$), and each rank's shard of the master weights and of
-every optimizer-state tensor with the same layout (Adam's $m$, $v$), plus replicated scalars such as
-the step count. New rank $r'$ with shard size $s'=\lceil N/p'\rceil$ owns flat indices
-$[r's', \min((r'+1)s', N))$ and reads the old shards $\lfloor r's'/s\rfloor$ through
-$\lfloor((r'+1)s'-1)/s\rfloor$, slicing the overlapping ranges and zero-padding the tail. In the
-parameter-ownership layout of [@ch:distributed], state is stored per whole tensor on its
-owner. It can be reloaded on $p'$ ranks by recomputing ownership with `partition_parameters` and
-reading each tensor's state from whichever old file holds it, which is possible but needs a
-name-to-owner map, and balance is again limited by the largest tensor.
+With outer groups of $k_1$ blocks, each recomputed with inner checkpoints every $k_2$ blocks, the
+peak (in units of $a$, with $A=30a$) is $M=\tfrac{L}{k_1}+\tfrac{k_1}{k_2}+30k_2$: outer
+checkpoints, the inner checkpoints of the outer group being recomputed, and one live inner group.
+Each block runs forward three times (original, outer recomputation, inner recomputation) versus
+twice for one level. Because $A\gg a$, $k_2=1$ is optimal, giving $M=64/k_1+k_1+30$, minimised at
+$k_1=8$: $M=46a$. The best one-level schedule ($k=1$ or $2$) gives $94a$ or $92a$. One extra forward
+per block roughly halves peak activation memory here.
 
-#### Exercise 19.5
+#### Exercise 17.5
 
-`self.flat.copy_(buf)` is an in-place op on `flat`. Views and `detach()` share a version counter
-with their base, so the counter of every view autograd saved during forward (each weight used by a
-linear layer) increments. In backward, autograd compares each saved tensor's version with the
-version recorded at save time, finds a mismatch, and raises *"one of the variables needed for
-gradient computation has been modified by an inplace operation: ... is at version $k+1$; expected
-version $k$"*. A storage-level copy changes the bytes without touching version counters. That is
-safe here because the bytes written are exactly the bytes that were there when the tensors were
-saved, the same gathered shards with no optimizer step in between. It would be unsafe if the weights
-could change between forward and backward.
+Per parameter, AdamW does about 12--15 FLOPs (two moment updates, bias corrections, a square root, a
+division, weight decay, the update) and moves about 28 bytes ([@sec:perf:anatomy]): roughly
+0.5 FLOP/byte, far below any GPU's ridge point. Qwen3-1.7B has $1.72\times10^9$ parameters, so
+48.2 GB of traffic, or 14.4 ms at 3.35 TB/s. The model has about 310 parameter tensors (11 per layer
+over 28 layers, plus the embedding and final norm); at about ten kernels per tensor and $5\,\mu$s
+per launch, launching alone takes 15.5 ms of host time, and kernels on small tensors (norm weights)
+are too short to reach bandwidth. Expect 25--40 ms unfused. A fused (or multi-tensor) implementation
+launches a handful of kernels and approaches $14.4/0.8\approx18$ ms at 80% of peak bandwidth.
 
-#### Exercise 19.6
+#### Exercise 17.6
 
-With $k$ blocks per unit there are $L/k$ units. Transient memory is about two gathered units plus
-one unit's full gradient, $3kP_b\times2$ bytes in bf16. Collective latency per step is
-$3\cdot\frac{L}{k}\cdot(p-1)\alpha$ (two all-gathers and one reduce-scatter per unit). Step time
-falls with $k$ until the transient memory hits the budget $M$, so
-$k^\star = \lfloor M/(6P_b)\rfloor$ (capped by $L$). Larger units also mean coarser prefetch, but
-that matters only when $T/n$ is near $C/W$. Qwen3-1.7B has $P_b \approx 5.03\times10^7$
-($d_{\text{model}}=2048$, 16 query and 8 KV heads of 128, MLP width 6144), so a unit costs
-$\approx0.30k$ GB of transient memory. On a 16 GB GPU with $p=8$ the persistent state is
-$16\Psi/8\approx3.4$ GB and the root unit (tied 151,936$\times$`<!-- -->`{=html}2048 embedding)
-needs about 1.25 GB gathered with its gradient. Leaving 6--8 GB for activations, about 4 GB remain
-for units, so $k\approx13$. Latency then falls from $28\cdot3\cdot7\cdot10\,\mathrm{\micro\second}
-\approx5.9\,\mathrm{\milli\second}$ at $k=1$ to about $0.5\,\mathrm{\milli\second}$. One block per
-unit is usually fine whenever per-step compute is tens of milliseconds.
+$16\times4096=65{,}536$ tokens. Logits in bf16: $65{,}536\times151{,}936\times2$ B $=19.9$ GB; the
+fp32 upcast doubles that to 39.8 GB; the gradient of the logits is another 19.9--39.8 GB. That is
+80--100 GB at the peak, more than an 80 GB GPU. To keep the fp32 slab under 1 GB: chunk
+$\le 10^9/(151{,}936\times4)\approx1645$ tokens, so use 1024 (0.62 GB fp32 plus 0.31 GB bf16).
+Recomputation repeats the LM-head forward ($2d_{\text{model}}V=622$ MFLOP per token),
+i.e. $4.1\times10^{13}$ extra FLOPs per step (about 41 ms at the H100's bf16 peak): one third more
+than the LM head's normal training cost.
 
-#### Exercise 19.7
+#### Exercise 17.7
 
-$P = 8D^2$ (two matrices of $4D^2$). Per device, forward is $16TD^2/n$ FLOPs and backward
-$32TD^2/n$.
+With tile size $b$ and $n=T/b$ tiles per side, a causal forward visits $n(n+1)/2$ tiles and does two
+GEMMs of $2b^2d_{h}$ FLOPs on each, giving $2\,BHd_{h}\,T(T+b)$ FLOPs ($\approx2BHd_{h}T^2$, half of
+non-causal). The two-kernel backward does seven GEMMs per visited tile: $7\,BHd_{h}\,T(T+b)$,
+$3.5\times$ the forward. A backward reading a stored $\mathbf{P}$ does four GEMMs
+($\mathbf{dV},\mathbf{dP},\mathbf{dQ},\mathbf{dK}$), $2\times$ the forward, but must store and read
+$BHT^2$ elements. The diagonal tiles are computed in full and masked, so their wasted FLOPs are the
+$T\cdot b$ term.
 
-- **DP**: forward has no communication. Backward all-reduces $16D^2$ bytes:
-  $t_\text{comm} = 2\frac{n-1}{n}\frac{16D^2}{W}$ against $t_\text{comp}=\frac{32TD^2}{nC}$. It is
-  compute-bound iff $n-1 \le TW/C$, that is $T/n \gtrsim C/W$.
+#### Exercise 17.8
 
-- **FSDP**: forward all-gathers $\frac{n-1}{n}\frac{16D^2}{W}$ against $\frac{16TD^2}{nC}$, giving
-  $n-1\le TW/C$. Backward all-gathers again and reduce-scatters, $2\frac{n-1}{n}\frac{16D^2}{W}$
-  against $\frac{32TD^2}{nC}$, with the same condition. FSDP scales as far as DP.
+Visited tiles $n(n+1)/2$, masked tiles $n$: a fraction of $2/(n+1)$, e.g. about 3% for $n=64$. With
+`BLOCK_M`$=2\,$`BLOCK_N` and $n_q=T/\texttt{BLOCK\_M}$ query tiles, query tile $i$ visits $2i+2$ key
+tiles, the last two of which straddle the diagonal and need masks. Visited $=n_q(n_q+1)$, masked
+$=2n_q$, so again $2/(n_q+1)$, now in terms of the (fewer) query tiles.
 
-- **TP** (column-parallel $W_1$, row-parallel $W_2$): forward all-reduces the $(T,D)$ output,
-  $2\frac{n-1}{n}\frac{2TD}{W}$ against $\frac{16TD^2}{nC}$, giving $n-1 \le 4DW/C$. Backward
-  all-reduces the $(T,D)$ input gradient, the same bytes against twice the compute, giving
-  $n-1\le8DW/C$. Forward binds: $n_\text{max} = 1 + 4DW/C$, independent of $T$. For $D=4096$ on
-  H100/NVLink ($C/W\approx2200$) this is $\approx8.4$.
+#### Exercise 17.9
 
-#### Exercise 19.8
+Tiles $=16\lceil M/128\rceil$ and waves $=\lceil\text{tiles}/132\rceil$; achieved fraction
+$=\text{tiles}/(132\cdot\text{waves})$. At $M=4096$: 512 tiles, 4 waves, 97%. Throughput drops just
+above $M=4224$ (528 tiles fill exactly 4 waves; 544 need 5, falling to 82%), $M=5248$ (656 to 672
+tiles: 99% to 85%), $M=6272$ (784 to 800 tiles) and $M=7296$ (912 to 928 tiles), with smaller steps
+at every multiple of 128 from tile quantisation. A sweep of measured throughput shows the same
+sawtooth.
 
-Each device holds $W_1, W_2$ sharded over both axes, $8D^2/(n_fn_t)$ elements, and $T/n_f$ tokens.
-Forward: an all-gather over the `fsdp` axis of the device's TP slice,
-$\frac{n_f-1}{n_f}\frac{16D^2/n_t}{W_f}$, against compute $\frac{16TD^2}{n_fn_tC}$, giving
-$n_f-1\le TW_f/C$. Then TP's all-reduce over the `tp` axis of a $(T/n_f, D)$ activation,
-$2\frac{n_t-1}{n_t}\frac{2TD/n_f}{W_t}$, against the same compute, gives $n_t-1\le 4DW_t/C$. The
-backward pass is analogous (all-gather and reduce-scatter on `fsdp`, one all-reduce on `tp`). The
-two conditions involve different variables, so they decouple. The coupling terms are: (i) the global
-batch $T$ is shared, and $T/n_f$ must also stay large enough for efficient matmuls and for TP's
-per-token compute; (ii) if both axes share physical links, $W_f$ and $W_t$ are not independent;
-(iii) latency terms ($\alpha$) grow with the number of collectives, which both degrees increase;
-(iv) activation memory per device scales with $T/n_f$.
+#### Exercise 17.10
 
-#### Exercise 19.9
-
-$$T_\text{hier} = 2\Big[(g-1)\alpha_1 + \tfrac{g-1}{g}n\beta_1\Big] + 2(N-1)\alpha_2 + 2\tfrac{N-1}{N}\tfrac{n}{g}\beta_2,
-\qquad
-T_\text{flat} = 2(gN-1)\alpha_2 + 2\tfrac{gN-1}{gN}n\beta_2 .$$ With $\alpha_1\le\alpha_2$ and
-$\beta_1\le\beta_2$ the hierarchical version wins at every size. The latency term falls from
-$2(gN-1)$ to $2(g-1)+2(N-1)$ steps, and the network bandwidth term falls by about $g\times$ because
-only $1/g$ of the data crosses each NIC. With the figure's parameters ($g=N=8$) at 1 GB:
-$T_\text{flat}\approx44.8\,\mathrm{\milli\second}$ and
-$T_\text{hier}\approx9.3\,\mathrm{\milli\second}$, matching `llmsys.dist.costs`. Real NCCL achieves
-much of this without an explicit hierarchy by running one ring per NIC.
-
-#### Exercise 19.10
-
-70B: FSDP over 32 GPUs keeps $16\times70\times10^9/32=35$ GB of persistent state per GPU, which fits
-in 80 GB with room for transient units and activations. HSDP sharded over the 8 GPUs of a node needs
-$16\times70\times10^9/8=140$ GB per GPU and does not fit, so 70B must shard across nodes (or add
-TP/PP). 13B: HSDP needs $16\times13\times10^9/8=26$ GB per GPU and fits. Its only cross-node traffic
-is an all-reduce of each GPU's gradient shard (13B$/8$ parameters, about 3.3 GB in bf16) across 4
-replicas, $2\cdot\frac34\cdot3.3\approx4.9$ GB per GPU per step, overlapped with backward, as one
-collective per bucket. FSDP over 32 GPUs would instead put two all-gathers and one reduce-scatter
-per *layer* on the network: more bytes and far more latency-sensitive messages. Use HSDP whenever
-the model fits in one node's aggregate memory.
-
-#### Exercise 19.11
-
-Expected shape of the results: per-parameter DDP is slowest when tensors are small and many, because
-of latency; flat DDP fixes that but exposes all communication after backward; bucketed DDP hides
-most of it once tokens per rank exceed $C/W$. Element-wise ZeRO-1 matches bucketed DDP's time to
-within the extra copy and saves $12\Psi(1-1/p)$ bytes. FSDP without prefetch is slower by the sum of
-the exposed all-gathers; with prefetch it approaches DDP once $T/n \gtrsim C/W$. Below that point
-FSDP's extra $\Psi$ bytes per step show up as roughly $1.5\times$ DDP's communication time. The
-measured crossover usually sits at somewhat more tokens than the model predicts, because achieved
-bus bandwidth is below peak and kernels are less efficient at small batch.
+With `fullgraph=True`, Dynamo raises at `loss.item()` ("data-dependent" or "Tensor.item" graph
+break) because converting a tensor to a Python number needs a device synchronisation and leaves the
+graph. `TORCH_LOGS=graph_breaks` on the original code lists remaining breaks, typically from
+NVTX/profiler calls inside the compiled region, `print`s, Python-side conditionals on tensor values
+and calls into unsupported libraries. The remedies: move logging outside the compiled function
+(return the loss tensor and call `.item()` every $k$ steps), replace data-dependent branches with
+`torch.where`, mark helper functions with `torch.compiler.disable` if they must stay in Python, and
+compile per block so that remaining breaks fall between compiled regions.

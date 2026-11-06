@@ -1,5 +1,5 @@
 # Brief: Project 1, a transformer LM from scratch in Python + C++ + CUDA (chapter 42, kit p1_lm)
-Read projects_common.md first, then docs/PLAN.md §4 "P1", the existing chapter and kit, Chapters 6, 8, 9, 17, 18, 29, 31
+Read projects_common.md first, then docs/PLAN.md §4 "P1", the existing chapter and kit, Chapters 8, 10, 11, 19, 20, 31, 33
 (book + code), code/llmsys/ops/{bpe,rmsnorm,silu_mul,xent}.py (xent may not exist yet: then use a Python chunked CE
 and note it). GPU: CUDA_VISIBLE_DEVICES=0, short runs only.
 Scope: own byte-level BPE (C++ trainer/encoder via llmsys.ops.bpe, Python fallback), 125-350M pre-norm decoder, own

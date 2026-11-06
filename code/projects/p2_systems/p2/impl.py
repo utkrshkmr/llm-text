@@ -1,9 +1,9 @@
-"""Project 2 -- your implementation goes here (Chapter 26).
+"""Project 2 -- your implementation goes here (Chapter 28).
 
 The acceptance suite (``projects/p2_systems/acceptance_p2.py``) imports this module and calls the
 functions below. Implement them in this file or import them from wherever your code lives.
 Each function documents the contract the suite checks. Nothing here is provided: the
-project guide in Chapter 26 explains what to build and which chapters teach it.
+project guide in Chapter 28 explains what to build and which chapters teach it.
 
 Run:
     python -m pytest -q projects/p2_systems/acceptance_p2.py            # all checks

@@ -1,4 +1,4 @@
-# A standalone operator library for PyTorch built with CMake (Chapter 29).
+# A standalone operator library for PyTorch built with CMake (Chapter 31).
 #
 #   TORCH_CUDA_ARCH_LIST=8.0 cmake -S . -B build -G Ninja \
 #         -DCMAKE_PREFIX_PATH="$(python -c 'import torch;print(torch.utils.cmake_prefix_path)')" \

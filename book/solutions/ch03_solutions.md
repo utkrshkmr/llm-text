@@ -1,172 +1,151 @@
-## Chapter 3: Numbers on the Machine: Formats, Precision and Stable Algorithms {.unnumbered}
+## Chapter 3: The Machine Underneath: GPUs, Rooflines and Measurement {#chapter-3-the-machine-underneath .unnumbered}
 
-#### Exercise 3.1.
+#### Exercise 3.1
 
-$-0.15625=-1.25\cdot2^{-3}$: sign 1, unbiased exponent $-3$, fraction $0.25$ (binary `01`).
-FP16: $E=-3+15=12=$ `01100`, fraction `0100000000`, code `0xB100`. BF16: $E=124=$ `01111100`,
-fraction `0100000`, code `0xBE20`. E4M3: $E=4=$ `0100`, fraction `010`, code `0xA2`. E5M2:
-$E=12$, fraction `01`, code `0xB1`. All four are exact, because 1.25 needs only two significant
-bits.
+A100: $I^\star=312/2.04\approx153$ FLOP/byte; a bf16 square GEMM has $I=n/3$, so it becomes
+compute-bound at $n\approx460$. RTX 4090: $I^\star=165/1.008\approx164$, so $n\approx490$. The
+decode critical batch is $B^\star\approx bI^\star/2=I^\star$ in bf16, so the 4090 needs a slightly
+larger batch (about 164 versus 153). Both need far smaller batches than an H100
+($\approx$`<!-- -->`{=html}295), whose compute has outgrown its bandwidth.
 
-$1000=1.953125\cdot2^9$, fraction $0.953125=$ `111101` in binary (six bits). FP16 (10 bits):
-exact, $E=24$, code `0x63D0`. BF16 (7 bits): exact, $E=136$, code `0x447A`. E5M2 (2 bits): the
-neighbours are $1.75\cdot512=896$ and $2\cdot512=1024$; 1000 is nearer 1024, code `0x64`, stored
-value 1024 (error 2.4%). E4M3: 1000 exceeds the maximum 448, and the OCP conversion saturates to
-448 (code `0x7E`, `S.1111.110`); an IEEE-style E4M3 (maximum 240) without saturation overflows to
-$+\infty$ (code `0x78`). `numerics.encode` returns exactly these codes.
+#### Exercise 3.2
 
-#### Exercise 3.2.
+$d=4096$, hidden $4d=16{,}384$, bf16. *$BT=1$*: each GEMM does
+$2\times4096\times16{,}384\approx1.34\times10^8$ FLOPs and moves about
+$2\times4096\times16{,}384\approx134$ MB (the weight dominates), so $I\approx1$: memory-bound, about
+40 μs each on an H100. GELU touches 16,384 elements, which is negligible but still costs a launch.
+*$BT=4096$*: GEMM 1 does $5.5\times10^{11}$ FLOPs and moves
+$2(4096^2+2\cdot4096\cdot16{,}384)\approx302$ MB, so $I\approx1{,}800$: compute-bound,
+$\approx0.56$ ms at peak; GEMM 2 is the same. GELU reads and writes $4096\times16{,}384$ bf16
+values, 268 MB, $\approx0.08$ ms, memory-bound. Fusing GELU into GEMM 1's epilogue removes that
+round trip (the GEMM output is activated in registers before being stored), saving $\approx0.08$ ms
+of $\approx1.2$ ms, about 7%. Fusion matters far more for chains of elementwise ops without a GEMM
+to hide behind.
 
-With IEEE specials and bias $2^{e-1}-1$, $e_{\max}=2^{e-1}-1$, $e_{\min}=2-2^{e-1}$ and $m=7-e$:
+#### Exercise 3.3
 
-| $e$ | max | smallest subnormal | decades | $u$ |
-|--:|--:|--:|--:|--:|
-| 2 | 3.94 | $3.1\times10^{-2}$ | 2.1 | $2^{-6}$ |
-| 3 | 15.5 | $1.6\times10^{-2}$ | 3.0 | $2^{-5}$ |
-| 4 | 240 | $2.0\times10^{-3}$ | 5.1 | $2^{-4}$ |
-| 5 | 57,344 | $1.5\times10^{-5}$ | 9.6 | $2^{-3}$ |
-| 6 | $3.2\times10^{9}$ | $4.7\times10^{-10}$ | 18.8 | $2^{-2}$ |
+By Little's law the H100 needs $3.35\times10^{12}\times500\times10^{-9}\approx1.68$ MB of loads in
+flight, $1.68\times10^6/132\approx12.7$ KB per SM, about 25 outstanding warp loads of 512 bytes per
+SM at every moment. The A100 needs 6.3 KB, about a dozen. Per SM the H100 must therefore keep
+twice as many bytes in flight, while the per-SM resources that hold them grew far less: the
+register file is the same 256 KB and shared memory went from 164 KB to 228 KB. A kernel whose
+occupancy and per-warp parallelism were just enough on the A100 keeps roughly half of the bytes in
+flight that the H100 needs, and reaches roughly half of its bandwidth roof, with no change in its
+code. This is one reason Hopper added the Tensor Memory Accelerator, which issues large
+asynchronous bulk copies without occupying a thread per load ([@ch:gpuarch]).
 
-A per-tensor-scaled Gaussian weight tensor spans about four decades between its maximum
-($\approx5\sigma$) and the values that matter ($\approx10^{-3}\sigma$), so $e=4$ suffices and buys
-the most precision. Gradients spanning ten decades need $e=5$ (or finer scales). The "fn"
-convention turns the top binade's seven non-NaN codes into numbers, raising E4M3's maximum from
-240 to 448 (0.9 binades more range), and gives up infinities (overflow must saturate or produce
-NaN) and all but one NaN code per sign.
+#### Exercise 3.4
 
-#### Exercise 3.3.
+(a) $\lceil1408/128\rceil^2=11^2=121$ output tiles; with one tile per SM at a time, 108 SMs need
+$\lceil121/108\rceil=2$ waves, and the second wave has 13 tiles, so 12% of its SM-time does useful
+work. (b) The GEMM occupies $2\times108=216$ tile-slots for 121 tiles of work, so quantisation alone
+caps it at $121/216=56\%$ of the compute roof (before the fixed costs of
+[@sec:machine:hides]). (c) In the sweep's range the tile count steps with $\lceil n/128\rceil$:
+$n\le1{,}280$ gives 100 tiles in one wave (93% of the slots); $1{,}281\le n\le1{,}408$ gives 121
+tiles in two waves (56%); $1{,}409\le n\le1{,}536$ gives 144 tiles in two waves (67%). Expect a
+sawtooth: throughput falls sharply between 1,280 and 1,312, where the work grows by 5% and the time
+almost doubles, and recovers partly towards 1,536. In practice cuBLAS picks among tile shapes and may
+split the $K$ dimension across SMs for shapes like these, which smooths the steps; how much of the
+sawtooth survives tells you how well its heuristics cover the shape.
 
-INT8: $|p|\le128^2=2^{14}$, so $K\cdot2^{14}\le2^{31}-1$ requires $K<2^{17}=131{,}072$. INT4 into
-INT16: $|p|\le8^2=64$, and $64K\le32{,}767$ gives $K\le511$, which is why INT4 GEMMs also
-accumulate in INT32. Integer addition is exact, so an integer GEMM's result is the exact dot
-product of the integer codes; its accuracy is limited by the representation (rounding and clipping
-in the quantiser, [@sec:numerics:quant]) and by the final conversion of the INT32 result times the
-scales to floating point.
+#### Exercise 3.5
 
-#### Exercise 3.4.
+For 1,024 elements, both eager and compiled versions are dominated by per-op overhead: eager time is
+about $100\times$ the per-launch cost (hundreds of μs to milliseconds); this is regime (b) of
+[@fig:machine:async]. For $10^8$ elements, each op is a memory-bound kernel taking
+$\approx0.24$ ms in fp32 on an H100, so eager time is about 24 ms and overhead is hidden; this is
+regime (a). `torch.compile` fuses the chain into one kernel that reads and writes once. The large
+tensor speeds up by up to $\approx100\times$ in traffic terms, and the small tensor speeds up
+because 100 launches became one; this is regime (c). With `reduce-overhead`, CUDA graphs remove the
+remaining launch cost.
 
-FP16 flushes values below half its smallest subnormal, $2^{-25}\approx2.98\times10^{-8}$, to zero.
-With $\log_{10}|g|\sim\mathcal{N}(-7,1.5^2)$, $P(\log_{10}|g|<-7.526)=\Phi(-0.35)=36\%$ (we
-measure 36.3% with `numerics.classify` on $2^{22}$ samples). The largest safe scale satisfies
-$0.3S\le65{,}504$, so $S\le218{,}000$ and the largest power of two is $2^{17}$ ($0.3\cdot2^{18}=78{,}643$
-would overflow). With $S=2^{17}$ the threshold moves to $2.27\times10^{-13}$, $z=-3.76$, and the
-flushed fraction drops to $8.5\times10^{-5}$ (measured: $8.5\times10^{-5}$). `GradScaler` doubles
-$S$ after every 2,000 overflow-free steps whatever the gradients are, so once $S$ sits at the
-largest safe value each doubling overflows on its first step: in steady state it skips about one
-step per 2,000 from its own probing plus one per 10,000 from the true overflows, about 0.06% of
-steps.
+#### Exercise 3.6
 
-#### Exercise 3.5.
+There are four synchronisation points. (1) `x.cuda()` and `y.cuda()` without `non_blocking=True`
+are blocking copies: the CPU waits until they have run, which is after all previously queued
+kernels. (2) `if torch.isnan(loss):` converts a GPU tensor to a Python `bool`. (3) `.item()` on the
+correct-count. (4) `loss.item()` in the `print`. None is needed on every step. The step also runs
+a second forward pass, on weights already changed by `opt.step()`, just to count correct
+predictions; the training forward's logits serve. A version that waits once every 100 steps:
 
-For $|w|\in[2^{-6},2^{-5})\ni0.02$, $\operatorname{ulp}=2^{-6-7}=2^{-13}$ and every update with
-$|\delta|<2^{-14}=6.1\times10^{-5}$ is lost; for $|w|$ just above 1 the threshold is
-$2^{-8}=3.9\times10^{-3}$. So with $\eta<6.1\times10^{-5}$ (for Adam, $|\delta|\approx\eta$) all
-updates of the magnitude-0.02 weights vanish. With the cosine schedule
-$\eta(t)=\eta_{\min}+\tfrac12(\eta_{\max}-\eta_{\min})(1+\cos\pi t/T)$, $\eta_{\max}=3\times10^{-4}$,
-$\eta_{\min}=3\times10^{-5}$, we solve $\eta(t)=6.1\times10^{-5}$: $1+\cos(\pi t/T)=0.230$,
-$t/T=0.78$. The last 22% of training would do nothing to those weights (and Adam updates of elements
-with small $m/\sqrt v$ vanish earlier). An FP32 master copy costs 4 bytes per parameter, 28 GB for
-7B; stochastic rounding costs one random number per updated element and no memory
-(`numerics.stochastic_round_bf16`).
+``` python
+loader = DataLoader(ds, batch_size=64, shuffle=True, num_workers=2, pin_memory=True)
+n_correct = torch.zeros((), dtype=torch.long, device="cuda")
+loss_sum = torch.zeros((), device="cuda")
+bad = torch.zeros((), dtype=torch.bool, device="cuda")
+for step, (x, y) in enumerate(loader):
+    x, y = x.cuda(non_blocking=True), y.cuda(non_blocking=True)
+    logits = model(x)
+    loss = F.cross_entropy(logits, y)
+    opt.zero_grad(); loss.backward(); opt.step()
+    bad |= ~torch.isfinite(loss.detach())              # device-side flags and sums
+    loss_sum += loss.detach()
+    n_correct += (logits.detach().argmax(-1) == y).sum()
+    if step % 100 == 99:                               # the only synchronisation
+        if bad.item():
+            raise RuntimeError("diverged")
+        print(step, (loss_sum / 100).item())
+        loss_sum.zero_()
+```
 
-#### Exercise 3.6.
+The price is that a NaN is detected up to 100 steps late, after the optimiser has applied it, so
+the run must restart from a checkpoint; a guard that skips the update on the device instead (as the
+gradient scaler of mixed-precision training does with its found-infinity flag, [@sec:quant:mixed])
+keeps the weights clean without a synchronisation.
 
-With $U$ uniform on $\{0,2^{-r},\dots,1-2^{-r}\}$, $\operatorname{SR}(x)=h$ iff $U\ge1-f$, which
-happens for $\lfloor2^rf\rfloor$ of the $2^r$ values. So $P(\text{up})=\lfloor2^rf\rfloor/2^r$ and
-the bias is $-q\,(f-\lfloor2^rf\rfloor2^{-r})\in(-q2^{-r},0]$: always toward $\ell$, largest when
-$f$ is just below a multiple of $2^{-r}$ (for example $f<2^{-r}$ never rounds up). The result is
-still a two-point random variable with $P=P(\text{up})$, so its variance $q^2P(1-P)\le q^2/4$.
-For a sum of $n=10^4$ addends the bias accumulates linearly, up to $n2^{-r}$ ulp, while
-round-to-nearest errors of random sign accumulate like $\sqrt{n/12}\approx29$ ulp; $n2^{-r}<29$
-needs $r\ge9$ bits. The library's `sr_bits` argument and the test with $r=2$ illustrate the effect.
+#### Exercise 3.7
 
-#### Exercise 3.7.
+At batch 8, the profile is dominated by many small kernels: `addmm`/`mm` at low intensity
+(memory-bound, weight reads dominate), plus optimiser elementwise kernels (`add_`, `mul_`, foreach
+ops) that touch every parameter and are memory-bound. At batch 4096, `addmm`/`mm` in forward and
+backward take the large majority of device time and are compute-bound; elementwise ops shrink to a
+small fraction. Optimiser cost is independent of batch size, so its share falls as the batch grows.
 
-Let $|a|\ge|b|$ and $s=\operatorname{fl}(a+b)$. Sterbenz's lemma says that $x-y$ is exact when
-$y/2\le x\le2y$. If $a$ and $b$ have the same sign, $|a|\le|s|\le2|a|$, so $s-a$ is exact. If
-they have opposite signs and $|b|\ge|a|/2$, then $a+b$ itself is exact by Sterbenz, $s=a+b$ and
-$s-a=b$. Otherwise $|a|/2<|a|-|b|\le|s|\le|a|$ and Sterbenz applies to $s-a$ again. So
-$z=\operatorname{fl}(s-a)=s-a$ exactly, and $b-z=(a+b)-s$ is the rounding error of the sum, which
-is itself representable for round-to-nearest addition, so $\operatorname{fl}(b-z)$ is exact too. This is
-Dekker's Fast2Sum, and Kahan's $c$ is its negation. Trace for $(1,2^{-9},2^{-9},2^{-9},2^{-9})$ in
-BF16 (exact sum $1+2^{-7}$, representable): the naive sum stays at 1 because each $2^{-9}$ is a
-quarter ulp. Kahan: after the first $2^{-9}$, $s=1$, $c=-2^{-9}$; next $y=2^{-8}$, $s+y$ is a tie
-and rounds to 1, $c=-2^{-8}$; next $y=3\cdot2^{-9}$, $s=\operatorname{fl}(1+3\cdot2^{-9})=1+2^{-7}$,
-$c=2^{-7}-3\cdot2^{-9}=2^{-9}$; last $y=0$, $s=1+2^{-7}$. Kahan returns the exact 1.0078125
-(`numerics.sum_kahan` agrees), the naive sum 1.0.
+#### Exercise 3.8
 
-#### Exercise 3.8.
+Achieved model FLOP/s $=2.1\times10^6\times6\times3\times10^9=3.78\times10^{16}$; peak
+$=64\times989\times10^{12}=6.33\times10^{16}$; MFU $\approx60\%$. That is at the very top of what
+well-tuned dense training achieves, so ask: are padding tokens counted as tokens? Is $N$ the total
+or non-embedding count? Are attention FLOPs or recomputation included (that would make it hardware
+FLOPs utilisation, HFU, not MFU)? Is the peak taken as the bf16 or the fp8 rate? Is the throughput a
+steady-state peak or an average including evaluation and checkpoint stalls?
 
-For $p(x)=\frac1{2\beta}e^{-|x|/\beta}$, $2\int_c^\infty(x-c)^2p(x)\,dx=\frac1\beta e^{-c/\beta}
-\int_0^\infty t^2e^{-t/\beta}dt=2\beta^2e^{-c/\beta}$, and
-$$\operatorname{MSE}(c)=\frac{c^2}{12q_{\max}^2}\big(1-e^{-c/\beta}\big)+2\beta^2e^{-c/\beta}.$$
-With $\beta=1/\sqrt2$ ($\sigma=1$) a grid search gives $c^*=3.39\sigma$ for $b=4$ ($q_{\max}=7$,
-MSE 0.0277) and $c^*=6.99\sigma$ for $b=8$ (MSE $3.0\times10^{-4}$). The empirical sweep of
-[@fig:numerics:clip] found $3.43\sigma$ at 4 bits; the small difference comes from the
-uniform-noise approximation of the rounding term near the clipping point and from sampling.
+#### Exercise 3.9
 
-#### Exercise 3.9.
+(a) An L2 probe keeps source and destination inside the 40 MB L2 (for example two 8 MiB buffers)
+and runs the copy many times inside one timed call (a Python loop of 100 copies, or a CUDA graph of
+them), dividing the bytes moved by the total time; with the per-call fixed cost of about 14 μs
+amortised, the probe measures the L2's bandwidth, several times the 1.37 TB/s HBM roof. Report it
+with the same median and p10/p90 as `time_stats`. (b) Only kernels whose working set fits in L2
+and is re-read can be limited by it. The streaming kernels of [@tab:machine:points] (add, row sum,
+softmax, the GEMV and the decode attention) touch hundreds of megabytes once each, so HBM binds.
+The tiled GEMMs and the prefill attention re-read their tiles of $\mathbf{A}$, $\mathbf{B}$ or
+$\mathbf{K}$, $\mathbf{V}$ many times, mostly from L2: their L2 intensity is far below their HBM
+intensity, and for the $M=256$ GEMM, which sits just right of the HBM ridge, the L2 roof is the
+candidate. (c) Nsight Compute's `dram__bytes_read.sum` and `dram__bytes_write.sum` give
+$Q_{\text{HBM}}$, and `lts__t_bytes.sum` gives the L2 traffic. Divide the kernel's $F$ by each to get
+$I_{\text{HBM}}$ and $I_{\text{L2}}$, and plot the kernel's achieved FLOP/s at both intensities
+against both roofs; the roof the kernel is closest to is the one that binds. For a well-tiled GEMM
+the HBM point lies near $Q_{\min}$ and the L2 point far to the left but still under the much higher
+L2 roof, so neither memory level binds and the kernel is limited by the tensor cores and the
+pipeline that feeds them.
 
-Let $m=\max(m_a,m_b)$, $\alpha=e^{m_a-m}$, $\beta=e^{m_b-m}$. Then $\ell=\alpha\ell_a+\beta\ell_b$
-and $\mathbf{o}=\alpha\mathbf{o}_a+\beta\mathbf{o}_b$, with final output $\mathbf{o}/\ell$. A state
-$(m,\ell,\mathbf{o})$ represents the pair $(e^{m}\ell, e^{m}\mathbf{o})=(\sum_ie^{s_i},
-\sum_ie^{s_i}\mathbf{v}_i)$; the merge adds these pairs in a rescaled representation, so it is
-associative and commutative (up to rounding), and the identity element is $(-\infty,0,\mathbf{0})$
-(guard the $e^{-\infty-(-\infty)}$ case as `online_softmax_stats` does). Check: split the score row
-of `online_softmax_matmul` in two, run each half, merge, and compare with the full result to
-$10^{-12}$ in float64. Split-KV ("flash-decoding") kernels use this merge: during decoding there is
-one query per sequence, so the KV cache is split across thread blocks and their partial states are
-merged.
+#### Exercise 3.10
 
-#### Exercise 3.10.
-
-$n=4096^2=16{,}777{,}216$ elements.
-
-| Scheme | elements | metadata | factors out? |
-|:--|--:|--:|:--|
-| INT8, per output channel, FP32 scale | 16 MiB | 16 KiB | yes: epilogue multiply by $s^W_n$ |
-| INT4 groups of 128, FP16 scale + INT4 zero | 8 MiB | 256 + 64 KiB | no: dequantise in registers per group |
-| MXFP4 (32, E8M0) | 8 MiB | 512 KiB | no: Blackwell MMA applies it; elsewhere dequantise |
-| NVFP4 (16, E4M3, + FP32) | 8 MiB | 1 MiB + 4 B | no: Blackwell MMA applies it |
-| FP8, $128\times128$ blocks, FP32 | 16 MiB | 4 KiB | no: rescale partial sums every 128 of $K$ |
-
-Only the scale that is constant along $K$ (the per-channel one) can be applied once after the full
-dot product; all others change every 16 to 128 elements of $K$ and must be applied inside the $K$
-loop, by the software (dequantise, or rescale and promote partial sums) or by the MMA instruction.
-
-#### Exercise 3.11.
-
-Quantise $A$ with `numerics.mx_quantize(a, "mxfp8_e4m3")` and $B$ with
-`numerics.quantize(b, E4M3, block=(32, 1), scale_fmt="e8m0", scale_rule="ocp")`, then for each
-32-deep slice add $(\sum p_ap_b)X_aX_b$ to an `ACC_E8M13` accumulator with `rtz`, with no promotion.
-*Prediction*: the power-of-two scales are applied exactly, but the accumulator still sees all $K$
-additions in one window, so its accumulation error should match the per-tensor, no-promotion case
-($\approx3.5\times10^{-3}$ at $K=4096$), 30 times DeepSeek-V3's promoted $1.2\times10^{-4}$; its
-total error should be worse than DeepSeek's because of the E8M0 floor rule's saturation. Measured
-on the bench's outlier activations at $K=4096$: accumulation error $3.5\times10^{-3}$ against
-$1.2\times10^{-4}$; total error 4.7% against 3.4%. The design one wants in hardware combines both:
-scales applied inside the MMA (no software rescaling) *and* a wide accumulator (or hardware
-promotion), which is what DeepSeek-AI (2024) asked of future tensor cores.
-
-#### Exercise 3.12.
-
-Construct rows whose exact sum falls strictly between two FP32 numbers, with every input exactly
-representable in FP16 (and BF16): for example $a=(1,3\cdot2^{-14},0,\dots)$, $b=(1,2^{-11},0,\dots)$
-gives $1+0.75$ ulp; fifteen products of $2^{-24}$ after a 1 give $1+7.5$ ulp; and $a=(-1,3\cdot
-2^{-14})$ gives a negative exact tie. Round-to-nearest returns $1+$ulp, $1+8$ ulp (or less if the
-additions are sequential) and the even neighbour; round-toward-zero returns $1$, $1+7$ ulp and the
-neighbour of smaller magnitude; round-toward-$-\infty$ returns $1$, $1+7$ ulp and the neighbour of
-*larger* magnitude. Moving the large term to different positions along $K$ (and padding $K$ with
-zeros) reveals how many products are summed before each rounding. `bench.py --only tcprobe`
-implements the three probes. On the A100 the FP32 SGEMM rounds to nearest, while both the FP16 and
-the BF16 tensor-core GEMMs return $1$, $1+7$ ulp and the larger-magnitude neighbour: rounding toward
-$-\infty$, the same for both input formats, which is neither RNE nor the round-toward-zero that Fasi
-et al. (2021) reported for the V100 (and agrees with Valpey et al., 2025). *Prediction for random
-data*: directed rounding biases long sums, so one would expect error growing with $K$ above the RNE
-model. The measurement only partly agrees: the BF16 kernel's error ($1.3\times10^{-7}$ at $K=4096$)
-is *below* the sequential RNE model because the kernel's blocking and split-K shorten each chain of
-additions, while the FP16 kernel's ($2.4\times10^{-6}$) is ten times above it and nearly
-independent of $K$. On identical BF16-representable data the FP16 kernel is still 3.7 times worse,
-and the profiler shows different kernels (a CUTLASS kernel for FP16, a cuBLAS one for BF16). So the
-probe characterises the MMA, but the error on real data depends on the kernel the library selects;
-repeat both on another GPU generation to see which of the two changed.
+(a, b) Measured on 2x A100-40GB (PCIe), one GPU, 8,192-cubed bf16 GEMMs run for eight seconds
+each: random normal data, 215 TFLOP/s at an SM clock of 1,035 MHz and 250 W (the limit); random
+data with the low 4 of the 7 mantissa bits zeroed, 230 TFLOP/s at 1,095 MHz and 249 W; zeros,
+290 TFLOP/s at 1,380 MHz and 234 W. Zeroing mantissa bits reduces the number of bits that toggle in
+the multipliers, so each FLOP costs less energy and the power manager allows a higher clock; the
+exponent and the upper mantissa bits of random data still toggle, so the gain is partial. Zeros
+toggle almost nothing and the card is no longer power-limited. (c) Treating the full board power as
+the cost (the card idles near 35 W, which a more careful study subtracts), the random-data GEMM
+costs $250/(214.7\times10^{12}) \approx 1.2$ pJ per FLOP, and the 1 GiB copy, which also runs at
+the 250 W limit at 1,379 GB/s, costs $250/(1.379\times10^{12}) \approx 180$ pJ per byte moved.
+The two energies are equal at an operational intensity of about $180/1.2 \approx 155$ FLOP/byte,
+almost exactly the empirical ridge point: on a power-limited card running at its limit, time and
+energy are proportional and the energy roofline and the time roofline coincide. (d) An H100 SXM
+has a 700 W limit for 989 TFLOP/s, about the same peak FLOP/s per watt of limit as the A100 PCIe
+(312 TFLOP/s for 250 W), so it is also expected to be power-limited on dense random-data GEMMs, and
+reports of data-dependent GEMM throughput on H100s (He, 2024) agree; the size of the effect depends
+on how much clock headroom the power manager has at the limit and has to be measured.

@@ -1,6 +1,6 @@
 # Brief: Project 3, a scaling-law study under a fixed budget (chapter 44, kit p3_scaling)
 Read projects_common.md first, then docs/PLAN.md §4 "P3", the existing chapter and kit (training_service, ledger: keep
-them and their tests), Chapters 17, 18, 20 (book + code, llmsys.scaling), code/llmsys/optim.py. GPU:
+them and their tests), Chapters 19, 20, 22 (book + code, llmsys.scaling), code/llmsys/optim.py. GPU:
 CUDA_VISIBLE_DEVICES=1, short runs only.
 Scope: sweep 2-100M-parameter models under a fixed GPU-hour budget on real data (sample via `datasets`, plus
 --synthetic); μP parametrisation for hyperparameter transfer (implement muP width scaling for the llmsys GPT:

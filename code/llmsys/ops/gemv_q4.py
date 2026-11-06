@@ -1,4 +1,4 @@
-"""Quantised GEMV for CPU decode (Chapter 47): q4_0 / q4_g / q8_0 formats with switchable backends.
+"""Quantised GEMV for CPU decode (Chapter 49): q4_0 / q4_g / q8_0 formats with switchable backends.
 
     from llmsys.ops import gemv_q4 as G
     packed, scales = G.quantize_q4_0(w)                    # (N, K/2) uint8, (N, K/32) fp16
@@ -73,7 +73,7 @@ def quantize_q8_0(w: torch.Tensor, group: int = BLOCK) -> Tuple[torch.Tensor, to
 
 def quantize_q4_g(w: torch.Tensor, group: int = 128
                   ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Asymmetric group-wise int4 (Chapter 46's format): (packed, scales fp16, zeros uint8).
+    """Asymmetric group-wise int4 (Chapter 48's format): (packed, scales fp16, zeros uint8).
 
     Same codes as ``llmsys.quant.quantize_groupwise`` whenever a group's range straddles zero. The
     range is widened to include zero so that an all-positive or all-negative group stays
