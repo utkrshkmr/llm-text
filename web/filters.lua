@@ -154,7 +154,7 @@ end
 
 function Image(img)
   img.attributes["loading"] = "lazy"
-  if img.src:match("^figures/") then img.classes:insert("tikz") end
+  if img.src:match("^figures/") then img.classes:insert("fig") end
   return img
 end
 

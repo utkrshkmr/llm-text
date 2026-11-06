@@ -1,4 +1,4 @@
-"""Qwen3-MoE (Chapter 11): the dense Qwen3 attention of ``llmsys.qwen3`` (GQA + QK-norm + RoPE)
+"""Qwen3-MoE (Chapter 12): the dense Qwen3 attention of ``llmsys.qwen3`` (GQA + QK-norm + RoPE)
 with every MLP replaced by a routed top-k mixture of SwiGLU experts, no shared expert, softmax
 router with renormalised top-k weights (``norm_topk_prob=True``).
 """

@@ -1,4 +1,4 @@
-// Fused row softmax, forward and backward (Chapter 21).
+// Fused row softmax, forward and backward (Chapter 23).
 //
 // One thread block per row. The forward pass computes the row maximum and the row sum of
 // exponentials in a *single* sweep with the online update (m, l) <- (max(m, x), l*exp(m-m') + exp(x-m')),

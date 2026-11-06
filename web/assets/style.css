@@ -1,4 +1,4 @@
-/* LLM Systems from Scratch: online edition.
+/* Big Book of LLMs: online edition.
    Designed for long reading sessions: warm low-glare backgrounds, softened text contrast,
    a comfortable measure (~70 characters), generous line height, and large figures.
    Themes: light (default), sepia, dark. Reader controls: font size, serif/sans. */
@@ -74,7 +74,7 @@
   --lab: #c3b0e0;  --lab-bg: #2a2532;
   --deep: #b7b2a9; --deep-bg: #25272b;
   --tk-kw: #9dbbd8; --tk-str: #e2b48a; --tk-com: #8c877f; --tk-num: #c3b0e0; --tk-fn: #b7c99a; --tk-op: #b7b2a9;
-  --fig-bg: #ece9e3;
+  --fig-bg: #23262b;
   --mark: rgba(226, 193, 126, .28);
   color-scheme: dark;
 }
@@ -215,12 +215,15 @@ code span.op { color: var(--tk-op); }
 
 /* figures: big by default, click to enlarge */
 figure { margin: 2.2em auto; text-align: center; max-width: 100%; }
-img.tikz {
+img.fig {
   display: block; margin: 0 auto; height: auto; max-width: 100%;
   background: var(--fig-bg); border-radius: 10px; padding: 14px; box-shadow: var(--shadow);
   cursor: zoom-in;
 }
-:root[data-theme="dark"] img.tikz { filter: brightness(.94); }
+/* each figure ships as a light and a dark SVG (web/figtheme.py); show the one for the theme */
+img.fig.fig-dark { display: none; }
+:root[data-theme="dark"] img.fig.fig-light { display: none; }
+:root[data-theme="dark"] img.fig.fig-dark { display: block; }
 figcaption, table caption {
   font: 14.5px/1.55 var(--ui-font); color: var(--text-soft); text-align: left;
   max-width: var(--measure); margin: 12px auto 0; caption-side: bottom;

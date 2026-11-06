@@ -1,4 +1,4 @@
-"""Pretraining-data pipeline building blocks (Chapter 14).
+"""Pretraining-data pipeline building blocks (Chapter 15).
 
     records    WARC container reader/writer (stand-in for FastWARC/warcio)
     extract    charset detection + HTML-to-text (stand-in for Resiliparse/trafilatura)
@@ -11,7 +11,7 @@
     pipeline   staged pipeline with accounting and a multiprocess shard driver
     synth      synthetic labelled crawl for offline testing
 
-Everything is pure Python + NumPy so the labs run anywhere; Chapter 14 names the
+Everything is pure Python + NumPy so the labs run anywhere; Chapter 15 names the
 production tools each module stands in for.
 """
 from .classify import HashedNgramClassifier, NaiveBayesLangID

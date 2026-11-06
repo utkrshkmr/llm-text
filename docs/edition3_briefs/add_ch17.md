@@ -1,43 +1,51 @@
-# Brief: additions to Chapter 17 "Distributed Training" + Lab 17 extension (C++ ring all-reduce, PCIe measurements)
+# Brief: additions to Chapter 17 "Single-GPU Performance Engineering" + Lab 17 extension
 
-Read first: BRIEF_conventions.md (one level up, incl. §6), docs/PLAN.md §1.2 row "17" and docs/TEST_PLAN.md §1,
-the existing chapter book/chapters/ch17_distributed.md (keep ALL content), book/solutions/ch17_solutions.md,
-code/labs/lab17_distributed/*, code/llmsys/dist/*, and from the first wave book/chapters/ch19_shardcalc.md +
-code/llmsys/dist/{sharding.py,sharded_ops.py} (cross-reference; don't duplicate the calculus), code/csrc/README.md
-and code/llmsys/ops/__init__.py (§6 JIT workflow). GPUs: both (CUDA_VISIBLE_DEVICES=0,1) for the PCIe
-measurements; keep each run under a minute.
+Read first: BRIEF_conventions.md (one level up), docs/PLAN.md §1.2 row "17", the existing chapter
+book/chapters/ch17_perf_engineering.md (keep ALL content: it already has activation checkpointing basics,
+the sqrt(L) argument, FA2 in PyTorch and Triton), book/solutions/ch17_solutions.md, code/labs/lab17_perf/*,
+code/llmsys/perf.py, and from the first wave book/chapters/ch26_compilers.md + code/llmsys/compile/fx_passes.py
+(torch.fx utilities you can reuse for the planner) and book/chapters/ch24_attn_moe_kernels.md (Hopper/Blackwell
+section: cross-reference instead of repeating). GPU: CUDA_VISIBLE_DEVICES=0 for short measurements only.
 
-Files you own: book/chapters/ch17_distributed.md (add), book/solutions/ch17_solutions.md (add),
-code/labs/lab17_distributed/* (add tasks/tests/bench; keep existing passing + starter_csrc/), new
-code/csrc/cuda/p2p_ring.cu (a ring all-reduce for 2+ GPUs in ONE process written in C++/CUDA with
-cudaMemcpyPeerAsync / direct peer access and a reduce kernel, exposed as `llmsys::ring_allreduce_p2p(Tensor[]
-chunks_per_device)` — the "NCCL ring from C++" lab: the algorithm NCCL runs, implemented by hand; also a
-`p2p_bandwidth(int src, int dst, int bytes)` op that measures copy bandwidth), code/llmsys/ops/p2p_ring.py,
-new code/tools/p2p_bandwidth.py and code/tools/allreduce_bench.py (the environment-check scripts named in
-docs/TEST_PLAN.md §1: PCIe bandwidth per direction, NCCL all-reduce bus bandwidth curve with torchrun, JSON
-output), new module code/llmsys/dist/cluster.py (topology descriptions and per-strategy roofline models),
+Files you own: book/chapters/ch17_perf_engineering.md (add), book/solutions/ch17_solutions.md (add),
+code/labs/lab17_perf/* (add tasks/tests; keep existing passing), new module code/llmsys/ckpt_planner.py,
 docs/edition3_briefs/refs/add_ch17.md.
 
-Additions (sections + exercises + lab tasks):
-1. GPU cluster networking: NVLink/NVSwitch domains (bandwidths per generation), PCIe topologies (switch
-   trees, PIX/PXB/PHB/SYS as `nvidia-smi topo -m` reports them), InfiniBand fat-trees (rail-optimised
-   designs), in-network reduction (SHARP), GPUDirect RDMA; figures of a DGX-style node and a PCIe box like
-   this one; this box's topology and measured P2P bandwidth (label measured on 2x A100-40GB PCIe).
-2. Per-strategy GPU rooflines: for DDP, ZeRO-1/2/3, FSDP, TP, PP, EP derive bytes communicated per step per
-   GPU and the compute per step, giving the interconnect bandwidth needed to stay compute-bound as a
-   function of model size and batch; plot (pgfplots, analytic) for A100 PCIe vs A100 NVLink vs H100 NVLink.
-3. Real framework configurations: how the same strategies are expressed in DeepSpeed (ZeRO stages, offload
-   JSON), FSDP2 (fully_shard, mixed precision policy, reshard_after_forward), Megatron-LM (TP/PP/DP flags,
-   sequence parallel), torchtitan (toml configs) — short annotated config listings and a mapping table to the
-   chapter's concepts.
-4. PCIe-specific measurements (new subsection): all-reduce bus bandwidth vs message size on this box (NCCL,
-   2 GPUs), P2P copy bandwidth, overlap fraction achievable in DDP; what changes without NVLink (TP is
-   usually a loss, DDP/ZeRO-1 fine; EP all-to-all cost) — results tables labelled measured.
-5. Lab 17 extension "C++": the hand-written ring all-reduce over peer copies (tests: equals torch sum
-   across devices for 2 GPUs, marked gpu; CPU test of the schedule logic in Python), bandwidth tool runs
-   and writes JSON (test: parses its own output on a fake run), roofline model functions (CPU tests with
-   known numbers), config translation helpers (CPU tests).
+Additions (a new section group "Choosing what to recompute" of ~250–350 lines + lab tasks):
+1. Checkpointing as a pebble game: the computation DAG, pebbles = live tensors, moves = compute/free, the
+   time–space trade-off; the chain case (Griewank–Walther revolve: optimal schedule by dynamic
+   programming, O(log) memory with O(log) recompute factor), with a figure of a chain schedule.
+2. Choosing checkpoints at graph cut points: for a transformer the natural cuts (block boundaries, the
+   small tensors between attention and MLP), selective checkpointing of cheap-to-recompute ops
+   (elementwise, norms) vs expensive (matmuls, attention) — relate to the existing selective_checkpoint;
+   FLOP/byte tables for each op class in a block.
+3. Optimal schedules by dynamic programming (chain) and by ILP for general DAGs (Checkmate-style: variables
+   for compute/keep per op per stage, memory constraints) — formulate, show a tiny instance solved with a
+   simple branch-and-bound or with scipy.optimize.milp (scipy is installed; keep the instance tiny);
+   treewidth as the reason general DAGs are hard and why transformer graphs are easy (series-parallel-like).
+4. An fx-based planner: trace a tiny model with torch.fx, estimate per-node bytes and FLOPs (shape
+   propagation), choose checkpoint cut points under a memory budget with the DP, emit a wrapped module that
+   applies torch.utils.checkpoint at the chosen cuts; validate that gradients are unchanged and saved bytes
+   drop (reuse llmsys.perf.SavedTensorTracker). This is the lab extension (CPU-testable).
+5. FlashAttention-3/4 design ideas (as a Deeper Dive, 60–100 lines): producer/consumer warp specialisation,
+   ping-pong scheduling of GEMM and softmax, FP8 with block scaling, intra-warpgroup pipelining, TMA; and
+   the Blackwell changes; why they do not apply to Ampere; link [@ch:cudakernels].
+6. Exercises + solutions; lab tasks: revolve DP (test: known optimal counts for small chains), cut-point
+   selection (test: memory under budget, recompute minimal on a crafted chain), fx planner (test: identical
+   gradients; saved bytes reduced), ILP tiny instance (test: matches DP on a chain).
 
 Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); run
-`LAB_IMPL=solution python -m pytest -q labs/lab17_distributed` (LLMSYS_JIT=1) and `python -m pytest -q tests`.
-Report the measured P2P and all-reduce bandwidths in your final message.
+`LAB_IMPL=solution python -m pytest -q labs/lab17_perf` and `python -m pytest -q tests`.
+
+
+## Expanded scope (owner, 2026-11; staged plan). Same depth rules: BRIEF_conventions.md §7 (Research frontier section, Reading-the-research box)
+- Number formats now live in [@ch:numerics]: shorten format background to a link; keep and deepen the practice:
+  FP8 training with per-tensor delayed scaling vs block scaling (torchao float8 / Transformer Engine style),
+  measured speed and loss parity on the A100 (FP8 unsupported in A100 tensor cores: emulate and say so; give H100
+  numbers from published sources).
+- Activation checkpointing as rematerialisation: the optimisation problem (memory budget vs recompute FLOPs), optimal
+  checkpoint placement (sqrt(n) schedule, Checkmate-style ILP sketch), selective checkpointing in PyTorch,
+  offloading activations to host (link [@ch:memory]).
+- Operator taxonomy with memory-traffic accounting: elementwise, reduction, broadcast, layout/permutation (view vs
+  copy, contiguity), matmul; how each maps to bytes and FLOPs and which fuse ([@ch:compilers]).
+- CUDA graphs for training steps (static shapes, capture rules, memory pools) and the profiler pointer to [@ch:profiling].

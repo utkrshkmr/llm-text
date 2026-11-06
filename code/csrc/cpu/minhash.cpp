@@ -1,4 +1,4 @@
-// MinHash near-duplicate detection on the CPU (Chapter 45, Project 4): shingle hashing, MinHash
+// MinHash near-duplicate detection on the CPU (Chapter 52, Project 4): shingle hashing, MinHash
 // signatures and LSH band keys as three operators over flat tensors.
 //
 // Documents arrive as one flat uint8 tensor of normalised text (lower-cased, punctuation removed,

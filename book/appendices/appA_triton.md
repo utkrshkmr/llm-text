@@ -890,6 +890,6 @@ biggest gap you found and its cause, backed by an Nsight Compute metric.
 
 - Implement a split-KV decode kernel and compare it with the prefill kernel at $T=1$.
 
-- Write the group-wise int4 variant of the W8A16 kernel and plug it into `QuantLinear` from Lab 28.
+- Write the group-wise int4 variant of the W8A16 kernel and plug it into `QuantLinear` from [@lab:efficient].
   Measure decode tokens/s for Qwen3-0.6B.
 :::

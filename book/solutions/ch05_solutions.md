@@ -1,86 +1,102 @@
-## Chapter 5: Implementing a GPT Model {#chapter-5-implementing-a-gpt-model .unnumbered}
+## Chapter 5: Attention Mechanisms {#chapter-5-attention-mechanisms .unnumbered}
 
 #### Exercise 5.1.
 
-With [@eq:gpt:params] (untied head, no QKV bias, $V=50257$, $T_\text{max}=1024$): GPT-2
-medium has 406212608 parameters (attention 100.7 , FFN 201.4 ); large has 838220800 (attention
-236.0 , FFN 472.1 ); XL has 1637792000 (attention 491.6 , FFN 983.4 ). For $L=12$ the FFN holds
-$12(8d^2+5d)$ parameters and the embeddings plus head hold $(2V+T_\text{max})d$. Equality gives
-$96d+60=2\cdot50257+1024$, i.e. $d\approx1057$; any width above that (in practice the next multiple
-of 64, $d=1088$) puts more parameters in the FFNs than in the vocabulary-sized matrices.
+The "chip" row of $\mathbf{A}$ is $(0.137,0.196,0.219,0.154,0.123,0.171)$, giving
+$\boldsymbol{z}^{(6)}=(0.442,0.556,0.522)$. "chip" is the last token, so the causal row is
+identical: it may see every position.
 
 #### Exercise 5.2.
 
-Add three keys, e.g. `drop_emb`, `drop_attn` and `drop_resid`, pass `drop_attn` to
-`MultiHeadAttention` and `drop_resid` to `drop_shortcut`, and use `drop_emb` in `GPTModel`. Removing
-the *attention-weight* dropout saves the most: it acts on the largest activation ($BHT^2$ elements
-per layer), its mask must otherwise be stored or regenerated, and many fused attention kernels have
-a faster code path when dropout is zero.
+Without scaling, score standard deviation grows as $\sqrt{d_k}$, so the maximum softmax probability
+approaches 1 as $d_k$ grows (nearly one-hot rows); with scaling the scores have unit variance and
+the maximum probability stays roughly constant in $d_k$ (it depends on $T$). The softmax Jacobian
+has entries $\alpha_i(\delta_{ij}-\alpha_j)$: for a one-hot row all entries are $\approx0$, so
+almost no gradient reaches the queries and keys.
 
 #### Exercise 5.3.
 
-The next multiple of 128 above 50257 is 50304: 47 extra rows, $47\times768=36096$ parameters per
-vocabulary matrix (72192 if the head is untied). Two fp32 Adam moments add 8 bytes per parameter:
-289  (tied) or 578  (untied)---negligible. During generation either slice the logits to the true
-vocabulary (`logits[..., :50257]`) or set the padded entries to $-\infty$ before argmax/sampling, so
-a padded ID can never be emitted.
+If the parameter version computes `x @ W` with `W` of shape $(d_{\text{in}},d_{\text{out}})$, set
+`linear.weight.data = W.T.clone()` for each of Q, K, V (`nn.Linear` computes `x @ weight.T`). The
+outputs then agree to float precision.
 
 #### Exercise 5.4.
 
-From $8Nd^2=r\,(10Nd+8d^2)$ with ridge point $r$ we get $N^\star=8rd/(8d-10r)$. For the A100,
-$r=312/2.039\approx153$ FLOP/byte, giving $N^\star\approx204$ tokens for $d=768$ and $\approx160$
-for $d=4096$. The second FFN GEMM, $(N\times4d)\cdot(4d\times d)$, also performs $8Nd^2$ FLOPs and
-moves $2(4Nd)+2(4d^2)+2(Nd)=10Nd+8d^2$ bytes: its intensity is identical, so (ignoring tiling
-effects) both GEMMs reach the ridge at the same $N^\star$.
+Route 1 gives
+$\tilde\alpha_{ij}=\frac{e^{s_{ij}}/Z_i}{\sum_{k\le i}e^{s_{ik}}/Z_i}=\frac{e^{s_{ij}}}{\sum_{k\le i}e^{s_{ik}}}$
+for $j\le i$ and 0 otherwise, which is the route-2 softmax over the visible prefix; $Z_i$ (which
+contains future scores) cancels. Because the result is algebraically independent of $s_{ij}$ for
+$j>i$, the Jacobian of output 2 with respect to input 5 is zero; autograd returns zero up to
+rounding (fp32: around $10^{-8}$ or exactly 0).
 
 #### Exercise 5.5.
 
-Without scaling, each of the $2L$ sublayers adds an update of roughly constant variance $\sigma_u^2$
-to the stream, so after $\ell$ sublayers the variance is $\sigma_0^2+\ell\sigma_u^2$ and the RMS
-grows like $\sqrt{\ell}$: a concave, square-root-shaped curve. Scaling the output projections by
-$1/\sqrt{2L}$ shrinks each update's variance by $2L$, so the total added variance after all $2L$
-sublayers is about $\sigma_u^2$ and the curve becomes nearly flat.
+$x$: $(4,1024,1024)$; $q,k,v$: $(4,1024,1024)\to(4,1024,16,64)\to(4,16,1024,64)$; scores and
+weights: $(4,16,1024,1024)$; $\mathbf{A}\mathbf{V}$: $(4,16,1024,64)\to(4,1024,1024)$; output
+$(4,1024,1024)$. Parameters: $3(1024^2+1024)+(1024^2+1024)=4{,}198{,}400$.
 
 #### Exercise 5.6.
 
-Post-LN computes `x = norm(x + f(x))`. Without warmup, the post-LN model typically diverges (loss
-spikes to NaN or plateaus at the unigram entropy) at a learning rate several times lower than the
-pre-LN model tolerates, because the gradients of the last layers are large at initialization (Xiong
-et al., 2020); adding a linear warmup closes much of the gap.
+Per token per layer, the other forward FLOPs are projections $8d^2$ plus SwiGLU $6d\,d_{\text{ff}}$.
+With causal masking exploited, a token's score and value products average $2Td$ over a sequence of
+length $T$. Equality: $T=(8d^2+6dd_{\text{ff}})/(2d)=4d+3d_{\text{ff}}=16{,}384+33{,}024=49{,}408$
+tokens.
 
 #### Exercise 5.7.
 
-\(a\) The explicit tanh-GELU saves, per element of the $4d$-wide hidden tensor, the input (for `pow`
-and the outer multiply), the `tanh` output, the half-scaled input and the $(1+\tanh)$ factor: about
-four $4d$-wide tensors. (b) `nn.GELU` saves only its input, removing roughly three of them
-(1387 $\to$`<!-- -->`{=html}994  on the tiny configuration). (c) The explicit LayerNorm saves
-$x-\mu$, the denominator and the normalized tensor; `nn.LayerNorm` saves the input plus one mean and
-one reciprocal standard deviation per row, so roughly one to two $d$-wide tensors disappear per
-norm.
+Induction: with $(m,\ell)$ correct for prefix $P$, i.e. $\ell=\sum_{j\in P}e^{x_j-m}$, after block
+$B$ we have $\ell e^{m-m'}+\sum_{j\in B}e^{x_j-m'}=\sum_{j\in P\cup B}e^{x_j-m'}$ with
+$m'=\max_{P\cup B}x_j$. Merge of disjoint partial states:
+
+``` python
+def merge(m1, l1, o1, m2, l2, o2):     # o = un-normalised sum e^{s-m} v
+    m = torch.maximum(m1, m2)
+    a1, a2 = torch.exp(m1 - m), torch.exp(m2 - m)
+    return m, a1 * l1 + a2 * l2, a1[..., None] * o1 + a2[..., None] * o2
+```
+
+Split-KV decoding computes partial states over KV chunks in parallel and reduces them with `merge`;
+ring attention merges the partial state from each key/value block as it arrives from the
+neighbouring device.
 
 #### Exercise 5.8.
 
-Causal attention computes, per head and sequence, $\sum_{i=1}^{T} i\,d_{h}\cdot2 = T(T+1)d_{h}$
-FLOPs for $QK^\top$ and the same for $AV$, i.e. $2T(T+1)d$ per layer instead of $4T^2d$---a factor
-$(T+1)/2T\approx\tfrac12$. For GPT-2 small the total forward FLOPs per token drop from 284.8M to
-265.9M at $T=1024$ (6.6% less) and from 549.1M to 398.1M at $T=8192$ (27.5% less). If one paper
-counts full attention and another counts only the causal half, their MFU numbers differ by this
-amount for the same hardware efficiency, increasingly so at long context.
+For $\boldsymbol{y}=\operatorname{softmax}(\boldsymbol{s})$,
+$\partial y_j/\partial s_k=y_j(\delta_{jk}-y_k)$, so
+$ds_k=\sum_j dy_j\,y_j(\delta_{jk}-y_k)=y_k(dy_k-\sum_j y_j dy_j)$. In matrix form,
+$\mathbf{dS}=\mathbf{P}\odot(\mathbf{dP}-\boldsymbol{\delta})$ with $\delta_i=\sum_jP_{ij}dP_{ij}$.
+Since $\mathbf{dP}=\mathbf{dO}\mathbf{V}^\top$,
+$\delta_i=\sum_j P_{ij}\,\boldsymbol{dO}_i\cdot\boldsymbol{v}_j=\boldsymbol{dO}_i\cdot\sum_jP_{ij}\boldsymbol{v}_j=\boldsymbol{dO}_i\cdot\boldsymbol{O}_i$.
 
 #### Exercise 5.9.
 
-Neglecting attention terms, a forward pass over $t$ tokens costs $\approx2Pt$. Without a cache,
-generating $n$ tokens costs $\sum_{t=p}^{p+n-1}2Pt\approx2P(pn+n^2/2)$; with a cache, $2P(p+n)$
-(prefill plus one token per step). The ratio is $(pn+n^2/2)/(p+n)$, which for $p=100$ reaches 100 at
-$n^2/2=10^4$, i.e. $n\approx141$. Including attention makes the uncached version slightly worse
-still.
+With 228 KB of SRAM the model's naive/tiled traffic ratio is about 6.5--10.6 for $D=64$, 2.3--2.7
+for $D=128$, and below 1 for $D=256$ (tiling "loses"). The model counts only the score matrix's
+write/read passes and ignores that the naive path also launches separate mask, softmax and dropout
+kernels (more $T^2$ passes), stores $\mathbf{A}$ for backward, and that real kernels choose tile
+shapes and use registers as well as shared memory. The qualitative lesson holds: the benefit shrinks
+as $D^2/M$ grows.
 
 #### Exercise 5.10.
 
-Loop over sequence chunks of 128 positions: compute the chunk's logits, its cross-entropy summed
-over tokens, and accumulate; wrap each chunk in `torch.utils.checkpoint` so the chunk logits are
-recomputed in backward rather than stored. Peak logits memory falls from
-$8\cdot1024\cdot50257\cdot4\,\text{B}=1.65\,\mathrm{\giga\byte}$ to
-$8\cdot128\cdot50257\cdot4\,\text{B}=206\,\mathrm{\mega\byte}$ (and the same for the softmax
-gradient). The price is recomputing the head GEMM in the backward pass, about $2NVd$ extra FLOPs,
-i.e. one third more work for the output layer.
+$8192/128=64$ tiles per side, 4096 tiles in total: 64 diagonal tiles (1.6%), $64\cdot63/2=2016$
+fully visible (49.2%) and 2016 fully masked (49.2%). Skipping masked tiles avoids about 49% of the
+dense $\mathbf{Q}\mathbf{K}^\top$ work, close to the ideal 50%; diagonal tiles are computed in full
+and masked element-wise.
+
+#### Exercise 5.11.
+
+Cache bytes $=2L\,H_{kv}d_{h}\,\min(t,w)\cdot b$: they grow linearly until $t=w$ and then stay
+constant. At $t=32$k the windowed cache is $32\text{k}/4096=8\times$ smaller. Implementations keep a
+rolling (circular) buffer that overwrites the oldest entries, so a cached shared prefix is destroyed
+as soon as any request sharing it advances more than $w$ tokens past it. Prefix sharing would
+require copy-on-write of the overwritten blocks or keeping prefix blocks pinned, and a prefix longer
+than $w$ is only partially useful.
+
+#### Exercise 5.12.
+
+Expect the explicit implementation's peak memory to scale as $BHT^2$ with several live copies
+(scores, probabilities, possibly the mask), running out of memory when
+$\approx 2$--$3\cdot BHT^2\cdot b$ exceeds free memory; SDPA's peak scales linearly in $T$. The
+measured out-of-memory length should be within a factor of $\sqrt{2}$--$\sqrt{3}$ of the single-copy
+estimate.

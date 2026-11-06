@@ -1,4 +1,4 @@
-"""Proxy-model data-mixture search on the simplex (Chapter 45, research question 3).
+"""Proxy-model data-mixture search on the simplex (Chapter 52, research question 3).
 
 A mixture is a weight vector ``w`` over sources (domains, quality bins, length bins). Evaluating a
 mixture means building a token file by sampling documents per source in proportion to ``w`` and
@@ -123,7 +123,7 @@ def bucket_docs(docs: Sequence[dict], by: str = "domain", n_bins: int = 3) -> Di
 def sample_mixture(sources: Dict[str, List[int]], weights: np.ndarray, n_docs: int,
                    seed: int = 0) -> List[int]:
     """Deterministic multinomial allocation of ``n_docs`` over sources, sampled with replacement
-    inside each source (repeating a small source is the epoch hazard of Chapter 14)."""
+    inside each source (repeating a small source is the epoch hazard of Chapter 15)."""
     rng = np.random.default_rng(seed)
     names = sorted(sources)
     counts = np.floor(weights * n_docs).astype(int)

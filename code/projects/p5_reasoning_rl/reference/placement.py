@@ -1,6 +1,6 @@
-"""Trainer/rollout placement and weight synchronisation (Chapter 46).
+"""Trainer/rollout placement and weight synchronisation (Chapter 53).
 
-Two placements, as in Chapter 39:
+Two placements, as in Chapter 46:
 
     colocated   the policy itself generates (no copy, no sync); generation and training
                 time-share one device.

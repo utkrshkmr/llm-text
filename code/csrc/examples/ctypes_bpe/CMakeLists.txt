@@ -1,4 +1,4 @@
-# A plain shared library with a C ABI, called from Python through ctypes (Chapter 20).
+# A plain shared library with a C ABI, called from Python through ctypes (Chapter 21).
 # No Python headers, no binding library: the .so knows nothing about Python at all.
 #
 #   cmake -S . -B build -G Ninja && cmake --build build      # or simply:

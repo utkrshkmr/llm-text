@@ -1,4 +1,4 @@
-"""Offline preference optimisation: DPO and its family (Chapter 36).
+"""Offline preference optimisation: DPO and its family (Chapter 43).
 
 Contents
 --------

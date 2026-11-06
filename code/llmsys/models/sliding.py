@@ -1,4 +1,4 @@
-"""Sliding-window attention: masks and a rolling KV cache with optional attention sinks (Chapter 11).
+"""Sliding-window attention: masks and a rolling KV cache with optional attention sinks (Chapter 12).
 
 A sliding-window layer lets query position ``i`` see keys ``j`` with ``0 <= i - j < w``. Its
 cache therefore never needs more than ``w`` entries per sequence: a ring buffer of ``w`` slots

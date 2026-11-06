@@ -1,4 +1,4 @@
-"""Project 5 reference solution (Chapter 46): post-training at matched compute.
+"""Project 5 reference solution (Chapter 53): post-training at matched compute.
 
     methods     -- the loss and advantage maths of every method, written out
     budget      -- GPU-hour accounting for the matched-compute protocol

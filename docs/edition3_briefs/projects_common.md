@@ -5,15 +5,15 @@ project ships with" list) and docs/TEST_PLAN.md §5, then the existing project k
 one, and the book chapters your project draws on.
 
 Mapping (project -> chapter file, label, kit dir):
-- P1 -> book/chapters/ch42_proj_basics.md, ch:proj1, code/projects/p1_lm
-- P2 -> ch43_proj_systems.md, ch:proj2, p2_systems
-- P3 -> ch44_proj_scaling.md, ch:proj3, p3_scaling
-- P4 -> ch45_proj_data.md, ch:proj4, p4_data
-- P5 -> ch46_proj_alignment.md, ch:proj5, p5_reasoning_rl
-- P6 NEW -> ch47_proj_serving.md, ch:proj6, p6_serving
-- P7 NEW -> ch48_proj_cpu_runtime.md, ch:proj7, p7_cpu_runtime (+ code/runtime/, standalone CMake C++ engine)
-- P8 NEW -> ch49_proj_moe.md, ch:proj8, p8_moe
-- P9 NEW -> ch50_proj_profiler.md, ch:proj9, p9_profiler
+- P1 -> book/chapters/ch49_proj_basics.md, ch:proj1, code/projects/p1_lm
+- P2 -> ch50_proj_systems.md, ch:proj2, p2_systems
+- P3 -> ch51_proj_scaling.md, ch:proj3, p3_scaling
+- P4 -> ch52_proj_data.md, ch:proj4, p4_data
+- P5 -> ch53_proj_alignment.md, ch:proj5, p5_reasoning_rl
+- P6 NEW -> ch54_proj_serving.md, ch:proj6, p6_serving
+- P7 NEW -> ch55_proj_cpu_runtime.md, ch:proj7, p7_cpu_runtime (+ code/runtime/, standalone CMake C++ engine)
+- P8 NEW -> ch56_proj_moe.md, ch:proj8, p8_moe
+- P9 NEW -> ch57_proj_profiler.md, ch:proj9, p9_profiler
 
 For P1-P5: the chapter exists. Keep its useful material, and bring it to the PLAN §4 scope: research questions,
 milestones, baselines, a compute budget on 2x A100-40GB PCIe, a write-up rubric, open extensions. The chapter

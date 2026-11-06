@@ -1,4 +1,4 @@
-"""The self-hosted training service for Project 3 (Chapter 44).
+"""The self-hosted training service for Project 3 (Chapter 51).
 
 A small HTTP service that "trains" a model config and returns validation losses, charging a
 wall-clock budget. Behind it sits a hidden loss surface from ``llmsys.scaling`` (randomised by

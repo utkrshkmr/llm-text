@@ -1,4 +1,4 @@
-"""Call the C-ABI BPE library through ctypes and check it against llmsys.tokenizer (Chapter 20).
+"""Call the C-ABI BPE library through ctypes and check it against llmsys.tokenizer (Chapter 21).
 
     g++ -O3 -std=c++20 -shared -fPIC -I../../cpu bpe_c.cpp -o build/libbpe_c.so   # or cmake
     python driver.py

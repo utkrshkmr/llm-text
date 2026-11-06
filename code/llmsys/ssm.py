@@ -1,4 +1,4 @@
-"""A minimal selective state-space model (Mamba-style) for Chapter 8.
+"""A minimal selective state-space model (Mamba-style) for Chapter 9.
 
 The core recurrence for each channel d and state dimension n is
 

@@ -1,4 +1,4 @@
-"""Ahead-of-time graphs: torch.export, ONNX + ONNX Runtime, CUDA graphs for decoding (Chapter 23).
+"""Ahead-of-time graphs: torch.export, ONNX + ONNX Runtime, CUDA graphs for decoding (Chapter 26).
 
     export_program(model, ids, max_seq)  torch.export with a dynamic sequence dimension
     export_onnx(model, ids, path)        ONNX file (torch.export-based exporter; TorchScript fallback)

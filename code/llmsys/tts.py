@@ -1,4 +1,4 @@
-"""Test-time scaling (Chapters 32-33).
+"""Test-time scaling (Chapters 38-39).
 
 * chain-of-thought prompt helpers
 * self-consistency (majority vote) with tie-breaking and early stopping

@@ -1,4 +1,4 @@
-"""llmsys.compile: tools for looking inside ML compilers (Chapter 23).
+"""llmsys.compile: tools for looking inside ML compilers (Chapter 26).
 
     fx_passes      graph rewriting on torch.fx graphs: pattern matching, an RMSNorm fusion pass, a
                    SiLU*gate fusion pass, dead-code elimination, a pass pipeline, graph statistics

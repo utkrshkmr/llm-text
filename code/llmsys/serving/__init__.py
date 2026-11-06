@@ -1,4 +1,4 @@
-"""llmsys.serving: a teaching-sized continuous-batching engine (Chapter 27).
+"""llmsys.serving: a teaching-sized continuous-batching engine (Chapter 31).
 
 Components
     BlockManager   paged KV block allocation, ref counts, prefix cache (LRU)

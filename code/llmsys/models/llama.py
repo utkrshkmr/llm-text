@@ -1,4 +1,4 @@
-"""Llama-3-style dense decoder (Chapter 11): RMSNorm, SwiGLU, GQA, RoPE with Llama-3 frequency
+"""Llama-3-style dense decoder (Chapter 12): RMSNorm, SwiGLU, GQA, RoPE with Llama-3 frequency
 scaling, untied output head. With ``sliding_window`` set it is Mistral-7B (v0.1).
 
 Interface: ``logits = model(idx, cache=None, pad_mask=None)``. The cache may be a growing

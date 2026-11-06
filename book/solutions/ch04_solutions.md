@@ -1,102 +1,112 @@
-## Chapter 4: Attention Mechanisms {#chapter-4-attention-mechanisms .unnumbered}
+## Chapter 4: Text Data, Tokenization, and the Input Pipeline {#chapter-4-text-data-tokenization-and-the-input-pipeline .unnumbered}
 
 #### Exercise 4.1.
 
-The "chip" row of $\mathbf{A}$ is $(0.137,0.196,0.219,0.154,0.123,0.171)$, giving
-$\boldsymbol{z}^{(6)}=(0.442,0.556,0.522)$. "chip" is the last token, so the causal row is
-identical: it may see every position.
+A window starting at offset $s_0$ needs tokens $s_0,\dots,s_0+T$, so valid starts are
+$0,s,2s,\dots\le N-T-1$, giving $n=\lfloor (N-T-1)/s\rfloor+1$ windows (for $N>T$). Input positions
+per epoch: $nT\approx NT/s$. A typical (interior) token is therefore an input about $T/s$ times: $T$
+times for $s=1$, 4 times for $s=T/4$, once for $s=T$.
 
 #### Exercise 4.2.
 
-Without scaling, score standard deviation grows as $\sqrt{d_k}$, so the maximum softmax probability
-approaches 1 as $d_k$ grows (nearly one-hot rows); with scaling the scores have unit variance and
-the maximum probability stays roughly constant in $d_k$ (it depends on $T$). The softmax Jacobian
-has entries $\alpha_i(\delta_{ij}-\alpha_j)$: for a one-hot row all entries are $\approx0$, so
-almost no gradient reaches the queries and keys.
+\(i\) `"a b"` (two spaces): decoding re-joins with one space. (ii) `'say "hi"'`: tokens `say`, `"`,
+`hi`, `"` decode to `'say " hi"'` because the regex only removes spaces *before* punctuation,
+leaving the space after the opening quote. (iii) any string with a tab or newline: whitespace is
+discarded and replaced by single spaces. Byte-level BPE never discards bytes: every byte belongs to
+exactly one token and decoding concatenates the tokens' bytes, so `decode(encode(s)) == s` for every
+valid UTF-8 string.
 
 #### Exercise 4.3.
 
-If the parameter version computes `x @ W` with `W` of shape $(d_{\text{in}},d_{\text{out}})$, set
-`linear.weight.data = W.T.clone()` for each of Q, K, V (`nn.Linear` computes `x @ weight.T`). The
-outputs then agree to float precision.
+Random lowercase strings contain few frequent English bigrams, so only short merges apply: expect
+roughly 1.5--2.5 bytes per token. A script absent from the training corpus has no merges at all
+among its bytes, so each UTF-8 byte is its own token: for a 3-byte script that is 1 byte/token,
+i.e. three tokens per character. Compression depends entirely on which byte sequences were frequent
+in the tokenizer's training data.
 
 #### Exercise 4.4.
 
-Route 1 gives
-$\tilde\alpha_{ij}=\frac{e^{s_{ij}}/Z_i}{\sum_{k\le i}e^{s_{ik}}/Z_i}=\frac{e^{s_{ij}}}{\sum_{k\le i}e^{s_{ik}}}$
-for $j\le i$ and 0 otherwise, which is the route-2 softmax over the visible prefix; $Z_i$ (which
-contains future scores) cancels. Because the result is algebraically independent of $s_{ij}$ for
-$j>i$, the Jacobian of output 2 with respect to input 5 is zero; autograd returns zero up to
-rounding (fp32: around $10^{-8}$ or exactly 0).
+Training learned merges in a specific order and the training corpus was segmented by applying them
+in that order; the model only ever saw segmentations produced that way. Example: merges
+$[(b,c)\to X,\ (a,b)\to Y]$ and input `ababc`. By rank: $(b,c)$ first gives `a b a X`, then $(a,b)$
+gives `Y a X`. By in-input frequency: $(a,b)$ occurs twice, so it is merged first, giving `Y Y c`,
+after which nothing applies. Different token sequence, one the model may never have seen in
+training.
 
 #### Exercise 4.5.
 
-$x$: $(4,1024,1024)$; $q,k,v$: $(4,1024,1024)\to(4,1024,16,64)\to(4,16,1024,64)$; scores and
-weights: $(4,16,1024,1024)$; $\mathbf{A}\mathbf{V}$: $(4,16,1024,64)\to(4,1024,1024)$; output
-$(4,1024,1024)$. Parameters: $3(1024^2+1024)+(1024^2+1024)=4{,}198{,}400$.
+Naive: each of $M$ merges recounts all $W$ symbols and scans $P$ pairs: $O(M(W+P))$. Incremental:
+initial counting $O(W)$, then merge $m$ costs $O(\sum_{w\in a_m}|w|)$ plus $O(P)$ to find the
+maximum, i.e. $O(W+\sum_m |a_m|\bar{\ell}+MP)$. A max-heap keyed by count makes the maximum
+$O(\log P)$, but counts *decrease* when words are rewritten, and binary heaps do not support
+decrease-key cheaply. The standard solution is lazy deletion: push a new
+$(\text{count},\text{pair})$ entry whenever a count changes, and when popping, discard entries whose
+count no longer matches the current table (or use an indexed priority queue).
 
 #### Exercise 4.6.
 
-Per token per layer, the other forward FLOPs are projections $8d^2$ plus SwiGLU $6d\,d_{\text{ff}}$.
-With causal masking exploited, a token's score and value products average $2Td$ over a sequence of
-length $T$. Equality: $T=(8d^2+6dd_{\text{ff}})/(2d)=4d+3d_{\text{ff}}=16{,}384+33{,}024=49{,}408$
-tokens.
+With $d=2048$, $L=24$ the non-embedding parameters are about $12Ld^2\approx1.21$B. (a) Tied
+embeddings: $32\text{k}\cdot2048=65.5$M vs. $256\text{k}\cdot2048=524$M. (b) Logit FLOPs per token
+$2Vd$: 131 MFLOP vs. 1.05 GFLOP, compared to $\approx2.4$ GFLOP for the rest of the forward pass.
+(c) $10^{11}$ vs. $\approx0.85\times10^{11}$ tokens. (d) fp32 logits for $B=4$, $T=8192$:
+$4\cdot8192\cdot V\cdot4$ B $=4.2$ GB vs. 33.6 GB. Training compute $\approx6(N+Vd)D$:
+$7.7\times10^{20}$ vs. $9.1\times10^{20}$ FLOPs, so for this size the small vocabulary is cheaper
+overall. For a 0.5B model the large vocabulary would be most of the parameter budget; choose
+$\approx32$--$64$k. For a 70B model the embedding is a few percent of parameters and logits a few
+percent of FLOPs, while 15% shorter sequences cut attention, KV cache and serving cost: choose the
+large vocabulary.
 
 #### Exercise 4.7.
 
-Induction: with $(m,\ell)$ correct for prefix $P$, i.e. $\ell=\sum_{j\in P}e^{x_j-m}$, after block
-$B$ we have $\ell e^{m-m'}+\sum_{j\in B}e^{x_j-m'}=\sum_{j\in P\cup B}e^{x_j-m'}$ with
-$m'=\max_{P\cup B}x_j$. Merge of disjoint partial states:
-
 ``` python
-def merge(m1, l1, o1, m2, l2, o2):     # o = un-normalised sum e^{s-m} v
-    m = torch.maximum(m1, m2)
-    a1, a2 = torch.exp(m1 - m), torch.exp(m2 - m)
-    return m, a1 * l1 + a2 * l2, a1[..., None] * o1 + a2[..., None] * o2
+emb = torch.nn.Embedding(10, 4)
+ids = torch.tensor([3, 7, 3])
+g = torch.randn(3, 4)
+(emb(ids) * g).sum().backward()
+nz = emb.weight.grad.abs().sum(1) > 0
+assert nz.nonzero().flatten().tolist() == [3, 7]
+assert torch.allclose(emb.weight.grad[3], g[0] + g[2])
 ```
 
-Split-KV decoding computes partial states over KV chunks in parallel and reduces them with `merge`;
-ring attention merges the partial state from each key/value block as it arrives from the
-neighbouring device.
+With `sparse=True` the gradient is a sparse COO tensor holding only the touched rows; it is accepted
+by `optim.SGD`, `optim.SparseAdam` and `optim.Adagrad`, but not by `Adam`/`AdamW`.
 
 #### Exercise 4.8.
 
-For $\boldsymbol{y}=\operatorname{softmax}(\boldsymbol{s})$,
-$\partial y_j/\partial s_k=y_j(\delta_{jk}-y_k)$, so
-$ds_k=\sum_j dy_j\,y_j(\delta_{jk}-y_k)=y_k(dy_k-\sum_j y_j dy_j)$. In matrix form,
-$\mathbf{dS}=\mathbf{P}\odot(\mathbf{dP}-\boldsymbol{\delta})$ with $\delta_i=\sum_jP_{ij}dP_{ij}$.
-Since $\mathbf{dP}=\mathbf{dO}\mathbf{V}^\top$,
-$\delta_i=\sum_j P_{ij}\,\boldsymbol{dO}_i\cdot\boldsymbol{v}_j=\boldsymbol{dO}_i\cdot\sum_jP_{ij}\boldsymbol{v}_j=\boldsymbol{dO}_i\cdot\boldsymbol{O}_i$.
+With `sa = SelfAttention(d, d)` (no positions), a permutation matrix $\Pi$ gives
+$\mathrm{sa}(\Pi X)=\Pi\,\mathrm{sa}(X)$, because $\Pi X W$ permutes rows of $Q,K,V$, the score
+matrix becomes $\Pi S\Pi^\top$, the row softmax commutes with that, and $\Pi A\Pi^\top\Pi V=\Pi AV$.
+Test: `perm = torch.randperm(T); assert torch.allclose(sa(x[perm]), sa(x)[perm])`. After adding
+`pos_emb(arange(T))` to the input the property fails, since position vectors are not permuted with
+the tokens.
 
 #### Exercise 4.9.
 
-With 228 KB of SRAM the model's naive/tiled traffic ratio is about 6.5--10.6 for $D=64$, 2.3--2.7
-for $D=128$, and below 1 for $D=256$ (tiling "loses"). The model counts only the score matrix's
-write/read passes and ignores that the naive path also launches separate mask, softmax and dropout
-kernels (more $T^2$ passes), stores $\mathbf{A}$ for backward, and that real kernels choose tile
-shapes and use registers as well as shared memory. The qualitative lesson holds: the benefit shrinks
-as $D^2/M$ grows.
+For frequency $\omega$, $\sin\omega(p+k)=\sin\omega p\cos\omega k+\cos\omega p\sin\omega k$ and
+$\cos\omega(p+k)=\cos\omega p\cos\omega k-\sin\omega p\sin\omega k$. Hence each $(\sin,\cos)$ pair
+is mapped by the $2\times2$ block
+$\begin{psmallmatrix}\cos\omega k&\sin\omega k\\-\sin\omega k&\cos\omega k\end{psmallmatrix}$, and
+$\mathbf{M}_k$ is block diagonal with these blocks, independent of $p$. A linear layer can therefore
+implement "look $k$ positions back" uniformly for all positions.
 
 #### Exercise 4.10.
 
-$8192/128=64$ tiles per side, 4096 tiles in total: 64 diagonal tiles (1.6%), $64\cdot63/2=2016$
-fully visible (49.2%) and 2016 fully masked (49.2%). Skipping masked tiles avoids about 49% of the
-dense $\mathbf{Q}\mathbf{K}^\top$ work, close to the ideal 50%; diagonal tiles are computed in full
-and masked element-wise.
+``` python
+def doc_causal_mask(ids, eot_id):
+    T = len(ids)
+    ends = torch.as_tensor(ids) == eot_id
+    doc = torch.cumsum(ends.long(), 0) - ends.long()  # EOT belongs to its doc
+    same = doc[:, None] == doc[None, :]
+    return same & torch.tril(torch.ones(T, T, dtype=torch.bool))  # True = allowed
+```
+
+The plain causal mask allows $\approx T^2/2$ scores; four equal documents allow
+$4\cdot(T/4)^2/2=T^2/8$, so three quarters of the causal scores are skipped.
 
 #### Exercise 4.11.
 
-Cache bytes $=2L\,H_{kv}d_{h}\,\min(t,w)\cdot b$: they grow linearly until $t=w$ and then stay
-constant. At $t=32$k the windowed cache is $32\text{k}/4096=8\times$ smaller. Implementations keep a
-rolling (circular) buffer that overwrites the oldest entries, so a cached shared prefix is destroyed
-as soon as any request sharing it advances more than $w$ tokens past it. Prefix sharing would
-require copy-on-write of the overwritten blocks or keeping prefix blocks pinned, and a prefix longer
-than $w$ is only partially useful.
-
-#### Exercise 4.12.
-
-Expect the explicit implementation's peak memory to scale as $BHT^2$ with several live copies
-(scores, probabilities, possibly the mask), running out of memory when
-$\approx 2$--$3\cdot BHT^2\cdot b$ exceeds free memory; SDPA's peak scales linearly in $T$. The
-measured out-of-memory length should be within a factor of $\sqrt{2}$--$\sqrt{3}$ of the single-copy
-estimate.
+With a warm page cache, reads are limited by Python per-item overhead (tens of thousands of windows
+per second, as in the chapter's measurement). After dropping caches, each random window is one small
+random read: on an NVMe SSD (hundreds of thousands of IOPS at high queue depth, far fewer at queue
+depth 1 from a single Python thread) expect thousands to tens of thousands of windows/s; on a hard
+disk, about 100/s. Multiple loader workers raise the effective queue depth and recover throughput.

@@ -1,5 +1,5 @@
 """The shortest path from a C++ function to a Python call: torch.utils.cpp_extension.load_inline
-(Chapter 20).
+(Chapter 21).
 
     python inline_ops.py
 

@@ -1,4 +1,4 @@
-"""Project 3 (reference solution): the sweep driver (Chapter 44).
+"""Project 3 (reference solution): the sweep driver (Chapter 51).
 
     python p3_sweep.py lrsweep --config ../configs/smoke.json [--synthetic] --out ../out/smoke
     python p3_sweep.py sweep   --config ../configs/smoke.json [--synthetic] --out ../out/smoke

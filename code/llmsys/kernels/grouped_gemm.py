@@ -1,4 +1,4 @@
-"""Block-sparse grouped GEMM over expert segments (Chapter 10).
+"""Block-sparse grouped GEMM over expert segments (Chapter 11).
 
 An MoE layer, after permuting its tokens by expert, holds one tall matrix ``xs`` (M rows,
 sorted by expert) and a stack of expert weights ``w`` of shape (E, K, N). The work is
@@ -16,7 +16,7 @@ at run time. Three implementations of that product live here:
   *upper bound* computed without a device-to-host synchronisation: dropless MoE needs no
   ``.item()`` on the token counts.
 
-The CUDA version of the same kernel is written in Chapter 22.
+The CUDA version of the same kernel is written in Chapter 24.
 """
 from __future__ import annotations
 

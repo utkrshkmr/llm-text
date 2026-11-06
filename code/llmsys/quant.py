@@ -1,4 +1,4 @@
-"""Quantization for inference (Chapter 28).
+"""Quantization for inference (Chapter 33).
 
 Everything is written as plain PyTorch so the numerics can be inspected on a CPU:
 

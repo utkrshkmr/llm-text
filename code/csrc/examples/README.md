@@ -1,4 +1,4 @@
-# `csrc/examples/`: four ways to call C++ from Python (Chapter 20)
+# `csrc/examples/`: four ways to call C++ from Python (Chapter 21)
 
 Every example wraps the same algorithm, the byte-level BPE core in `../cpu/bpe_core.h` (no ATen
 dependency), so that the bindings can be compared without changing the code being bound. The
@@ -17,7 +17,7 @@ Then `cmake --build build` and run the directory's `driver.py` (it adds `build/`
 The top-level `CMakeLists.txt` builds the first three at once (`-DEXAMPLE_TORCH=ON` adds the
 fourth; it compiles the ATen headers and takes about a minute).
 
-Lab 20 Task 5 builds `pybind11_bpe` and `ctypes_bpe` from Python (`subprocess` + `cmake`) and
+Lab 21 Task 5 builds `pybind11_bpe` and `ctypes_bpe` from Python (`subprocess` + `cmake`) and
 checks the ids against `llmsys.tokenizer.ByteBPETokenizer`; its tests skip when `cmake` or a
 compiler is missing. Task 6 (stretch) does the same for `nanobind_bpe`.
 

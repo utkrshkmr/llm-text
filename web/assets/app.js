@@ -1,4 +1,4 @@
-// LLM Systems from Scratch: reader controls, collapsible panels, scroll-spy, figure zoom, search.
+// Big Book of LLMs: reader controls, collapsible panels, scroll-spy, figure zoom, search.
 (function () {
   "use strict";
   var root = document.documentElement;
@@ -113,7 +113,7 @@
   var zoom = document.getElementById("zoom-overlay");
   if (zoom) {
     var zimg = zoom.querySelector("img");
-    document.querySelectorAll("img.tikz").forEach(function (img) {
+    document.querySelectorAll("img.fig").forEach(function (img) {
       img.addEventListener("click", function () { zimg.src = img.src; zoom.hidden = false; });
     });
     zoom.addEventListener("click", function () { zoom.hidden = true; zimg.removeAttribute("src"); });

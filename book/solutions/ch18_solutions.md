@@ -1,143 +1,86 @@
-## Chapter 18: Sharded Data Parallelism from Scratch {#chapter-18-sharded-data-parallelism-from-scratch .unnumbered}
+## Chapter 18: Distributed Training Systems {#chapter-18-distributed-training-systems .unnumbered}
 
-#### Exercise 18.1
+#### Exercise 18.1 (Ring all-reduce cost).
 
-Algorithm bandwidth is $n/t$. A bandwidth-bound ring all-reduce takes
-$t = 2\frac{p-1}{p}\frac{n}{W}$, so $\frac{n}{t}\cdot\frac{2(p-1)}{p} = W$: the bus bandwidth equals
-the link bandwidth for every $p$, which is what makes it comparable across world sizes. An
-all-gather of a tensor whose full size is $n$ takes $t = \frac{p-1}{p}\frac{n}{W}$ (each rank
-receives every chunk but its own once), so the matching correction factor is $\frac{p-1}{p}$, and
-again bus bandwidth $=W$.
+Each of the $p-1$ reduce-scatter steps and $p-1$ all-gather steps sends one chunk of $n/p$ bytes per
+rank, all links busy in parallel: $2(p-1)(\alpha+\frac np\beta)$, which is [@eq:dist:ring].
+Recursive halving: in round $j=1..\log_2p$ each rank exchanges half of its current working set with
+a partner at distance $p/2^j$, i.e. $n/2,n/4,\dots,n/p$ bytes, summing to $n(p-1)/p$ in $\log_2p$
+messages; recursive doubling for the all-gather mirrors it. Total
+$2\log_2p\,\alpha+2\frac{p-1}{p}n\beta$.
 
-#### Exercise 18.2
+#### Exercise 18.2 (Two-level all-reduce).
 
-Gradients appear at rate $G/T_b$, so a bucket of $b$ bytes is filled every $bT_b/G$ seconds and
-costs $A(b) = 2(p-1)\alpha + 2\frac{p-1}{p}b\beta$ to all-reduce. If $A(b) \le bT_b/G$,
-communication keeps pace with backward and only the last bucket is exposed, costing $A(b)$, which
-grows with $b$. If $A(b) > bT_b/G$, a queue builds and the exposed time is roughly
-$\frac{G}{b}A(b) - T_b$, which *falls* with $b$. The minimum is therefore at the smallest bucket
-that keeps pace: $$b^\star = \frac{2(p-1)\alpha}{T_b/G - 2\frac{p-1}{p}\beta}.$$ With $G=1.2$ GB,
-$T_b=50\,\mathrm{\milli\second}$, $p=8$, $\alpha=10\,\mathrm{\micro\second}$ and 450 GB/s:
-$T_b/G = 4.17\times10^{-11}$ s/B and $2\frac78\beta = 3.89\times10^{-12}$ s/B, so
-$b^\star \approx 1.4\times10^{-4}/3.78\times10^{-11}\approx3.7$ MB, and the exposed tail is
-$A(b^\star)\approx0.15\,\mathrm{\milli\second}$. In practice one uses a somewhat larger bucket to
-absorb uneven gradient arrival, and a small first bucket.
+Reduce-scatter inside the node: $\frac78\,n/B_1$; all-reduce of the $n/8$ shards across $N$ nodes
+(each GPU uses its own NIC): $2\frac{N-1}{N}\frac n8/B_2$; all-gather inside the node:
+$\frac78\,n/B_1$. For large $N$: $\approx1.75\,n/B_1+0.25\,n/B_2$. A flat ring over $8N$ GPUs is
+limited by its inter-node hops: $\approx2n/B_2$. With $B_1=450$, $B_2=50$ GB/s: $0.0089\,n$ vs
+$0.040\,n$ seconds per GB, about $4.5\times$ faster hierarchically (latency terms aside).
 
-#### Exercise 18.3
+#### Exercise 18.3 (Bucket size).
 
-After the reduce-scatter each rank holds averaged gradients for its shard only. Compute the local
-squared norm $s_r = \lVert g^{(r)}\rVert_2^2$ (padding elements are zero, so they do not
-contribute), all-reduce the scalar to get $\sum_r s_r$, take the square root, and scale the shard
-gradient by $\min(1, c/(\lVert g\rVert + \epsilon))$. That is one scalar all-reduce, 4--8 bytes and
-pure latency. The test spawns 3 ranks, trains one step on a model whose gradients exceed the clip
-threshold (scale the loss up), and compares the updated parameters with a single process that calls
-`torch.nn.utils.clip_grad_norm_` before `AdamW.step()`, to $10^{-6}$.
+Require $\alpha\le0.05\,n\beta$,
+i.e. $n\ge20\alpha/\beta=20\cdot20\,\mathrm{\micro s}\cdot50\,\mathrm{GB/s}
+=20\,\mathrm{MB}$. Very large buckets fill late: the first all-reduce starts only after a large
+fraction of the backward pass, and the final (exposed) bucket is large, so less communication is
+hidden.
 
-#### Exercise 18.4
+#### Exercise 18.4 (No-sync accumulation).
 
-Save, per parameter group, the parameter shapes, the unpadded flat length $N$, the old world size
-$p$ (hence shard size $s=\lceil N/p\rceil$), and each rank's shard of the master weights and of
-every optimizer-state tensor with the same layout (Adam's $m$, $v$), plus replicated scalars such as
-the step count. New rank $r'$ with shard size $s'=\lceil N/p'\rceil$ owns flat indices
-$[r's', \min((r'+1)s', N))$ and reads the old shards $\lfloor r's'/s\rfloor$ through
-$\lfloor((r'+1)s'-1)/s\rfloor$, slicing the overlapping ranges and zero-padding the tail. In the
-parameter-ownership layout of [@ch:distributed], state is stored per whole tensor on its
-owner. It can be reloaded on $p'$ ranks by recomputing ownership with `partition_parameters` and
-reading each tensor's state from whichever old file holds it, which is possible but needs a
-name-to-owner map, and balance is again limited by the largest tensor.
+Add a flag `self.sync=True` and a context manager that sets it to `False`; in `_on_grad_ready`
+return immediately when `not self.sync` (gradients simply keep accumulating in `.grad`); on the last
+micro-batch the flag is `True` and buckets launch as usual, carrying the accumulated sums. Without
+it, $k$-step accumulation performs $k$ all-reduces; with it, one---so communication time drops by
+$\approx k\times$.
 
-#### Exercise 18.5
+#### Exercise 18.5 (ZeRO arithmetic).
 
-`self.flat.copy_(buf)` is an in-place op on `flat`. Views and `detach()` share a version counter
-with their base, so the counter of every view autograd saved during forward (each weight used by a
-linear layer) increments. In backward, autograd compares each saved tensor's version with the
-version recorded at save time, finds a mismatch, and raises *"one of the variables needed for
-gradient computation has been modified by an inplace operation: ... is at version $k+1$; expected
-version $k$"*. A storage-level copy changes the bytes without touching version counters. That is
-safe here because the bytes written are exactly the bytes that were there when the tensors were
-saved, the same gathered shards with no optimizer step in between. It would be unsafe if the weights
-could change between forward and backward.
+[@tab:dist:zero] follows from $\Psi=7.5$B, $N_d=64$, $K=12$. For 13B on 16 GPUs: DP 208 GB
+(no); ZeRO-1 $(4+12/16)\cdot13=61.8$ GB (18 GB left, no); ZeRO-2 $(2+14/16)\cdot13=37.4$ GB (42.6 GB
+left, yes). ZeRO-2 is the lowest stage that works.
 
-#### Exercise 18.6
+#### Exercise 18.6 (TP backward).
 
-With $k$ blocks per unit there are $L/k$ units. Transient memory is about two gathered units plus
-one unit's full gradient, $3kP_b\times2$ bytes in bf16. Collective latency per step is
-$3\cdot\frac{L}{k}\cdot(p-1)\alpha$ (two all-gathers and one reduce-scatter per unit). Step time
-falls with $k$ until the transient memory hits the budget $M$, so
-$k^\star = \lfloor M/(6P_b)\rfloor$ (capped by $L$). Larger units also mean coarser prefetch, but
-that matters only when $T/n$ is near $C/W$. Qwen3-1.7B has $P_b \approx 5.03\times10^7$
-($d_{\text{model}}=2048$, 16 query and 8 KV heads of 128, MLP width 6144), so a unit costs
-$\approx0.30k$ GB of transient memory. On a 16 GB GPU with $p=8$ the persistent state is
-$16\Psi/8\approx3.4$ GB and the root unit (tied 151,936$\times$`<!-- -->`{=html}2048 embedding)
-needs about 1.25 GB gathered with its gradient. Leaving 6--8 GB for activations, about 4 GB remain
-for units, so $k\approx13$. Latency then falls from $28\cdot3\cdot7\cdot10\,\mathrm{\micro\second}
-\approx5.9\,\mathrm{\milli\second}$ at $k=1$ to about $0.5\,\mathrm{\milli\second}$. One block per
-unit is usually fine whenever per-step compute is tens of milliseconds.
+$\mathbf{Y}_r=\mathbf{X}\mathbf{W}_r^\top$ for every $r$, so $\mathcal L$ depends on $\mathbf{X}$
+through all $\mathbf{Y}_r$ and
+$\partial\mathcal L/\partial\mathbf{X}=\sum_r(\partial\mathcal L/\partial\mathbf{Y}_r)\mathbf{W}_r$.
+Rank $r$ only knows its own term, hence the all-reduce in the backward of $f$. For the row-parallel
+layer $\mathbf{Y}=\sum_r\mathbf{X}_r\mathbf{W}_r^\top$, so $\partial\mathcal L/\partial\mathbf{X}_r=
+(\partial\mathcal L/\partial\mathbf{Y})\mathbf{W}_r$: the output gradient is replicated after $g$'s
+(identity) backward, and each rank needs only its own $\mathbf{W}_r$---no communication.
 
-#### Exercise 18.7
+#### Exercise 18.7 (Attention under TP).
 
-$P = 8D^2$ (two matrices of $4D^2$). Per device, forward is $16TD^2/n$ FLOPs and backward
-$32TD^2/n$.
+Give each rank $H/t$ query heads with their Q/K/V columns (column-parallel) and the matching
+$H/t\cdot d_{h}$ input columns of the output projection (row-parallel); softmax and the causal mask
+act per head, so they stay local. Constraint: $t$ divides $H$. With GQA, each rank also needs the KV
+heads its query heads use; if $t$ exceeds the number of KV groups $G$, KV heads must be replicated
+on $t/G$ ranks (and their gradients all-reduced among those replicas), which wastes memory and
+compute and caps useful TP at $G$ for KV projections.
 
-- **DP**: forward has no communication. Backward all-reduces $16D^2$ bytes:
-  $t_\text{comm} = 2\frac{n-1}{n}\frac{16D^2}{W}$ against $t_\text{comp}=\frac{32TD^2}{nC}$. It is
-  compute-bound iff $n-1 \le TW/C$, that is $T/n \gtrsim C/W$.
+#### Exercise 18.8 (Bubbles).
 
-- **FSDP**: forward all-gathers $\frac{n-1}{n}\frac{16D^2}{W}$ against $\frac{16TD^2}{nC}$, giving
-  $n-1\le TW/C$. Backward all-gathers again and reduce-scatters, $2\frac{n-1}{n}\frac{16D^2}{W}$
-  against $\frac{32TD^2}{nC}$, with the same condition. FSDP scales as far as DP.
+For $p=8$ both schedules give $7/(m+7)$: $46.7\%$, $30.4\%$, $17.9\%$, $9.9\%$ for $m=8,16,32,64$.
+Peak in-flight micro-batches: GPipe $m$ on every stage; 1F1B $\min(8-s,m)$, i.e. at most 8. With
+$v=2$ interleaving the bubble becomes $3.5/(m+3.5)$ (e.g. $9.9\%$ at $m=32$).
 
-- **TP** (column-parallel $W_1$, row-parallel $W_2$): forward all-reduces the $(T,D)$ output,
-  $2\frac{n-1}{n}\frac{2TD}{W}$ against $\frac{16TD^2}{nC}$, giving $n-1 \le 4DW/C$. Backward
-  all-reduces the $(T,D)$ input gradient, the same bytes against twice the compute, giving
-  $n-1\le8DW/C$. Forward binds: $n_\text{max} = 1 + 4DW/C$, independent of $T$. For $D=4096$ on
-  H100/NVLink ($C/W\approx2200$) this is $\approx8.4$.
+#### Exercise 18.9 (Causal load balance).
 
-#### Exercise 18.8
+With contiguous chunks, device $i$'s queries attend to key blocks $0..i$: $i+1$ block pairs (the
+diagonal one half-masked), so device $c-1$ does $c$ times the work of device 0. Split the sequence
+into $2c$ chunks and give device $i$ chunks $i$ and $2c-1-i$: it computes $(i+1)+(2c-i)=2c+1$ block
+pairs, the same for every device.
 
-Each device holds $W_1, W_2$ sharded over both axes, $8D^2/(n_fn_t)$ elements, and $T/n_f$ tokens.
-Forward: an all-gather over the `fsdp` axis of the device's TP slice,
-$\frac{n_f-1}{n_f}\frac{16D^2/n_t}{W_f}$, against compute $\frac{16TD^2}{n_fn_tC}$, giving
-$n_f-1\le TW_f/C$. Then TP's all-reduce over the `tp` axis of a $(T/n_f, D)$ activation,
-$2\frac{n_t-1}{n_t}\frac{2TD/n_f}{W_t}$, against the same compute, gives $n_t-1\le 4DW_t/C$. The
-backward pass is analogous (all-gather and reduce-scatter on `fsdp`, one all-reduce on `tp`). The
-two conditions involve different variables, so they decouple. The coupling terms are: (i) the global
-batch $T$ is shared, and $T/n_f$ must also stay large enough for efficient matmuls and for TP's
-per-token compute; (ii) if both axes share physical links, $W_f$ and $W_t$ are not independent;
-(iii) latency terms ($\alpha$) grow with the number of collectives, which both degrees increase;
-(iv) activation memory per device scales with $T/n_f$.
+#### Exercise 18.10 (Plan a 405B run).
 
-#### Exercise 18.9
-
-$$T_\text{hier} = 2\Big[(g-1)\alpha_1 + \tfrac{g-1}{g}n\beta_1\Big] + 2(N-1)\alpha_2 + 2\tfrac{N-1}{N}\tfrac{n}{g}\beta_2,
-\qquad
-T_\text{flat} = 2(gN-1)\alpha_2 + 2\tfrac{gN-1}{gN}n\beta_2 .$$ With $\alpha_1\le\alpha_2$ and
-$\beta_1\le\beta_2$ the hierarchical version wins at every size. The latency term falls from
-$2(gN-1)$ to $2(g-1)+2(N-1)$ steps, and the network bandwidth term falls by about $g\times$ because
-only $1/g$ of the data crosses each NIC. With the figure's parameters ($g=N=8$) at 1 GB:
-$T_\text{flat}\approx44.8\,\mathrm{\milli\second}$ and
-$T_\text{hier}\approx9.3\,\mathrm{\milli\second}$, matching `llmsys.dist.costs`. Real NCCL achieves
-much of this without an explicit hierarchy by running one ring per NIC.
-
-#### Exercise 18.10
-
-70B: FSDP over 32 GPUs keeps $16\times70\times10^9/32=35$ GB of persistent state per GPU, which fits
-in 80 GB with room for transient units and activations. HSDP sharded over the 8 GPUs of a node needs
-$16\times70\times10^9/8=140$ GB per GPU and does not fit, so 70B must shard across nodes (or add
-TP/PP). 13B: HSDP needs $16\times13\times10^9/8=26$ GB per GPU and fits. Its only cross-node traffic
-is an all-reduce of each GPU's gradient shard (13B$/8$ parameters, about 3.3 GB in bf16) across 4
-replicas, $2\cdot\frac34\cdot3.3\approx4.9$ GB per GPU per step, overlapped with backward, as one
-collective per bucket. FSDP over 32 GPUs would instead put two all-gathers and one reduce-scatter
-per *layer* on the network: more bytes and far more latency-sensitive messages. Use HSDP whenever
-the model fits in one node's aggregate memory.
-
-#### Exercise 18.11
-
-Expected shape of the results: per-parameter DDP is slowest when tensors are small and many, because
-of latency; flat DDP fixes that but exposes all communication after backward; bucketed DDP hides
-most of it once tokens per rank exceed $C/W$. Element-wise ZeRO-1 matches bucketed DDP's time to
-within the extra copy and saves $12\Psi(1-1/p)$ bytes. FSDP without prefetch is slower by the sum of
-the exposed all-gathers; with prefetch it approaches DDP once $T/n \gtrsim C/W$. Below that point
-FSDP's extra $\Psi$ bytes per step show up as roughly $1.5\times$ DDP's communication time. The
-measured crossover usually sits at somewhat more tokens than the model predicts, because achieved
-bus bandwidth is below peak and kernels are less efficient at small batch.
+One defensible plan (close to the layout Meta reported for Llama 3 405B at 8k context): TP $=8$ (one
+node), PP $=16$ ($\approx8$ layers per stage, first/last stage lighter), CP $=1$, DP $=128$ with
+ZeRO-1. Parameters per GPU $405\text{B}/128=3.2$B; ZeRO-1 states $(4+12/128)\cdot3.2\approx13$ GB.
+Global batch 16M tokens $=2{,}048$ sequences, i.e. 16 micro-batches per pipeline. Plain 1F1B would
+idle $15/31\approx48\%$, so use interleaving with $v=4$ virtual stages: $3.75/(16+3.75)\approx19\%$.
+Activations with FlashAttention and TP+SP: $8192\cdot16{,}384\cdot34/8\approx0.57$ GB per layer per
+micro-batch; stage 0 can hold up to 16 micro-batches $\times$ 8 layers, so selective or full
+recomputation is needed (full recompute: $\approx4$ GB). DP traffic: each rank reduces a 6.4 GB bf16
+gradient shard over 128 replicas, $\approx0.26$ s at 50 GB/s, well hidden behind $\approx6$ s of
+compute per step at 40% MFU. The remaining inefficiency is the pipeline bubble, which is why larger
+batches or zero-bubble schedules are attractive at this scale.

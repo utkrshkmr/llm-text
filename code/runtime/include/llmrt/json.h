@@ -1,4 +1,4 @@
-// A small JSON reader/writer (Chapter 48): enough for safetensors headers, config.json,
+// A small JSON reader/writer (Chapter 55): enough for safetensors headers, config.json,
 // tokenizer.json (11 MB for Qwen3) and our own model-file header. Objects keep insertion order.
 #pragma once
 #include <cstdint>

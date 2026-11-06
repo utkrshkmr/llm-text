@@ -1,4 +1,4 @@
-"""The two tasks behind one interface: the toy addition task and Qwen3 on MATH (Chapter 46).
+"""The two tasks behind one interface: the toy addition task and Qwen3 on MATH (Chapter 53).
 
 A ``Task`` bundles what every method needs and nothing else: a tokenizer, a model factory,
 train/eval records with an ``answer`` field, a prompt renderer, a reward function, imperfect SFT
@@ -122,7 +122,7 @@ def make_math_task(ckpt: str, size: str = "0.6B", train_path: str = "", eval_pat
 
     ``sft_path``: records with ``problem`` and ``solution`` (the demonstrations for SFT).
     ``teacher_path``: records with ``problem``, ``reasoning`` and ``answer`` (a stronger model's
-    traces, Chapter 40) for distillation; it falls back to the SFT solutions when absent.
+    traces, Chapter 47) for distillation; it falls back to the SFT solutions when absent.
     """
     from llmsys.qwen3 import Qwen3Tokenizer, load_qwen3_from_dir
     from llmsys.eval.math_verifier import grade_response
@@ -155,7 +155,7 @@ def make_math_task(ckpt: str, size: str = "0.6B", train_path: str = "", eval_pat
                 max_new_tokens=max_new_tokens, sft_demo=sft_demo, teacher=teacher,
                 eval_max_new_tokens=eval_max_new_tokens)
 
-    def rewards(text: str, ex: Dict) -> Dict[str, float]:       # SymPy-backed grader (Chapter 31)
+    def rewards(text: str, ex: Dict) -> Dict[str, float]:       # SymPy-backed grader (Chapter 37)
         correct = float(grade_response(text, ex["answer"], fallback="none"))
         return {"correct": correct, "format": float(think_format_ok(text)),
                 "partial": correct if correct else 0.5 * float(grade_response(text, ex["answer"]))}

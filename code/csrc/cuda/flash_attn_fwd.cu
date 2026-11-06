@@ -1,4 +1,4 @@
-// FlashAttention-2 forward on tensor cores (Chapter 22).
+// FlashAttention-2 forward on tensor cores (Chapter 24).
 //
 //   flash_attn_fwd(q, k, v, causal, window, sinks, scale) -> (o, lse)
 //   q, o: (B, H, T, D);  k, v: (B, G, S, D) with H % G == 0 (GQA: query head h reads kv head h / (H/G))

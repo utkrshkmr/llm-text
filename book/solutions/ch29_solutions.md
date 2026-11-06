@@ -1,0 +1,95 @@
+## Chapter 29: Instruction Fine-Tuning and Parameter-Efficient Adaptation {#chapter-29-instruction-fine-tuning-and-parameter-efficient-adaptation .unnumbered}
+
+#### Exercise 29.1.
+
+Replace `format_alpaca` by `format_phi3` in both the dataset and the generation prompt, and extract
+responses by splitting on `<|assistant|>` instead of the Alpaca header. The Phi-3 template removes
+roughly 25--30 tokens per example, so total training tokens drop by roughly a quarter to a third and
+epoch time falls accordingly. Judge scores are usually similar. Note that `<|user|>` is not a
+special token for GPT-2 and is split into several BPE pieces, which is harmless but slightly less
+compact than the name suggests.
+
+#### Exercise 29.2.
+
+Losses averaged over response tokens only are not comparable with losses averaged over all tokens,
+because prompt tokens (especially the fixed preamble) are easy to predict and pull the full-sequence
+average down. Evaluate both models on the same response-only target set. Response-only training
+usually matches or slightly beats full-sequence training on judge score. Full-sequence loss can win
+when responses are very short and prompts carry useful in-domain text, because it then provides much
+more gradient signal per example.
+
+#### Exercise 29.3.
+
+Two microbatches with $n_1=10$ and $n_2=90$ target tokens and mean losses $\bar\ell_1,\bar\ell_2$:
+averaging the means gives $\tfrac12(\bar\ell_1+\bar\ell_2)$, so each token of microbatch 1 has
+weight $1/20$ and each token of microbatch 2 has weight $1/180$. The per-token mean of the full step
+gives every token weight $1/100$. Fix: compute `F.cross_entropy(..., reduction="sum")` per
+microbatch, count non-ignored targets, and divide the accumulated sum by the total count before
+`backward` (or scale each microbatch's sum by $1/n_{\text{total}}$, which requires knowing
+$n_{\text{total}}$ in advance, for example by pre-counting the step's targets).
+
+#### Exercise 29.4.
+
+Random batches with dynamic padding typically waste 30--50% on instruction data with a long-tailed
+length distribution; bucketing reduces this to a few percent; FFD packing into 512- or 1,024-token
+rows leaves only the tail of the last rows empty, usually below 2%. For attention, a dense row mask
+costs $T^2$ per row regardless of content. A varlen kernel costs $\sum_i\ell_i^2$, which for
+documents of about 100 tokens packed into $T=1024$ is about 10 documents $\times\,100^2 = 10^5$
+versus $1024^2\approx10^6$, a $10\times$ reduction in attention FLOPs.
+
+#### Exercise 29.5.
+
+Probe: fix document 2, vary document 1 in the same packed row, and compare the logits at a position
+in document 2. With naive packing they change. With the block-diagonal mask and position reset they
+are identical up to floating-point error. After fine-tuning on naively packed data the model learns
+to use the preceding documents, for example by copying formatting or answers from the previous
+example. The effect is visible as degraded single-example performance at inference time, where no
+preceding documents exist.
+
+#### Exercise 29.6.
+
+Reference answers should score near the top of the scale and wrong answers near the bottom;
+deviations reveal judge bias or prompt problems. Correlations between two different judges are
+typically high (Pearson 0.7--0.9) on clearly separable answers but lower among mediocre ones, and
+mean absolute differences of 5--15 points are common. A single reported score therefore has an
+uncertainty of several points from the judge alone, on top of sampling uncertainty from 110 test
+items (standard error $\approx\sigma/\sqrt{110}$).
+
+#### Exercise 29.7.
+
+With $\alpha=2r$, the effective update scale $\alpha/r=2$ is constant, so the magnitude of
+$\Delta W$ produced by a given learning rate is roughly independent of $r$, and one learning rate
+works across ranks. With fixed $\alpha=16$, $\alpha/r$ shrinks as $r$ grows (16 at $r=1$, 0.25 at
+$r=64$), so large ranks effectively train with a smaller step and appear worse unless the learning
+rate is re-tuned. Quality usually saturates by $r=8$--$16$ for a task of this size.
+
+#### Exercise 29.8.
+
+For a fixed parameter budget, adapting all linear layers (with a smaller $r$) usually wins on SFT,
+because MLP layers hold much of the task-relevant capacity. The spam task is easy enough that most
+placements reach similar accuracy. Attention-only placements are slightly weaker on SFT.
+
+#### Exercise 29.9.
+
+In full fine-tuning the weight-gradient GEMMs are about a third of matmul time. With LoRA they
+disappear for frozen weights, while the adapter GEMMs are tiny but numerous (two extra small matmuls
+per adapted layer in each direction). On small models these extra kernels and the optimizer step can
+eat most of the theoretical $1.5\times$ saving, so measured speed-ups are often smaller than
+predicted. On large models the prediction is approached.
+
+#### Exercise 29.10.
+
+Block-normalised GPT-2 weights are roughly bell-shaped but heavier-tailed than a Gaussian, with
+occasional outlier channels. NF4 gives lower reconstruction error than uniform int4 for the bulk of
+the weights, because its levels are denser near zero, and typically a smaller perplexity increase.
+Uniform int4 does relatively better on blocks dominated by an outlier, where the absmax scale
+squeezes the remaining weights into a few levels for both schemes.
+
+#### Exercise 29.11.
+
+With one adapter, the gather is a broadcast and the cost is close to the base model plus two small
+matmuls. With 8 or 64 distinct adapters, the gather materialises per-row copies of $\mathbf{A}$ and
+$\mathbf{B}$ ($B\times r\times d$ elements), which adds memory traffic proportional to the batch
+size. That is where throughput drops. Fused kernels (Punica's BGMV/SGMV) read each row's adapter
+directly from the adapter pool inside the matmul, never materialising the gathered copies, and group
+rows that share an adapter (segmented GEMM) to recover tensor-core efficiency.

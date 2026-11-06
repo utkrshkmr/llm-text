@@ -1,5 +1,5 @@
 # Brief: Project 7, a C++ CPU inference runtime (chapter 48 NEW, kit p7_cpu_runtime NEW, code/runtime/ NEW)
-Read projects_common.md first, then docs/PLAN.md §4 "P7", Chapters 29, 26, 6, 3 (book + code: llmsys.qwen3,
+Read projects_common.md first, then docs/PLAN.md §4 "P7", Chapters 34, 30, 7, 4 (book + code: llmsys.qwen3,
 llmsys.quant, llmsys.ondevice and csrc/cpu/gemv_q4.cpp if present), BRIEF_conventions.md §6. No GPU. Toolchain: g++
 11, cmake 3.22, ninja, pybind11 3.1 (pip).
 Scope: a standalone CMake C++17/20 engine in code/runtime/ with no PyTorch dependency: load safetensors (own parser),

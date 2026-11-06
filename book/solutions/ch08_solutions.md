@@ -1,103 +1,97 @@
-## Chapter 8: Beyond Softmax Attention {#chapter-8-beyond-softmax-attention .unnumbered}
+## Chapter 8: The Architecture Design Space {#chapter-8-the-architecture-design-space .unnumbered}
 
 #### Exercise 8.1
 
-With $\boldsymbol{v}$ augmented by a 1, every form accumulates
-$\sum_{j\le i}(\text{decay})\,\phi(\boldsymbol{k}_j)\cdot1=\boldsymbol{z}_i$ in the last column of
-the state, and the last output column is $\phi(\boldsymbol{q}_i)^\top\boldsymbol{z}_i$: exactly the
-denominator of [@eq:attnalt:linear]. With an arbitrary feature map the features can have
-mixed signs and the denominator can cross zero; $\mathrm{elu}+1>0$ keeps it positive, but it can
-still be tiny when $\phi(\boldsymbol{q}_i)$ is small, which amplifies noise. This is why
-implementations add an $\varepsilon$ or replace the division by an output normalisation.
+\(a\) `"bgrqd,bgkd->bgrqk"`: the KV group axis $g$ is shared and kept, $r$ and $q$ come only from
+the queries, and $d$ is contracted. (b) `"bi,bj->bij"`. (c) `"bii->b"` (a repeated index on one
+operand selects the diagonal, and dropping it from the output sums it). (d) `"bhtd,hdD->btD"`: both
+$h$ and $d$ are contracted, which is the per-head output projection followed by the sum over heads,
+i.e. exactly $\mathrm{concat}_h(\mathbf{O}_h)\mathbf{W}_O$.
 
 #### Exercise 8.2
 
-For chunk $c$ starting at $s$ with incoming state $\mathbf{S}$ (the state after token $s-1$),
-unrolling [@eq:attnalt:gated] gives, for $i\ge s$,
-$$\mathbf{S}_i=\Big(\prod_{l=s}^{i}\gamma_l\Big)\mathbf{S}+\sum_{j=s}^{i}\Big(\prod_{l=j+1}^{i}\gamma_l\Big)\boldsymbol{k}_j\boldsymbol{v}_j^\top ,$$
-so
-$\boldsymbol{y}_i^\top=\big(\prod_{l=s}^{i}\gamma_l\big)\boldsymbol{q}_i^\top\mathbf{S}+\sum_{j=s}^{i}D_{ij}(\boldsymbol{q}_i^\top\boldsymbol{k}_j)\boldsymbol{v}_j^\top$
-with $D_{ij}=\prod_{l=j+1}^i\gamma_l$. The new state is the same expression at the chunk end $e$. In
-logs, with $c_i=\sum_{l=s}^{i}\log\gamma_l$: the inter-chunk factor is $\exp(c_i)$ (`cum.exp()`),
-the intra-chunk mask is $\exp(c_i-c_j)$ (`decay_mask`), the state's carried factor is $\exp(c_e)$
-(`total.exp()`), and the per-token write weight is $\exp(c_e-c_j)$ (`w`), matching the listing.
+$(\mathbf{A}\mathbf{B})\mathbf{C}$: forming the $n\times n$ product costs $2n^2d$ FLOPs and
+multiplying it by $\mathbf{C}$ another $2n^2d$, so $4n^2d$ in total.
+$\mathbf{A}(\mathbf{B}\mathbf{C})$: the $d\times d$ product costs $2nd^2$ and the final product
+another $2nd^2$, so $4nd^2$. The second order is cheaper when $n>d$, i.e. beyond $n=128$; at
+$n=32{,}768$ it is $n/d=256$ times cheaper. In attention the row-wise softmax applied to
+$\mathbf{Q}\mathbf{K}^\top$ prevents re-association.
 
 #### Exercise 8.3
 
-Per token and layer, causal softmax attention does about $2Td$ multiply-adds (scores and outputs,
-averaged over the causal triangle); chunked linear attention does $Cd+2dd_{h}$. At $T=32{,}768$,
-$d=4096$: softmax needs $2.7\times10^8$ multiply-adds and linear attention
-$64\cdot4096+2\cdot4096\cdot128\approx1.3\times10^6$, about $205\times$ fewer. The curves cross near
-$T\approx160$.
+With fan-average initialisation $\sigma_1^2=\sigma_2^2=2/(d+4d)=2/(5d)$. Then
+$\operatorname{Var}(h_j)=d\sigma_1^2=2/5$, and since $h_j$ is a centred Gaussian,
+$\mathbb{E}[\mathrm{ReLU}(h_j)^2]=\operatorname{Var}(h_j)/2=1/5$. Hence
+$\operatorname{Var}(y_o)=4d\,\sigma_2^2\cdot\frac15
+=4d\cdot\frac{2}{5d}\cdot\frac15=\frac{8}{25}=0.32$: the block shrinks the signal. Keeping unit
+variance requires $\sigma_2^2=\frac{1}{4d\cdot(1/5)}=\frac{5}{4d}$, i.e. He-style scaling for the
+layer after a ReLU.
 
 #### Exercise 8.4
 
-Retrieval returns
-$\mathbf{S}^\top\boldsymbol{k}_j=\boldsymbol{v}_j+\sum_{i\neq j}(\boldsymbol{k}_i^\top\boldsymbol{k}_j)\boldsymbol{v}_i$.
-For random unit keys $\boldsymbol{k}_i^\top\boldsymbol{k}_j$ has variance about $1/d$, so with
-unit-variance values the interference has variance $(n-1)/d$ per coordinate and the
-signal-to-interference ratio is about $d/(n-1)$: retrieval degrades once $n$ approaches $d$. With
-the delta rule and sequential writes, each write first removes what the memory currently returns for
-its key, so the most recent writes are retrieved almost exactly, while older entries are perturbed
-by later writes along non-orthogonal directions. The memory behaves like a recency-weighted store
-with "overwrite" semantics instead of an ever-blurrier sum. For orthonormal keys ($n\le d$) it is
-exact.
+\(a\) $\sigma_z\approx0.02\sqrt{1024}=0.64$, so the loss is about
+$\ln151{,}936+0.64^2/2\approx11.93+0.20=12.13$. (b) With $s=1$, $\sigma_z\approx32$: the logits are
+essentially random with a huge spread, so $\log Z$ is dominated by the maximum of $V$ Gaussians,
+$\approx\sigma_z\sqrt{2\ln V}\approx32\times4.9\approx156$, while the target logit has mean 0. The
+initial loss is on the order of 150 nats, a clear sign of a broken init. (Qwen3-0.6B ties its head
+to the embedding table, so in the real model this exercise is about the embedding's init scale.)
 
 #### Exercise 8.5
 
-For $T=2^{16}$: Hillis--Steele uses 16 rounds and
-$\sum_{r=0}^{15}(T-2^r)=16T-(T-1)\approx9.8\times10^5$ combines; Blelloch uses 32 rounds (up-sweep
-and down-sweep) and $2(T-1)\approx1.3\times10^5$ combines. Even for a single sequence, every round
-of either algorithm exposes thousands of independent operations per channel, which is enough to fill
-132 SMs once the many channels of a real layer are counted, so the work-efficient Blelloch scan (or
-a blocked scan: sequential within a block, scan across blocks) wins. With 256 sequences the
-parallelism across sequences and channels is ample, and simple chunked sequential scans are best.
+Parameters: $3\cdot d\cdot\frac83d=8d^2=2\cdot d\cdot4d$; matmul FLOPs per token are $2\times$
+parameters in both cases. Saved activations per token, counting GEMM inputs and activation inputs:
+plain MLP stores $x$ ($d$), the pre-activation ($4d$) and the activation output, which is the input
+to $\mathbf{W}_2$ ($4d$), for $9d$ values. The GLU stores $x$ ($d$), the gate pre-activation, the up
+projection and their product ($3\times\frac83d=8d$), also $9d$. In bf16 both are $18d$ bytes per
+token. Unfused GLU code also materialises $\mathrm{SiLU}(\text{gate})$, adding $\frac83d$ values
+unless the elementwise ops are fused or recomputed.
 
 #### Exercise 8.6
 
-Implementations that form $P_i=\prod_{l\le i}\gamma_l$ explicitly and then compute $D_{ij}=P_i/P_j$,
-or that rescale the state by $1/P$, fail: $P$ underflows to 0 and the ratio becomes $0/0$. The
-reference code only ever computes $\exp$ of a difference of cumulative log-gates that is $\le0$
-(`decay_mask` for $j\le i$, `cum.exp()`, `(total - cum).exp()`), so every factor lies in $(0,1]$ and
-underflow merely produces a correct 0.
+With uniform weights the output at position $i$ is $\frac{1}{i+1}\sum_{j\le i}\boldsymbol{v}_j$. If
+the first token is a distinguishable BOS token whose value vector is $\boldsymbol{e}_1$, and all
+other tokens have value vectors with zero first coordinate, the first output coordinate is
+$1/(i+1)$, strictly decreasing in $i$. The causal mask's varying denominator alone encodes position;
+later layers can read it off and build sharper positional features.
 
 #### Exercise 8.7
 
-Per full-attention layer the cache costs $2\cdot8\cdot128\cdot2=4096$ B per token, or 537 MB for
-131,072 tokens; a window-4096 layer costs 16.8 MB. The budget is $40/32=1.25$ GB per sequence. With
-2 full layers: $1.074+34\times0.0168=1.65$ GB, which is too much. With 1:
-$0.537+35\times0.0168=1.12$ GB, which fits. So at this batch size and length only one of the 36
-layers can be full attention; a recurrent alternative for the other layers instead of windows frees
-about 0.55 GB more per sequence.
+$\partial(\log Z)^2/\partial z_j=2\log Z\,p_j$ with
+$\boldsymbol{p}=\operatorname{softmax}(\boldsymbol{z})$. Its projection on the all-ones direction is
+$\frac{2\log Z}{V}\boldsymbol{1}$ (since $\sum_jp_j=1$), and the orthogonal part is
+$2\log Z\,(\boldsymbol{p}-\frac1V\boldsymbol{1})$. The cross-entropy gradient
+$\boldsymbol{p}-\boldsymbol{y}$ sums to zero, so it has no all-ones component: CE never moves
+$\log Z$ as such. The z-loss provides the only force along $\boldsymbol{1}$, pulling $\log Z$ toward
+0. Its orthogonal part does perturb the distribution, but it is scaled by $\alpha\approx10^{-4}$ and
+vanishes as $\log Z\to0$, so predictions are essentially unaffected.
 
 #### Exercise 8.8
 
-$\boldsymbol{q}^\top(\mathbf{W}^{UK}\boldsymbol{c})=(\mathbf{W}^{UK\top}\boldsymbol{q})^\top\boldsymbol{c}$
-by associativity. During decode with $T$ cached tokens: reconstructing keys costs
-$T\cdot H\cdot128\cdot512$ multiply-adds plus $T\cdot H\cdot128$ for the dots; absorption costs
-$H\cdot512\cdot128$ once plus $T\cdot H\cdot512$ for the dots, about $128\times$ fewer for large
-$T$. In training every token is both a query and a key: keys are materialised once per token
-($T\cdot H\cdot128\cdot512$), the same cost as absorbing queries, and attention over 128-dimensional
-keys is cheaper than over 512-dimensional latents, so training uses the non-absorbed form.
+Qwen3-8B, 8192 tokens: each RMSNorm reads and writes $8192\times4096\times2$ B, i.e. 134 MB, or
+about 40 $\mu$s; two per block give 80 $\mu$s (the QK-norms act on smaller tensors and add little).
+The block has about $1.93\times10^8$ weight parameters
+($2\cdot4096^2+2\cdot4096\cdot1024+3\cdot4096\cdot12288$), so its matmuls take
+$2\times1.93\times10^8\times8192\approx3.2\times10^{12}$ FLOPs, plus about $2.8\times10^{11}$ for
+causal attention scores and outputs: about 3.5 ms at peak, or 6--7 ms at a realistic 50% MFU.
+Unfused norms add 1--2%. A fused version needs one extra read to compute the RMS (or folds the
+scaling into the GEMM epilogue), about 20 $\mu$s per norm, roughly halving the overhead. The general
+lesson: norm cost is small relative to a full block but not negligible, and it grows in relative
+terms for smaller $d$.
 
 #### Exercise 8.9
 
-Two experts, top-1, capacity factor 1.0, two tokens per batch: capacity is one token per expert.
-Alone, token A routes to expert 1 and is processed. Add token B that also prefers expert 1 and comes
-first in the dispatch order (or has a higher router score, if priority routing is used): B takes the
-slot and A is dropped, so its MoE output becomes zero and its final output changes. Testing must
-therefore either use a dropless implementation, fix the batch composition, or compare outputs per
-request only under batch-invariant settings. Bitwise "same input, same output" tests across
-different batches will fail by design.
+With $N\approx12Ld^2=1.3\times10^9$: for $d/L=32$, $d^3=1.3\times10^9\cdot32/12$ gives
+$d\approx1514$ and $L\approx47$; for $d/L=128$, $d\approx2402$ and $L\approx19$. Decode reads the
+same 2.6 GB of bf16 weights (about 0.78 ms at 3.35 TB/s) in both cases, plus per-layer overhead of
+$47\times15\,\mu$s$=0.71$ ms versus $0.28$ ms. The wide model decodes faster (about 1.06 ms versus
+1.49 ms per token). It also suits tensor parallelism better: each layer's GEMMs are larger, which
+gives better per-GPU efficiency after splitting, and there are fewer layers and so fewer all-reduces
+per token.
 
 #### Exercise 8.10
 
-Per sequence keep (i) a block table into the paged KV pool for each attention layer and (ii) an
-index into a pool of fixed-size state slots for the recurrent layers. (a) Prefix caching: when a
-prompt prefix is first computed, snapshot the recurrent states exactly at the prefix boundary into a
-prefix cache keyed by the prefix hash, alongside the refcounted KV blocks; a hit copies the state
-snapshot into a fresh slot. (b) Parallel sampling: share KV blocks with copy-on-write and copy the
-state slot 8 times. The copy is cheap and fixed-size, but it is a real copy, because recurrent
-states cannot be shared once the continuations diverge. (c) Preemption: swap both the KV blocks and
-the state slot to host memory. With recompute-based preemption, the recurrent layers must re-run the
-whole prefix, since there are no per-token states to keep.
+There is no single answer. A good report states the hypothesis before running anything, shows that
+the difference exceeds the seed-to-seed spread of the baseline, includes the LR sweep for both
+variants, and offers a mechanism. For example: "QK-norm without z-loss: max attention logit stays
+bounded and the run tolerates $3\times$ higher LR; final loss unchanged within noise at the tuned
+LR."

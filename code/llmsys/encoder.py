@@ -1,4 +1,4 @@
-"""Bidirectional encoders, their pretraining objectives, and embedding heads (Chapter 9).
+"""Bidirectional encoders, their pretraining objectives, and embedding heads (Chapter 10).
 
 The decoder-only models of the earlier chapters see only the past. An encoder sees the whole
 sequence at once, which changes three things: the attention mask (none, or a prefix-LM mask),

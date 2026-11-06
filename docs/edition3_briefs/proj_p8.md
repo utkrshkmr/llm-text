@@ -1,7 +1,7 @@
 # Brief: Project 8, MoE systems (chapter 49 NEW, kit p8_moe NEW)
-Read projects_common.md first, then docs/PLAN.md §4 "P8", Chapters 10, 22, 17, 19 (book + code: llmsys.moe_*,
+Read projects_common.md first, then docs/PLAN.md §4 "P8", Chapters 11, 24, 18, 20 (book + code: llmsys.moe_*,
 llmsys.dist.expert_parallel, llmsys.kernels.grouped_gemm, llmsys.ops.grouped_gemm / moe_dispatch if present),
-code/labs/lab10_moe. GPUs: both, short runs only.
+code/labs/lab11_moe. GPUs: both, short runs only.
 Scope: train a fine-grained MoE with shared experts at EP=2 with own dispatch/combine (Triton or CUDA via
 llmsys.ops), grouped GEMM, capacity and dropless modes, auxiliary-loss-free balancing; upcycle a dense checkpoint as
 baseline; stretch: ring attention at 32-64k tokens (context parallel over 2 GPUs). reference/: trainer with

@@ -1,4 +1,4 @@
-"""Load the CMake-built operator library and call its op (Chapter 20).
+"""Load the CMake-built operator library and call its op (Chapter 21).
 
     TORCH_CUDA_ARCH_LIST=8.0 cmake -S . -B build -G Ninja \
           -DCMAKE_PREFIX_PATH="$(python -c 'import torch;print(torch.utils.cmake_prefix_path)')" \

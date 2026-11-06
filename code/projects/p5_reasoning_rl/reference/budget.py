@@ -1,4 +1,4 @@
-"""GPU-hour accounting for the matched-compute protocol (Chapter 46).
+"""GPU-hour accounting for the matched-compute protocol (Chapter 53).
 
 The comparison in Project 5 is fair only if every method receives the same GPU-hours *after*
 the shared SFT stage. ``matched_compute_plan`` splits a total budget into the shared stages

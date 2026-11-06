@@ -1,8 +1,8 @@
-"""A compact, configurable GRPO trainer (Chapters 37-38).
+"""A compact, configurable GRPO trainer (Chapters 44-45).
 
 One ``grpo_step`` = sample P prompts x G rollouts -> rewards -> group advantages ->
 old/ref log-probs (no grad) -> ``inner_epochs`` x ``minibatches`` gradient updates.
-Every knob discussed in Chapter 38 is a field of ``GRPOConfig`` so ablations are
+Every knob discussed in Chapter 45 is a field of ``GRPOConfig`` so ablations are
 one-line changes.
 """
 from __future__ import annotations
@@ -206,7 +206,7 @@ class GRPOTrainer:
         else:
             raise ValueError(cfg.loss)
         if lp_ref is not None and cfg.kl_coeff > 0 and cfg.loss != "token_clip":
-            if cfg.kl_kind == "seq_simple":     # Chapter 37/18's sampled surrogate
+            if cfg.kl_kind == "seq_simple":     # Chapter 44/18's sampled surrogate
                 kl = ((lp_new - lp_ref) * mask).sum(-1).mean()
             else:
                 k = kl_estimate(lp_new, lp_ref, cfg.kl_kind)

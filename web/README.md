@@ -26,7 +26,7 @@ Markdown file:
 $$\mathrm{RMSNorm}(\boldsymbol{x}) = \boldsymbol{\gamma}\odot\frac{\boldsymbol{x}}{\mathrm{RMS}(\boldsymbol{x})}
 \label{eq:modern:rms}$$
 
-![Caption text.](figures/ch06_modern_arch-2.svg){#fig:modern:rmsvsln}
+![Caption text.](figures/ch07_modern_arch-2.svg){#fig:modern:rmsvsln}
 
 ``` {#lst:modern:rms .python caption="RMSNorm with an fp32 accumulation."}
 ...
@@ -61,3 +61,23 @@ Body text.
 
 The workflow in `.github/workflows/pages.yml` runs the same build on every push to `main` and
 publishes the result to the `gh-pages` branch.
+
+
+## Lab references and numbering
+
+Never write a chapter or lab number literally. `[@ch:x]` renders "Chapter N"; `[@lab:x]` renders "Lab N" (N is the
+number of the chapter or appendix labelled `ch:x`/`app:x`) and links to its `{#sec:x:lab}` section. Headings
+`## Lab N: ...` and the `## Chapter N:` / `#### Exercise N.k` headings of `solutions/*.md` are renumbered by the build
+from `book.yml`, so reordering chapters never leaves a stale number.
+
+## Dark-mode figures
+
+Figures are drawn once, for the light theme. The build writes `figures/<name>-dark.svg` for every figure
+(`web/figtheme.py`: each colour keeps its hue and has its lightness flipped onto the dark theme's range) and emits
+both images; CSS shows the one for the current theme. Use rgb()/hex/black/white colours only; `--strict` fails on
+colour notation the converter cannot read.
+
+## Forward references
+
+`book/forward_refs.txt` lists labels of chapters and sections not written yet. `--strict` fails on any other
+unresolved reference, and reports allowlisted labels that now resolve so they can be removed.

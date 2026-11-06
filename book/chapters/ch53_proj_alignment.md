@@ -1,0 +1,659 @@
+# Project 5: Reasoning RL and Alignment {#ch:proj5}
+
+This capstone moves from pretraining to post-training. In the core track you take a small but
+heavily pretrained base model, measure how well prompting alone solves grade-school math word
+problems, and then improve it with on-policy policy gradients: first standard GRPO, then a family of
+estimator variants, then off-policy training with importance reweighting and clipping, and finally
+an estimator of your own design. An optional alignment track covers the other half of post-training:
+zero-shot evaluation of an 8B base model on knowledge, reasoning, chat and safety benchmarks,
+supervised instruction tuning, red-teaming, and DPO on human preference data.
+
+This chapter is a project specification and a guide, not a solution. It defines what to build and
+what to measure, sets up the repository and the two-GPU system, points to the chapters that teach
+each ingredient, and explains how to design, debug and report the experiments. The mathematics is in
+[@ch:pg], the system design in [@ch:rlsys], the evaluation machinery in
+[@ch:eval], and preference optimisation in [@ch:dpo]. The implementation is yours.
+
+![The shape of the project. The core track (top) climbs from inference-only baselines to a family of
+RL estimators; every stage after the second reuses one training script with different flags. The
+alignment track (bottom) is a classic SFT-then-preference pipeline with the same four evaluations
+after each stage.](figures/ch53_proj_alignment-1.svg){#fig:proj5:roadmap}
+
+## The project at a glance {#sec:proj5:overview}
+
+##### Testbed.
+
+The policy is **OLMo-2-0425-1B** (OLMo Team, 2024), an open 1B-class base model trained on roughly
+four trillion tokens. That is thousands of tokens per parameter, so it is much more capable than its
+size suggests. The task is **GSM8K** (Cobbe et al., 2021): grade-school word problems whose final
+answers are numbers that a program can check. Rewards are binary (correct or not), with a separate
+format signal that you log but do not optimise. Sample with temperature 1.0, no nucleus or top-$k$
+truncation ([@sec:pg:logprobs] explains why), and a 512-token cap, and stop generation at
+the closing answer tag. This is RL with verifiable rewards in its cleanest form ([@ch:grpo]):
+no reward model, no human labels, just a grader. If your GPUs are small, Qwen3-0.6B-Base with the
+same task is an acceptable substitute ([@sec:proj5:outside]).
+
+##### Learning goals.
+
+\(1\) Understand *which objective* each estimator optimises, not just how to code it. You will
+derive variances and the prompt reweightings induced by different normalisers, using the methods of
+[@sec:pg:baselines; @sec:pg:normalisation]. (2) Build a correct and efficient RL training
+step around a Hugging Face policy and a vLLM rollout engine on separate GPUs. (3) Do RL *science*
+under noise: multiple seeds, controlled ablations, and claims sized to the evidence.
+
+::: {#tab:proj5:deliverables .table-float}
+| Part | What you produce |
+|:---|:---|
+| 1\. Prompting | an evaluation script; a breakdown of outputs by (format, answer) reward; a qualitative account of three prompt styles |
+| 2\. Building GRPO | written derivations; tested functions for batch layout, log-probs/entropy, rewards, advantages, losses and aggregation; a micro-batched train step |
+| 3\. GRPO runs | a training script; 4-seed runs with plots; a learning-rate sweep; a prompt ablation |
+| 4\. Variants | normaliser and aggregation options; zero-advantage pruning; a 4-seed comparison of four variants |
+| 5\. Off-policy | token- and sequence-level reweighted losses with clipping; a high-reuse schedule; a 4-seed comparison with clip-fraction logging |
+| 6\. Your estimator | one motivated change to an estimator from Parts 3--5, run with seeds |
+| Alignment track | four evaluation scripts; a packed SFT data loader and trainer; a red-team report; a preference-data loader; a DPO trainer; before/after evaluations |
+
+: Deliverables.
+:::
+
+## Setting up {#sec:proj5:setup}
+
+### Repository layout
+
+Work inside this book's repository. `code/projects/p5_reasoning_rl/` holds the infrastructure
+provided for this project; your own package goes next to it:
+
+``` {#lst:proj5:layout caption="Project layout. Only the files marked (provided) exist at the start."}
+code/projects/p5_reasoning_rl/
+  README.md          (provided) quick start
+  env_check.py       (provided) checks Python, libraries, GPUs, disk
+  run_matrix.py      (provided) settings x seeds grid -> commands
+  seeds_ci.py        (provided) per-seed JSONL logs -> intervals
+  test_p5_infra.py   (provided) tests for the three tools
+  p5/                yours: core.py, rollout.py, train_rl.py, evals.py
+  tests/             yours: the invariants of Part 2
+  data/              downloaded datasets (not committed)
+  runs/              one directory per run
+```
+
+Reuse the book's library freely. `llmsys.eval` has answer extraction and a numeric grader
+([@ch:eval]), `llmsys.pg` has reference implementations of the chapter-24 building blocks for
+toy models, and `llmsys.rl` has GRPO components for small models. The point of the project is to
+write the production versions for a real model and to run the experiments.
+
+### Environment
+
+Install the book's requirements, then the GPU stack. Pin versions and do not upgrade during the
+project: vLLM's APIs for weight updates and generation change between releases.
+
+``` {#lst:proj5:setup .bash caption="Environment bring-up."}
+pip install -r code/requirements.txt
+pip install "transformers>=4.50" vllm wandb math-verify   # pin versions
+pip install flash-attn --no-build-isolation     # optional, last
+python code/projects/p5_reasoning_rl/env_check.py --need-gpus 2 --min-gpu-gb 40
+huggingface-cli download allenai/OLMo-2-0425-1B \
+    --local-dir ckpt/olmo2-1b
+```
+
+The environment checker reports the Python version, whether torch, transformers, vLLM,
+FlashAttention, wandb and math-verify import, the GPU inventory with bf16 support, free disk, and
+whether a W&B key is set. It changes nothing. Run it on the machine that will do the work, before
+spending GPU hours. Download GSM8K's train and test splits once into `data/` as JSON lines. Each
+record has a question and an answer whose final line holds the number after a marker; split it off
+once and store it as a separate field.
+
+### Compute budget
+
+[@fig:proj5:budget] estimates the cost of the core track, assuming about 40 s per RL step
+on two H100-class GPUs and 200 steps per run. Measure your own step time over five steps and redo
+the arithmetic before launching sweeps; the step-time breakdown of [@tab:pg:metrics] shows
+which phase to optimise first.
+
+![Estimated GPU-hours for the core track, computed as runs $\times$ 200 steps $\times$ 40 s $\times$
+2 GPUs. Learning rate: 3 values $\times$ 2 seeds. Prompts: 2 alternatives $\times$ 2 seeds.
+Variants: 4 $\times$ 4 seeds. Off-policy runs take fewer rollout batches for the same number of
+updates. These are planning numbers, not measurements; halve them by running 100 steps and 2 seeds
+for the sweeps.](figures/ch53_proj_alignment-2.svg){#fig:proj5:budget}
+
+### The two-GPU system
+
+Use the layout of [@fig:pg:system]: the Hugging Face policy and its AdamW state on GPU 0, a
+vLLM engine on GPU 1, and a weight-transfer path between them. Each step generates rollouts with the
+stop string included in the output, scores them on the CPU, runs the micro-batched update on GPU 0,
+and pushes the new weights to the engine. [@fig:proj5:timeline] shows the resulting
+timeline; in the synchronous design each GPU idles while the other works. That is acceptable here,
+and [@ch:rlsys] shows how asynchronous schedules recover the idle time and what they cost in
+staleness.
+
+![Synchronous on-policy RL on two GPUs. Generation, grading, training and weight sync alternate;
+each GPU idles for roughly the other's busy time. With high off-policy reuse (Part 5), the trainer
+segment grows and generation becomes rarer.](figures/ch53_proj_alignment-3.svg){#fig:proj5:timeline}
+
+##### Getting weights into the engine.
+
+There are three workable designs, in increasing order of speed and fragility. (a) *Reload from
+disk*: every few steps, save the policy with `save_pretrained` and restart or reload the engine from
+that directory. This is trivially correct and slow, but good enough to validate everything else. (b)
+*In-process engine*: construct the vLLM engine in a separate process you control and expose a method
+that receives a state dict and loads it into the engine's model. (c) *NCCL broadcast*: create a
+process group spanning the trainer GPU and the engine's worker, then broadcast each tensor after
+every optimizer step. vLLM's documentation includes RLHF examples of (b) and (c) for specific
+versions, and the details move between releases, so follow the example that matches your pinned
+version. [@sec:rlsys:sync] explains the resharding problem that (c) solves at scale.
+Whatever you choose, test it with the log-probability check of [@sec:pg:loop]: after a
+sync, the engine's log-probability of a fixed string must change.
+
+::: systemslens
+[the engine is a separate process for a reason]{.box-title}
+
+Running the rollout engine as its own process isolates its CUDA context, memory pool and kernels
+from the trainer's, at the cost of an IPC or HTTP hop per generation call and an explicit path for
+weights. Production RL frameworks make the same separation between their rollout and training worker
+groups ([@sec:rlsys:placement]); this project is the smallest working instance. Batch your
+generation calls: one request with 256 prompts lets the engine's continuous batcher
+([@ch:serving]) keep the GPU busy, while 256 sequential requests leave it idle between them.
+:::
+
+::: pitfall
+[things that break the two-GPU setup]{.box-title}
+
+\(i\) Engine and trainer must load the *same* weights and tokenizer revision. (ii) Weight sync must
+happen *before* each generation; check it. (iii) The stop string must be included in the returned
+text, or the grader will not find the closing tag and every reward will be zero. (iv) Give the
+engine an explicit GPU-memory fraction; on a shared GPU it will otherwise claim most of the memory
+for its KV pool.
+:::
+
+### Structuring your code {#sec:proj5:structure}
+
+The same functions serve your tests, the evaluation script, five experiment families and the
+alignment track, so organise them for reuse from the start ([@fig:proj5:modules]). Keep the
+pure tensor functions (masks, log-probs, advantages, losses, aggregation) free of I/O so they are
+trivially unit-testable on CPU. Keep anything that touches GPUs, engines or files in thin drivers.
+Expose every algorithmic switch (baseline, normaliser, aggregation, reweighting method, clip range,
+updates per rollout batch) as a command-line flag of one training script; the ablations then become
+a list of commands generated by `run_matrix.py`.
+
+![A layout that keeps the tested core small and pure. Drivers depend on the core, never the other
+way round. The evaluation driver is shared by the prompting baselines, RL validation and the
+alignment track.](figures/ch53_proj_alignment-4.svg){#fig:proj5:modules}
+
+## Specification and background map {#sec:proj5:map}
+
+[@tab:proj5:map] specifies each task and lists where the book teaches the background. Where
+it says "method", the referenced section develops the technique on a different example; apply it to
+this project's setting yourself.
+
+::: {#tab:proj5:map .table-float}
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| **Task**             | **Specification**                   | **Read**                                                                                                      |
++:=====================+:====================================+:==============================================================================================================+
+| 1a Prompt evaluation | evaluate three prompt styles (bare  | [@sec:eval:verifiers; @sec:eval:extract; @sec:eval:run]; [@sec:scaling:cot]             |
+|                      | question asking for a boxed answer; |                                                                                                               |
+|                      | think/answer tags; the tagged style |                                                                                                               |
+|                      | with three worked examples) on the  |                                                                                                               |
+|                      | full test set; bucket outputs by    |                                                                                                               |
+|                      | (format, answer) reward; hand-check |                                                                                                               |
+|                      | 20 outputs per bucket               |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 1b Behaviour         | describe, with examples, what the   | [@sec:proj5:prompting]                                                                               |
+|                      | base model does under each prompt   |                                                                                                               |
+|                      | besides answering                   |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 2a Variance          | for a two-action policy of your     | method: [@sec:pg:baselines]                                                                          |
+|                      | choice, compute the variance of the |                                                                                                               |
+|                      | score-function estimator with no    |                                                                                                               |
+|                      | baseline, a constant baseline and   |                                                                                                               |
+|                      | the optimal baseline, and confirm   |                                                                                                               |
+|                      | by sampling                         |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 2b Reweighting       | for each normaliser you implement   | method: [@sec:pg:reweight]                                                                           |
+|                      | (std, none, mean), derive the       |                                                                                                               |
+|                      | prompt weighting it induces in the  |                                                                                                               |
+|                      | large-group limit                   |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 2c Components        | batch layout with a response mask;  | [@sec:pg:batch; @sec:pg:logprobs; @sec:pg:practical; @sec:pg:offpolicy; @sec:pg:aggregation] |
+|                      | per-token log-probs and entropy;    |                                                                                                               |
+|                      | rewards; group advantages with      |                                                                                                               |
+|                      | baseline and normaliser options;    |                                                                                                               |
+|                      | per-token losses (on-policy,        |                                                                                                               |
+|                      | token-reweighted, clipped,          |                                                                                                               |
+|                      | sequence-level); aggregation        |                                                                                                               |
+|                      | (sequence mean, constant)           |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 2d Train step        | micro-batched, exact under          | [@prop:pg:accum]; [@sec:pg:loop]                                                            |
+|                      | accumulation, gradient clipping,    |                                                                                                               |
+|                      | metrics of                          |                                                                                                               |
+|                      | [@tab:pg:metrics]          |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 3 GRPO runs          | 4 seeds of standard GRPO with the   | [@sec:pg:loop]; [@ch:grpo2]                                                                   |
+|                      | tagged prompt; a learning-rate      |                                                                                                               |
+|                      | sweep; the other two prompts        |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 4 Variants           | constant aggregation; no std        | [@sec:pg:length; @sec:pg:rft; @sec:pg:reweight; @sec:pg:aggregation]                           |
+|                      | (Dr. GRPO); no baseline (rejection  |                                                                                                               |
+|                      | fine-tuning); mean normaliser       |                                                                                                               |
+|                      | (MaxRL, Tajwar et al., 2026);       |                                                                                                               |
+|                      | zero-advantage pruning; 4 seeds     |                                                                                                               |
+|                      | each                                |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 5 Off-policy         | reuse each rollout batch for many   | [@sec:pg:is; @sec:pg:ppo]; [@sec:grpo2:clip; @sec:grpo2:more]                           |
+|                      | updates; compare naive reuse,       |                                                                                                               |
+|                      | token-level reweighting without and |                                                                                                               |
+|                      | with clipping, and sequence-level   |                                                                                                               |
+|                      | (GSPO); log clip fraction           |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| 6 Your estimator     | change one thing relative to Parts  | [@sec:proj5:own]                                                                                     |
+|                      | 3--5, motivated by the theory       |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| *Alignment track*                                                                                                                                                          |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| A1 Zero-shot evals   | MMLU (letter parsing), GSM8K (last  | [@sec:eval:mcq; @sec:eval:judge]; [@ch:alignment]                                           |
+|                      | number), AlpacaEval (win rate and   |                                                                                                               |
+|                      | length-controlled win rate with an  |                                                                                                               |
+|                      | LLM judge), SimpleSafetyTests       |                                                                                                               |
+|                      | (judge-labelled safety)             |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| A2 Packed SFT        | fixed-length packed data loader; a  | [@sec:instruct:packing; @sec:instruct:train]; [@ch:optim]                                   |
+|                      | full-parameter SFT trainer with     |                                                                                                               |
+|                      | accumulation, warmup and cosine     |                                                                                                               |
+|                      | schedule                            |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| A3 Red-teaming       | a methodical misuse probe with a    | [@ch:alignment]                                                                                        |
+|                      | written report                      |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+| A4 DPO               | preference-data loader; per-pair    | [@ch:dpo]                                                                                              |
+|                      | DPO loss; two-GPU DPO training with |                                                                                                               |
+|                      | held-out implicit-reward accuracy;  |                                                                                                               |
+|                      | re-run A1                           |                                                                                                               |
++----------------------+-------------------------------------+---------------------------------------------------------------------------------------------------------------+
+
+: Project tasks and where the book covers the background.
+:::
+
+## Part 1: prompting baselines {#sec:proj5:prompting}
+
+This part is short, but it calibrates everything after it. Write the three prompt templates as
+files, not string literals. The tagged prompt opens a thinking tag at the end of the prompt and asks
+for the final answer inside answer tags, in the style popularised by DeepSeek-R1-Zero (DeepSeek-AI,
+2025); the few-shot variant prepends three solved examples in the same format. Grade the tagged
+styles by extracting the content of the answer tags, and the bare style by extracting the last boxed
+expression. Use the stop string only for the tagged styles.
+
+- Write one evaluation function that takes a template, a grader and sampling parameters, and
+  serialises `(prompt, response, rewards, finish_reason)` for every example. You will reuse it for
+  validation inside the RL loop.
+
+- Count outcomes in the (format, answer) buckets, then *read* the format-correct-but-wrong and
+  format-wrong buckets. Estimate how many are actually correct but unparsed. That rate is your
+  reward noise, a floor on what RL can fix.
+
+- Note what the base model does besides answering: continuing the conversation, inventing new
+  questions, emitting code. RL will suppress or amplify these behaviours, and the prompt determines
+  which ones appear.
+
+- Record throughput (examples per second) and the response-length distribution. Together they set
+  your rollout budget for every later part.
+
+## Part 2: building GRPO {#sec:proj5:grpo}
+
+##### Derivations.
+
+For the variance task, write the estimator's first and second moments for your two-action policy, as
+[@fig:pg:variance] does for a three-armed bandit, and check the algebra numerically with
+$10^5$ samples, as Lab 34 does. For the reweighting task, follow the large-group argument of
+[@sec:pg:reweight]: identify the limit of each group statistic as $G\to\infty$, factor it
+out of the expectation, and read off the weight.
+
+##### Components.
+
+Write each function so that it is testable in isolation. Invariants worth asserting in `tests/`:
+
+- batch layout: `response_mask.sum(1)` equals the response token counts; the first masked label
+  equals the first response token; nothing is inserted between prompt and response
+  ([@fig:pg:layout]);
+
+- log-probs: every value is $\le0$; entropies lie in $[0,\log V]$; outputs are float32 even when the
+  model runs in bf16 ([@lst:pg:logprobs]);
+
+- advantages: zero for groups with identical rewards; each group's advantages sum to zero under a
+  mean baseline; finite everywhere, thanks to $\epsilon$;
+
+- losses: with all ratios equal to one, the reweighted and clipped losses equal the on-policy loss;
+  the clip fraction is zero.
+
+##### The train step.
+
+The step must give the same gradient whatever the number of accumulation steps. That is
+[@prop:pg:accum]: every micro-batch is normalised by quantities of the *whole* rollout
+batch. Test it directly. Compute the gradient with one micro-batch and with eight on a tiny batch,
+and compare. Clip the gradient norm once, after the last micro-batch, and log its pre-clip value.
+
+##### Memory.
+
+OLMo-2-1B in bf16 with fp32 AdamW state needs about 16 bytes per parameter, roughly 24 GB before
+activations, so the trainer GPU is not tight. The logits are the largest transient tensor: work
+through the napkin math of [@sec:pg:logprobs] for your micro-batch size and vocabulary
+before choosing it. If you run out of memory, shrink the micro-batch and keep the accumulation exact
+rather than shortening responses, which would change the task.
+
+## Parts 3--6: experiments {#sec:proj5:experiments}
+
+##### Starting hyperparameters.
+
+A reasonable starting point for the 1B model: 32 prompts $\times$ 8 samples $=256$ rollouts per
+step; AdamW with learning rate $10^{-5}$, $\beta=(0.9,0.95)$, no weight decay; gradient clipping at
+1.0; micro-batches sized to memory; 200 steps; validation on 1024 held-out problems every 10 steps;
+rollouts dumped every 40 steps. Treat these as defaults to validate, not as tuned values.
+
+##### Correctness first.
+
+Before any sweep, run about 50 steps on one seed and confirm three things: validation reward rises
+(it may start near zero and wait a few steps for the first successes), entropy declines gradually
+rather than collapsing, and sampled rollouts read sensibly. If the run does not learn, suspect a bug
+before the hyperparameters, and work through the checklist of [@sec:pg:loop].
+
+##### Seeds and plots.
+
+Use four seeds per configuration and plots that show the spread. Name runs so that seeds group
+together, log JSON lines per step, and aggregate with intervals. `run_matrix.py` expands a
+settings$\times$seeds grid into one command line per run, and `seeds_ci.py` turns per-seed logs into
+mean, interval and min/max per step ([@fig:proj5:matrix]). Plot the individual runs too:
+with $n=4$ a normal-approximation interval is optimistic.
+
+![An ablation is a grid of (variant $\times$ seed) runs that differ in one setting. Group by
+variant, aggregate across seeds, and compare bands, not single
+curves.](figures/ch53_proj_alignment-5.svg){#fig:proj5:matrix}
+
+##### Controlled comparisons.
+
+Each comparison changes one thing. Tuning the learning rate on standard GRPO and reusing it for the
+variants is the affordable protocol. As [@sec:pg:loop] notes, it makes a variant's win
+convincing but its loss inconclusive; say so in the write-up. For the variant sweep, implement
+zero-advantage pruning and verify that it leaves the gradient unchanged
+([@sec:pg:aggregation]); for rejection fine-tuning it removes most of the training compute.
+For the off-policy sweep, shrink the training batch to a small fraction of the rollout batch (a
+reuse factor of 8--32) so that each rollout batch feeds many optimizer steps. Compute the old
+log-probabilities once, before the first of those steps, and log the clip fraction and approximate
+KL at every step. Start the clip range at the values used by the original methods: about 0.2 for
+token-level clipping, and a far smaller range for GSPO's sequence-level ratio, which lives much
+closer to one. Off-policy runs also change the wall-clock balance of [@fig:proj5:timeline]:
+measure and report it, because a method that is better per rollout but slower per hour may still
+lose.
+
+##### What to log.
+
+At minimum: loss, pre-clip gradient norm, token entropy, train reward and format reward, validation
+reward and format reward, validation response length, and clip fraction and zero-advantage fraction
+where relevant ([@tab:pg:metrics]). Every 40 steps or so, dump rollouts to disk and read
+them. Reward hacking and format drift are visible in text long before a curve shows them.
+
+### Failure signatures {#sec:proj5:failures}
+
+RL bugs rarely crash; they show up as odd curves. [@tab:proj5:failures] lists common
+signatures and the first thing to check.
+
+::: {#tab:proj5:failures .table-float}
+| **Symptom** | **Likely cause** | **First check** |
+|:---|:---|:---|
+| train reward exactly 0 for many steps | grader never fires; stop string stripped; wrong ground-truth field | grade ten responses by hand |
+| reward rises, validation flat | validation uses a different template, parser or sampling settings | diff the two code paths |
+| loss decreases but nothing improves | sign error or misaligned mask | flip test: negate advantages, and reward should fall |
+| reward rises then collapses | learning rate too high; off-policy updates drift | gradient norm and clip fraction around the collapse |
+| entropy drops to near 0 within a few steps | too-large steps; very small groups | lower the learning rate; read rollouts for repetition |
+| responses grow to the length cap | length-biased aggregation; truncated responses scored as failures | share of truncated responses; aggregation mode |
+| results change with gradient-accumulation steps | micro-batches normalised locally | 1-vs-$k$ gradient comparison ([@prop:pg:accum]) |
+| engine output never changes | weight sync not called or not applied | log-prob of a fixed string before and after sync |
+| GPU memory spikes on long batches | full-vocabulary fp32 logits | chunking and response-only slicing ([@sec:pg:logprobs]) |
+| off-policy runs identical to on-policy | old log-probs recomputed with current weights after each update | compute old log-probs once, before the first update |
+
+: Symptoms, likely causes and first checks for RL runs.
+:::
+
+### Part 6: your own estimator {#sec:proj5:own}
+
+This part rewards a clean experiment more than a clever idea. Choose a change that the framework of
+[@ch:pg] can motivate: a different baseline (for example leave-one-out with a different group
+statistic), a different prompt reweighting (derive its target with [@sec:pg:reweight]
+before running it), a different treatment of importance weights (truncation, masking, or a different
+geometric aggregation), or a different token weighting. Write the predicted effect in one sentence
+*before* running it, change exactly one thing relative to a variant you already ran, use the same
+seeds and budget, and report the result even if it is negative.
+
+## Background: what open reasoning-RL recipes teach {#sec:proj5:cases}
+
+The project isolates the estimator, but published recipes show what matters around it.
+
+- **The base model sets the ceiling.** DeepSeek-R1-Zero (DeepSeek-AI, 2025) ran GRPO with accuracy
+  and format rewards directly on a strong base model, and reasoning behaviour emerged from RL alone.
+  Follow-up analyses (Liu et al., 2025) found that much of the "aha" behaviour was already present
+  in the base model, and that part of the length growth came from the objective's length bias
+  ([@sec:pg:length]). That is why this project uses a model trained on thousands of tokens
+  per parameter: RL sharpens what pretraining put there.
+
+- **Data curation is half the algorithm.** Several reports filter prompts by difficulty, keeping
+  problems the model sometimes but not always solves. That is the regime where group baselines carry
+  signal ([@sec:pg:practical]). Kimi k1.5 (Kimi Team, 2025) used a curriculum and sampled
+  problems in proportion to their failure rate. The Qwen3 report (Qwen Team, 2025) describes
+  reasoning RL on a few thousand carefully filtered problems.
+
+- **Length is a first-class quantity.** Kimi k1.5 added an explicit length reward to compress
+  reasoning; DAPO (Yu et al., 2025) shapes overlong responses ([@ch:grpo2]). In your runs,
+  response length is the first diagnostic to plot next to reward.
+
+- **Simple pipelines win.** The open recipes replaced process reward models and tree search with
+  outcome rewards and plain policy gradients. This project asks you to understand that plain policy
+  gradient well enough to modify it deliberately.
+
+## The alignment track {#sec:proj5:supplement}
+
+The track uses an 8B base model, Llama 3.1 8B (Grattafiori et al., 2024), and a larger
+instruction-tuned model (for example Llama 3.3 70B Instruct, or any strong judge you can serve) as
+an automatic evaluator. Everything is built from scratch except inference (vLLM) and model loading
+(Transformers). Do not use any library's trainer class.
+
+##### Evaluations.
+
+Four benchmarks probe four abilities. MMLU (Hendrycks et al., 2021) tests knowledge: ask for one
+sentence of a fixed form naming the option letter, and parse the letter. GSM8K tests reasoning: take
+the last number in the output. AlpacaEval (Li et al., 2023; Dubois et al., 2024) tests chat quality:
+report the win rate and the length-controlled win rate against a reference model's outputs, as
+judged by your evaluator. SimpleSafetyTests (Vidgen et al., 2024) tests safety: the share of
+responses the judge labels safe. Use greedy decoding throughout. Build one harness that formats,
+generates, parses and serialises, with a parser per task. [@ch:eval] provides the MCQ and
+judge machinery, and [@ch:alignment] builds a multi-benchmark harness with a mock judge you
+can test offline. Keep templates in files: the zero-shot prompt (a system instruction describing a
+helpful, honest, harmless assistant) is replaced by the training template after SFT.
+
+##### Packed SFT.
+
+Use single-turn prompt/response pairs from UltraChat-200k (Ding et al., 2023), optionally mixed with
+a small set of safety demonstrations (Bianchi et al., 2024). Format each pair with an instruction
+template, join the formatted examples into one token stream separated by the end-of-text token, and
+cut the stream into non-overlapping fixed-length windows (512 tokens works). That gives no padding
+and maximal throughput, at the price of documents spanning window boundaries;
+[@sec:instruct:packing] contrasts it with per-example padding and loss masking. Train for
+one epoch with an effective batch of about 32 sequences, a learning rate around $2\times10^{-5}$,
+linear warmup over the first few percent of steps, cosine decay, weight decay 0.1 and clipping at
+1.0 ([@ch:optim; @ch:pretrain]).
+
+::: napkinmath
+[full fine-tuning an 8B model]{.box-title}
+
+Weights in bf16 take 16 GB, gradients in bf16 16 GB, and AdamW moments in fp32 64 GB, for about
+96 GB before activations, or 128 GB with fp32 master weights. That fits on one 141--192 GB
+accelerator at sequence length 512 with a small micro-batch, but not on an 80 GB GPU. There you need
+ZeRO/FSDP across GPUs ([@ch:sharding]), an 8-bit optimizer, or LoRA ([@ch:instruct]).
+DPO holds a trainable policy plus a frozen reference. Putting the reference on its own GPU and
+training with RMSprop, which keeps one state tensor instead of two (as the original DPO work did),
+keeps the policy GPU at roughly 64--96 GB.
+:::
+
+##### Red-teaming.
+
+Treat it as an evaluation methodology, not a stunt (Ganguli et al., 2022). Pick concrete misuse
+categories, record each attempt (strategy, prompt family, outcome, time spent), and summarise what
+worked. Keep outputs private and report patterns, not harmful completions.
+
+##### DPO.
+
+Use the Anthropic HH preference data (Bai et al., 2022). Keep single-turn conversations (one human
+message), split each into an instruction plus chosen and rejected responses, and record each
+example's subset (harmless or helpful variants). The per-pair loss needs four sequence
+log-probabilities: policy and reference, chosen and rejected. The prompt's contribution cancels in
+each difference, so you can score the full concatenated strings. [@ch:dpo] derives the
+objective, shows how to cache reference log-probabilities, and explains the implicit-reward accuracy
+to track on about 200 held-out pairs. Start from an effective batch of 64 pairs, $\beta=0.1$ and a
+learning rate near $10^{-6}$. Checkpoint on the best validation accuracy rather than the last step,
+since DPO overfits small preference sets quickly. Validate your loss on a pair whose four
+log-probabilities you can compute by hand from a tiny randomly initialised model before running it
+at 8B. Afterwards, re-run all four evaluations and look for an "alignment tax" on GSM8K and MMLU.
+
+##### Reading the evaluations.
+
+When the raw and length-controlled win rates disagree, look at response lengths: a model that wins
+only on the raw rate has mostly learned to write more. Judges also have positional and stylistic
+biases ([@sec:eval:judge]), so spot-check annotations where you disagree. For safety, look
+at both error types: unsafe responses judged safe, and refusals of benign requests. The metric does
+not penalise over-refusal, but users do.
+
+## The write-up {#sec:proj5:writeup}
+
+Plan the report like a short paper.
+
+- **One figure per question.** Each comparison gets a figure with one band per variant, plus
+  individual seeds in a panel or appendix. Put the metric's definition, the number of seeds and the
+  interval type in the caption.
+
+- **Claims sized to evidence.** With four seeds, "A beats B" needs bands that do not overlap over
+  the last tenth of training; otherwise write "indistinguishable at this budget". State tuning
+  asymmetries explicitly.
+
+- **Mechanism, not just outcome.** When a variant wins or loses, connect it to a logged quantity
+  (entropy, response length, clip fraction, zero-advantage fraction), and connect that quantity to
+  the estimator's mathematics: which prompts or tokens it upweights ([@sec:pg:reweight]).
+
+- **Systems numbers.** Report the step-time breakdown and wall-clock time per configuration.
+  Off-policy reuse and pruning are systems interventions as much as algorithmic ones.
+
+- **Qualitative evidence.** Quote two or three rollouts before and after training for the headline
+  run, chosen to show a pattern rather than a cherry-picked success.
+
+## A practical plan {#sec:proj5:plan}
+
+The fastest path front-loads correctness and back-loads compute.
+
+1.  **Day 1, CPU only.** Implement the pure functions and your invariant tests; reproduce the
+    derivations numerically on toy policies (Lab 34 shows how).
+
+2.  **Day 2, one GPU pair.** Bring up the engine; run the prompting evaluation on 100 examples, then
+    on the full test set. Measure throughput and length distributions.
+
+3.  **Day 3.** Implement the train step; run the 1-vs-$k$ gradient check and the log-probability
+    match against the engine. Run 50 steps of standard GRPO on one seed.
+
+4.  **Day 4.** Launch four seeds of standard GRPO; write the plotting with `seeds_ci.py` while they
+    run; start the learning-rate sweep once the headline curve looks right.
+
+5.  **Days 5--6.** Variant and off-policy sweeps from one script with flags; design your own
+    estimator while they run.
+
+6.  **Day 7.** Write-up. Re-run anything whose bands are too wide for the claim you want, if budget
+    allows; otherwise weaken the claim.
+
+The alignment track is independent and can run in parallel on other GPUs once your evaluation
+harness exists.
+
+## Milestones and sanity checks {#sec:proj5:milestones}
+
+1.  The environment checker passes; your tests run on CPU.
+
+2.  The prompting evaluation runs end to end on 100 examples; manual inspection agrees with the
+    grader on at least 9 of 10 sampled outputs.
+
+3.  Each component passes your invariants ([@sec:proj5:grpo]); the 1-vs-$k$ micro-batch
+    gradient check passes.
+
+4.  Right after a sync, the trainer's log-probabilities for an engine rollout match the engine's own
+    to within about $10^{-2}$ per token, and they change after one optimizer step and a second sync.
+
+5.  A 50-step run raises validation reward; entropy decreases smoothly; most responses stay under
+    the cap.
+
+6.  Four seeds of standard GRPO clearly beat the best prompting baseline on validation accuracy, and
+    their spread is recorded.
+
+7.  Each sweep's plots show bands and individual runs; every claim in the write-up cites a plot.
+
+## Doing this on smaller hardware {#sec:proj5:outside}
+
+You need two GPUs with bf16 support. One trains a 1B-class model with AdamW (about 24 GB plus
+activations); the other serves it with vLLM and a KV pool. Two 40--80 GB GPUs are comfortable; two
+24 GB cards work with small micro-batches and a reduced engine memory fraction. With a single GPU,
+colocate: run the engine with a small memory fraction (or its sleep/offload mode, if your version
+supports it) and accept slower steps, or swap in this book's engine ([@ch:serving]). The cost
+models of [@sec:rlsys:placement] tell you what colocation costs. With 24 GB or less, switch
+the policy to Qwen3-0.6B-Base; everything else in the project is unchanged. Rent cloud GPUs for the
+sweeps only, after the 50-step correctness run passes. If even that is out of reach, reproduce every
+algorithmic comparison at small scale: Lab 34's toy task and the addition task of Labs 37--38 run on
+a CPU and show the same qualitative effects of baselines, normalisers and reuse. Then spend GPU time
+on the headline GRPO run alone.
+
+## Summary
+
+- The core track is RL with verifiable rewards on a small, strong base model: prompting baselines,
+  GRPO from first principles, normaliser and aggregation variants, off-policy reuse, and an
+  estimator of your own.
+
+- Setup is this repository's `code/projects/p5_reasoning_rl` tools, pinned vLLM and Transformers,
+  two GPUs with a weight-sync path, and a small tested core of pure functions.
+
+- The mathematics is [@ch:pg]; the engineering invariants are mask alignment, fp32 log-probs,
+  global normalisers under accumulation, and weight-sync checks.
+
+- Good RL science here means correctness runs before sweeps, four seeds with bands, one change at a
+  time, and an honest account of tuning asymmetries.
+
+- The alignment track walks the classic pipeline: evaluate, SFT with packing, red-team, DPO,
+  evaluate again.
+
+## Exercises {#sec:proj5:exercises}
+
+::: exercise
+[budgeting]{.box-title}
+
+Your measured step time for standard GRPO is 40 s on two H100s, of which 26 s is generation.
+Estimate the GPU-hours for the four-variant on-policy sweep at 200 steps and 4 seeds, and the saving
+if zero-advantage pruning removes 30% of trainer work.
+:::
+
+::: exercise
+[off-policy timeline]{.box-title}
+
+Redraw [@fig:proj5:timeline] for a 32$\times$ reuse schedule in which each optimizer step
+on 1/32 of the batch takes 0.5 s and generation takes 26 s. What fraction of wall-clock time is
+GPU 1 idle, and how many optimizer steps happen per hour compared with the on-policy run?
+:::
+
+::: exercise
+[reward noise]{.box-title}
+
+The prompting evaluation shows that 4% of outputs are correct but unparsed. If the grader's misses
+are independent of the response, how do they affect the group-mean advantage of a group with true
+success rate 0.5? What if misses are concentrated in long responses?
+:::
+
+::: exercise
+[single-GPU colocation]{.box-title}
+
+Using the placement cost model of [@ch:rlsys], estimate the slowdown of a colocated
+single-GPU run compared with the two-GPU layout if weight reload and KV-pool reallocation cost 5 s
+per step.
+:::
+
+::: exercise
+[DPO memory]{.box-title}
+
+Lay out the memory of DPO training for an 8B policy with RMSprop on GPU 0 and the reference on
+GPU 1, at sequence length 512 and a micro-batch of one pair. Which term would you cut first if the
+policy GPU had 80 GB?
+:::

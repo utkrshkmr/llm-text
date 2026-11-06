@@ -1,4 +1,4 @@
-// A TORCH_LIBRARY operator in a standalone CMake library (Chapter 20).
+// A TORCH_LIBRARY operator in a standalone CMake library (Chapter 21).
 //
 // Same kernel shape as csrc/cpu/silu_mul.cpp, in its own namespace `llmsys_ex` so that it can be
 // loaded next to the main extension. torch.ops.load_library(path) dlopens this file; the static

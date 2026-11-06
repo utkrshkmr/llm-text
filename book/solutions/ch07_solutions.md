@@ -1,97 +1,97 @@
-## Chapter 7: The Architecture Design Space {#chapter-7-the-architecture-design-space .unnumbered}
+## Chapter 7: Modern Architectures: Qwen3 from Scratch {#chapter-7-modern-architectures-qwen3-from-scratch .unnumbered}
 
-#### Exercise 7.1
+#### Exercise 7.1.
 
-\(a\) `"bgrqd,bgkd->bgrqk"`: the KV group axis $g$ is shared and kept, $r$ and $q$ come only from
-the queries, and $d$ is contracted. (b) `"bi,bj->bij"`. (c) `"bii->b"` (a repeated index on one
-operand selects the diagonal, and dropping it from the output sums it). (d) `"bhtd,hdD->btD"`: both
-$h$ and $d$ are contracted, which is the per-head output projection followed by the sum over heads,
-i.e. exactly $\mathrm{concat}_h(\mathbf{O}_h)\mathbf{W}_O$.
+If $\mu=0$ then
+$\sigma^2=\tfrac1d\sum_i(x_i-\mu)^2=\tfrac1d\sum_i x_i^2=\operatorname{RMS}(\boldsymbol{x})^2$, so
+$(\boldsymbol{x}-\mu)/\sqrt{\sigma^2+\epsilon}=\boldsymbol{x}/\sqrt{\operatorname{RMS}^2+\epsilon}$
+and the outputs coincide. In the explicit implementations the LayerNorm saves $x-\mu$, the
+denominator and the normalized tensor (plus the input), while RMSNorm saves the fp32 input, the
+reciprocal RMS (one value per row) and the normalized tensor; for a $(4,256,1024)$ fp32 input expect
+RMSNorm to save roughly one full $4\cdot256\cdot1024\cdot4$ B $=4.2\,\mathrm{\mega\byte}$ tensor
+less.
 
-#### Exercise 7.2
+#### Exercise 7.2.
 
-$(\mathbf{A}\mathbf{B})\mathbf{C}$: forming the $n\times n$ product costs $2n^2d$ FLOPs and
-multiplying it by $\mathbf{C}$ another $2n^2d$, so $4n^2d$ in total.
-$\mathbf{A}(\mathbf{B}\mathbf{C})$: the $d\times d$ product costs $2nd^2$ and the final product
-another $2nd^2$, so $4nd^2$. The second order is cheaper when $n>d$, i.e. beyond $n=128$; at
-$n=32{,}768$ it is $n/d=256$ times cheaper. In attention the row-wise softmax applied to
-$\mathbf{Q}\mathbf{K}^\top$ prevents re-association.
+$8d^2=3dh$ gives $h=\tfrac83d$. For $d=4096$ parity is $h\approx10923$; Llama 2-7B's $h=11008$ is
+0.8% larger. $11008=43\times256$: rounding to a multiple of 256 makes every GEMM tile full and lets
+$h$ be split evenly across 2, 4 or 8 tensor-parallel ranks while keeping each shard a multiple of 32
+or 64.
 
-#### Exercise 7.3
+#### Exercise 7.3.
 
-With fan-average initialisation $\sigma_1^2=\sigma_2^2=2/(d+4d)=2/(5d)$. Then
-$\operatorname{Var}(h_j)=d\sigma_1^2=2/5$, and since $h_j$ is a centred Gaussian,
-$\mathbb{E}[\mathrm{ReLU}(h_j)^2]=\operatorname{Var}(h_j)/2=1/5$. Hence
-$\operatorname{Var}(y_o)=4d\,\sigma_2^2\cdot\frac15
-=4d\cdot\frac{2}{5d}\cdot\frac15=\frac{8}{25}=0.32$: the block shrinks the signal. Keeping unit
-variance requires $\sigma_2^2=\frac{1}{4d\cdot(1/5)}=\frac{5}{4d}$, i.e. He-style scaling for the
-layer after a ReLU.
+Reorder the coordinates so that dimension $i$ and $i+d_{h}/2$ are adjacent; in that basis RoPE at
+position $m$ is the block-diagonal matrix
+$R_m=\mathrm{diag}(R(m\theta_0),\ldots,R(m\theta_{d_{h}/2-1}))$. Then
+$\langle R_mq,R_nk\rangle=q^\top R_m^\top R_nk=q^\top R_{n-m}k$ block by block, as in the 2-D case;
+permuting both vectors identically does not change a dot product. Shifting $m$ and $n$ by the same
+$c$ leaves $n-m$ unchanged. Left padding by $c$ tokens shifts every real token's position by $c$
+within that row, so all scores between real tokens are unchanged (pad keys are masked out).
 
-#### Exercise 7.4
+#### Exercise 7.4.
 
-\(a\) $\sigma_z\approx0.02\sqrt{1024}=0.64$, so the loss is about
-$\ln151{,}936+0.64^2/2\approx11.93+0.20=12.13$. (b) With $s=1$, $\sigma_z\approx32$: the logits are
-essentially random with a huge spread, so $\log Z$ is dominated by the maximum of $V$ Gaussians,
-$\approx\sigma_z\sqrt{2\ln V}\approx32\times4.9\approx156$, while the target logit has mean 0. The
-initial loss is on the order of 150 nats, a clear sign of a broken init. (Qwen3-0.6B ties its head
-to the embedding table, so in the real model this exercise is about the embedding's init scale.)
+With `p = halves_to_interleaved_perm(D)`, the interleaved model's $q$ satisfies
+$q_\text{inter}=q_\text{halves}[p]$ per head. Hence, for each head $h$, the rows `W[h*D:(h+1)*D]` of
+the rotate-half checkpoint equal the interleaved rows reindexed by the inverse permutation:
+`W_halves[h*D + j] = W_inter[h*D + inv(p)[j]]`; apply this to $\mathbf{W}_Q$ and $\mathbf{W}_K$ (and
+to the QK-norm gains if present). $\mathbf{W}_V$ is untouched: RoPE is not applied to values, and
+the attention scores---the only place the permutation acts---are invariant.
 
-#### Exercise 7.5
+#### Exercise 7.5.
 
-Parameters: $3\cdot d\cdot\frac83d=8d^2=2\cdot d\cdot4d$; matmul FLOPs per token are $2\times$
-parameters in both cases. Saved activations per token, counting GEMM inputs and activation inputs:
-plain MLP stores $x$ ($d$), the pre-activation ($4d$) and the activation output, which is the input
-to $\mathbf{W}_2$ ($4d$), for $9d$ values. The GLU stores $x$ ($d$), the gate pre-activation, the up
-projection and their product ($3\times\frac83d=8d$), also $9d$. In bf16 both are $18d$ bytes per
-token. Unfused GLU code also materialises $\mathrm{SiLU}(\text{gate})$, adding $\frac83d$ values
-unless the elementwise ops are fused or recomputed.
+Qwen3-8B stores 144  per token in bf16, so 131072 tokens need 18 
+($\approx19.3\,\mathrm{\giga\byte}$); in fp8, 9.7 . Next to 16.4  of bf16 weights a single context
+needs 35.7 : it fits on an 80 GB GPU, and with a 10% reserve two such contexts fit
+($\lfloor(72-16.4)/19.3\rfloor=2$). With 8-bit weights (8.2 ) three fit with a bf16 cache and six
+with an fp8 cache.
 
-#### Exercise 7.6
+#### Exercise 7.6.
 
-With uniform weights the output at position $i$ is $\frac{1}{i+1}\sum_{j\le i}\boldsymbol{v}_j$. If
-the first token is a distinguishable BOS token whose value vector is $\boldsymbol{e}_1$, and all
-other tokens have value vectors with zero first coordinate, the first output coordinate is
-$1/(i+1)$, strictly decreasing in $i$. The causal mask's varying denominator alone encodes position;
-later layers can read it off and build sharper positional features.
+Per decode token and layer, attention costs $4THd_{h}$ FLOPs and reads $2TGd_{h}b$ bytes of cache
+($b$ bytes per element), so $I=2H/(Gb)$. In bf16 ($b=2$): $I=H/G=2,4,8$ for 0.6B, 8B, 32B; in fp8
+($b=1$): $4,8,16$. Materializing `repeat_interleave` writes and then reads an $H$-head copy, so the
+bytes per FLOP grow by at least $H/G$ and the effective intensity falls back to about 1 (or below,
+counting the extra write).
 
-#### Exercise 7.7
+#### Exercise 7.7.
 
-$\partial(\log Z)^2/\partial z_j=2\log Z\,p_j$ with
-$\boldsymbol{p}=\operatorname{softmax}(\boldsymbol{z})$. Its projection on the all-ones direction is
-$\frac{2\log Z}{V}\boldsymbol{1}$ (since $\sum_jp_j=1$), and the orthogonal part is
-$2\log Z\,(\boldsymbol{p}-\frac1V\boldsymbol{1})$. The cross-entropy gradient
-$\boldsymbol{p}-\boldsymbol{y}$ sums to zero, so it has no all-ones component: CE never moves
-$\log Z$ as such. The z-loss provides the only force along $\boldsymbol{1}$, pulling $\log Z$ toward
-0. Its orthogonal part does perturb the distribution, but it is scaled by $\alpha\approx10^{-4}$ and
-vanishes as $\log Z\to0$, so predictions are essentially unaffected.
+If the cos/sin tables are computed in fp32 and only then cast to bf16, each entry has a relative
+error of about $2^{-9}$, so the angle error stays near $0.004$ radians at every position. If,
+however, the angles $m\theta_i$ themselves are formed in bf16 (e.g. because the model, including its
+buffers, was cast before the tables were built), the fastest frequency has $\theta_0=1$ and the
+angle equals $m$; bf16's spacing at magnitude $m\in[2^e,2^{e+1})$ is $2^{e-7}$, so the rounding
+error ($\le2^{e-8}$) exceeds $0.1$ rad once $e\ge5$, i.e. already at positions of a few dozen
+tokens.
 
-#### Exercise 7.8
+#### Exercise 7.8.
 
-Qwen3-8B, 8192 tokens: each RMSNorm reads and writes $8192\times4096\times2$ B, i.e. 134 MB, or
-about 40 $\mu$s; two per block give 80 $\mu$s (the QK-norms act on smaller tensors and add little).
-The block has about $1.93\times10^8$ weight parameters
-($2\cdot4096^2+2\cdot4096\cdot1024+3\cdot4096\cdot12288$), so its matmuls take
-$2\times1.93\times10^8\times8192\approx3.2\times10^{12}$ FLOPs, plus about $2.8\times10^{11}$ for
-causal attention scores and outputs: about 3.5 ms at peak, or 6--7 ms at a realistic 50% MFU.
-Unfused norms add 1--2%. A fused version needs one extra read to compute the RMS (or folds the
-scaling into the GEMM epilogue), about 20 $\mu$s per norm, roughly halving the overhead. The general
-lesson: norm cost is small relative to a full block but not negligible, and it grows in relative
-terms for smaller $d$.
+$\beta'=10^6\cdot4^{128/126}\approx4.09e6$. The frequency ratio for pair $i$ is
+$\theta_i'/\theta_i=s^{-2i/(d_{h}-2)}$, so the wavelength is multiplied by $s^{2i/(d_{h}-2)}$:
+unchanged for $i=0$ (smallest change) and multiplied by exactly $s=4$ for $i=d_{h}/2-1=63$
+(largest).
 
-#### Exercise 7.9
+#### Exercise 7.9.
 
-With $N\approx12Ld^2=1.3\times10^9$: for $d/L=32$, $d^3=1.3\times10^9\cdot32/12$ gives
-$d\approx1514$ and $L\approx47$; for $d/L=128$, $d\approx2402$ and $L\approx19$. Decode reads the
-same 2.6 GB of bf16 weights (about 0.78 ms at 3.35 TB/s) in both cases, plus per-layer overhead of
-$47\times15\,\mu$s$=0.71$ ms versus $0.28$ ms. The wide model decodes faster (about 1.06 ms versus
-1.49 ms per token). It also suits tensor parallelism better: each layer's GEMMs are larger, which
-gives better per-GPU efficiency after splitting, and there are fewer layers and so fewer all-reduces
-per token.
+Capacity $=\lceil c\,Nk/E\rceil=1.25\cdot4096\cdot2/64=160$ slots per expert. Under uniform random
+routing an expert's load is approximately $\mathcal N(128,\,11.2^2)$. The expected overflow
+$\mathbb{E}[(X-160)^+]=\sigma[\varphi(z)-z(1-\Phi(z))]$ with $z=2.85$ is $\approx0.007$ slots per
+expert, i.e. $\approx0.006\%$ dropped. With $c=1.0$ ($z=0$) it is $\sigma\varphi(0)\approx4.5$ slots
+per expert, about 3.5% dropped; with $c=2.0$ ($z\approx11$) essentially none. Trained routers are
+far from uniform, so real drop rates at $c=1$ are much higher, which is why dropless kernels became
+popular.
 
-#### Exercise 7.10
+#### Exercise 7.10.
 
-There is no single answer. A good report states the hypothesis before running anything, shows that
-the difference exceeds the seed-to-seed spread of the baseline, includes the LR sweep for both
-variants, and offers a mechanism. For example: "QK-norm without z-loss: max attention logit stays
-bounded and the run tolerates $3\times$ higher LR; final loss unchanged within noise at the tuned
-LR."
+Assume the 16384 tokens are spread evenly, 2048 per GPU. Each token sends $k=8$ copies of a $d=2048$
+bf16 vector, 7/8 of which leave the GPU: dispatch is $2048\cdot8\cdot2048\cdot2\cdot\tfrac78
+\approx58.7\,\mathrm{\mega\byte}$ per GPU, and the combine step returns the same, 117  per layer, or
+about 0.26  at 450 . Each GPU's experts process about 16384 token-slots at $6dh=9.4\,\mathrm{M}$
+FLOPs each, 155 , i.e. $\approx0.16\,\mathrm{\milli\second}$ at peak on an H100. Communication is
+comparable to (or larger than) compute, so production systems overlap the all-to-all of one
+micro-batch with the expert GEMMs of another.
+
+#### Exercise 7.11.
+
+Naive loading of the 1.7B model in default fp32 holds the randomly initialized fp32 model (6.9 )
+plus the bf16 state dict (3.4 ); even in bf16 it holds two copies (6.9 ). The meta-device path peaks
+at one copy plus the largest single tensor, the $151936\times2048$ embedding (0.62 ): about 4.1 .

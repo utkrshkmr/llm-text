@@ -1,103 +1,106 @@
-## Chapter 14: Pretraining Data: From Common Crawl to Tokens {#chapter-14-pretraining-data-from-common-crawl-to-tokens .unnumbered}
+## Chapter 14: Pretraining on Unlabeled Data {#chapter-14-pretraining-on-unlabeled-data .unnumbered}
 
-#### Exercise 14.1
+#### Exercise 14.1 (Initial loss).
 
-\(a\) The cp1252 bytes `caf\xe9` with no declaration: naive UTF-8 decoding yields "caf" followed by
-the replacement character U+FFFD; the cascade sees invalid UTF-8 and falls back to cp1252, giving
-"café". (b) A page whose HTTP header says `charset=iso-8859-1` and contains `\xe9`: the header wins
-and the text decodes correctly. (c) A UTF-8 page with a byte-order mark: naive decoding keeps a
-stray U+FEFF at the start; the BOM rule strips it. A failure case is a Shift-JIS or GBK page with no
-declaration: it is invalid UTF-8, so the cascade falls back to cp1252 and produces mojibake. The
-missing signal is a statistical detector that scores byte-pair frequencies under each candidate
-encoding (as chardet or Resiliparse do), possibly combined with language ID of the decoded result.
+The loss at one position is $-z_y+\log\sum_u e^{z_u}$. Since $z_y$ has mean zero,
+$\mathbb{E}[\mathcal L]=\mathbb{E}[\log\sum_u e^{z_u}]$. For large $V$ the sum concentrates around
+its mean, $V\,\mathbb{E}[e^{z}]=V e^{\sigma^2/2}$ (log-normal mean), so
+$\mathbb{E}[\mathcal L]\approx\ln V+\sigma^2/2$. For GPT-2 small, the final LayerNorm makes each
+hidden coordinate roughly unit variance and the head weights have standard deviation $0.02$, so each
+logit has variance $\approx768\cdot0.02^2=0.31$. Prediction: $\ln 50{,}257+0.15\approx10.98$ nats.
 
-#### Exercise 14.2
+#### Exercise 14.2 (Perplexity across tokenizers).
 
-With independent features, the log-odds between languages $a$ and $b$ is
-$\log\frac{p(a)}{p(b)} + \sum_g c_g(x)\log\frac{p(g\mid a)}{p(g\mid b)}$. Concatenating $m$ copies
-multiplies every $c_g$ by $m$, so the evidence term scales by $m$ and the posterior saturates to 0
-or 1 regardless of how ambiguous each copy is. Posteriors on long documents are therefore not
-calibrated confidences. A length-normalised score divides the evidence by the number of $n$-grams,
-$\frac{1}{|x|}\sum_g c_g\log\frac{p(g\mid a)}{p(g\mid b)}$ (the average log-likelihood ratio per
-feature), and thresholds that, or calibrates it with logistic regression on held-out labelled data
-(Platt scaling).
+Model A: total NLL $=3.10\times10^6$ nats over $4.3\times10^6$ bytes $=0.721$ nats/byte $=1.04$
+bits/byte. Model B is byte-level, so tokens $=$ bytes and $0.95$ nats/byte $=1.37$ bits/byte. Model
+A is better, even though its per-token loss is three times larger.
 
-#### Exercise 14.3
+#### Exercise 14.3 (Training vs. validation).
 
-False positives include long numeric identifiers with separators (`123-456-7890` used as an order
-number), dates such as `2024 555 0123` in tables, and fax numbers that you may decide to keep. False
-negatives include extensions (`x123`), international numbers (`+44 20 7946 0958`), vanity numbers
-(`1-800-FLOWERS`), and numbers split across lines by extraction. Measure precision as
-masked-and-correct over all masked strings, and recall as masked-and-correct over all true phone
-numbers in your list. Improvements that keep precision include requiring context words ("call",
-"tel", "phone") for ambiguous formats, adding an extension group, and accepting `+\d{1,3}` country
-codes only when followed by a plausible national format.
+Expect the validation minimum within the first few epochs; dropout delays it slightly and keeps the
+validation loss lower afterwards, because it limits how precisely the model can store the training
+windows. Samples near the validation minimum are novel but story-like; late samples reproduce
+training passages verbatim, especially with greedy decoding.
 
-#### Exercise 14.4
+#### Exercise 14.4 (Temperature limits).
 
-On 400 synthetic pages, every rule-failing page belongs to spam, listings, login pages or foreign
-pages. Spam fails the symbol-ratio, ellipsis, alphabetic-word and stop-word rules (all 41 pages);
-listings fail symbol-ratio, bullet, alphabetic-word and stop-word rules (31/31); login pages fail
-word count and stop words (26/26); foreign pages fail only the stop-word rule (57/57). The stop-word
-rule alone removes every bad page here, so the other rules are redundant on this crawl. On a real
-crawl they are not: SEO spam and many menus contain stop words, short English pages fail only the
-word-count rule, and repetition rules catch templated pages that pass everything else.
+Let $z_1>z_j$ for $j\neq1$. Then $p_\tau(j)/p_\tau(1)=e^{(z_j-z_1)/\tau}\to0$ as $\tau\to0^+$, so
+$p_\tau\to e_1$. As $\tau\to\infty$, $z_j/\tau\to0$ for all $j$ and $p_\tau(j)\to1/V$. With $k$ tied
+maxima the limit is uniform over the tied set (the ratios between tied tokens are always 1), which
+differs from `argmax`, which deterministically returns the first index.
 
-#### Exercise 14.5
+#### Exercise 14.5 (Do top-$k$ and temperature commute?).
 
-Each of the $\binom{F}{2}$ feature pairs collides with probability $1/B$, so the expected number of
-colliding pairs is $\binom{F}{2}/B = 2000\cdot1999/2/2^{18}\approx 7.6$. With 2,000 features
-averaged into one logit, a handful of shared buckets shifts the score negligibly. Across the corpus,
-however, collisions are between *features*, not documents: a frequent feature colliding with a
-strongly weighted rare feature biases every document containing it. Larger $B$ or signed hashing (a
-second hash choosing $\pm1$) reduces this bias.
+Yes for top-$k$: dividing by $\tau>0$ preserves the order of the logits, so the same $k$ tokens
+survive, and the softmax over the survivors is the same either way. No for top-$p$: the kept set
+depends on the cumulative probabilities, which temperature changes. A high temperature flattens the
+distribution, so more tokens are needed to reach mass $p$. Applying temperature first (the common
+convention) lets temperature widen the nucleus.
 
-#### Exercise 14.6
+#### Exercise 14.6 (Resume correctness).
 
-Let $X_i=\mathbb{1}[\min_S h_i = \min_T h_i]$. By [@prop:data:minhash],
-$\mathbb{E}[X_i]=J$, so $\mathbb{E}[\hat J]=J$. Each $X_i$ is Bernoulli($J$) with variance $J(1-J)$,
-and independence gives $\mathrm{Var}(\hat J)=J(1-J)/k$. For a standard deviation of 0.02 at $J=0.8$:
-$k = 0.16/0.0004 = 400$. Empirically, repeat `MinHasher(400).signature` with different seeds on a
-pair of sets with known $J$ and compare the sample standard deviation with 0.02.
+Required: model weights; optimizer state (moments, step counts); scheduler/step counter; CPU and
+CUDA RNG states (dropout); Python `random` and NumPy RNGs if used anywhere; the sampler's generator
+state and the position within the epoch (how many batches have been consumed); worker seeding
+(`worker_init_fn`/base seed) so augmentation inside workers replays; and the `GradScaler` state
+(current scale and growth tracker). Listing 13.5 omits the data-loader position and sampler RNG, the
+Python/NumPy RNGs and the `GradScaler`; autocast itself holds no state.
 
-#### Exercise 14.7
+#### Exercise 14.7 (Checkpoint interval).
 
-A brute-force search over $k=br$ finds the smallest feasible design at $k=312$ with $b=26$, $r=12$:
-$P(0.85)=0.981$ and $P(0.5)=0.0063$. Intuitively, $r$ must be large enough to suppress $J=0.5$
-($0.5^{12}\approx2.4\times10^{-4}$ per band) while $b$ restores recall at 0.85. Plotting
-$1-(1-s^{12})^{26}$ shows a curve much steeper than the $k=128$ curves of
-[@fig:data:scurve], centred near $(1/26)^{1/12}\approx0.76$.
+Job MTBF $M=50{,}000\,\text{h}/2048=24.4\,\text{h}\approx87{,}900\,\text{s}$. Synchronous
+($\delta=90$ s): $T=\sqrt{2\cdot90\cdot87{,}900}\approx3{,}980$ s ($\approx66$ min). Expected
+overhead $\approx\delta/T+T/(2M)\approx2.3\%+2.3\%=4.5\%$. Asynchronous ($\delta=6$ s):
+$T\approx1{,}030$ s ($\approx17$ min), overhead $\approx0.6\%+0.6\%=1.2\%$ (restart time excluded in
+both).
 
-#### Exercise 14.8
+#### Exercise 14.8 (Accumulation is not always exact).
 
-$10^{6}$ identical pages in one bucket produce $\binom{10^6}{2}\approx5\times10^{11}$ pairs per
-band, which is infeasible. Cap bucket sizes at $M$ (say $10^{3}$). For an oversized bucket, do not
-enumerate pairs: emit $(\text{first},i)$ edges from one representative to every member, which is
-linear in bucket size, optionally after verifying a random sample of members against the
-representative. Union-find then merges the whole bucket into one cluster in $O(n\,\alpha(n))$.
+\(1\) Padding: if each micro-batch's loss is the mean over its *non-padding* tokens and the
+micro-batches contain different numbers of real tokens, averaging the $k$ means weights tokens
+unequally; the exact large-batch loss divides the summed NLL by the total token count. Fix: sum
+token losses and divide by the global token count. (2) Layers with batch statistics (BatchNorm) see
+smaller batches. Also: the last, partial micro-batch of an epoch, and dropout masks that differ
+because the RNG is consumed in a different pattern.
 
-#### Exercise 14.9
+#### Exercise 14.9 (Activation memory, GPT-2 xl).
 
-Bits per item $= -\ln 10^{-3}/(\ln2)^2\approx14.4$, so $m\approx4.3\times10^{11}$ bits
-$\approx54$ GB, with $k\approx10$. To shard over 16 machines, route each paragraph by a hash prefix
-to one shard that owns its own filter of about 3.4 GB. Each paragraph then needs only one network
-message carrying its 8--16-byte hash, about $3\times10^{10}\times16$ B $\approx
-0.5$ TB in total, and all $k$ bit lookups for that paragraph are local to its shard.
+Model states: $16\times1.558\text{B}=24.9$ GB; budget $0.9\cdot80-24.9=47.1$ GB. (a) No
+FlashAttention: per sample $48\cdot1024\cdot1600\cdot(34+5\cdot25\cdot1024/1600)=8.97$ GB
+$\Rightarrow b=5$. (b) FlashAttention: $48\cdot1024\cdot1600\cdot34=2.67$ GB $\Rightarrow b=17$. (c)
+Full checkpointing: block inputs $2\cdot1024\cdot1600\cdot48=0.157$ GB plus one layer's full
+activations during recomputation ($0.187$ GB) $\approx0.344$ GB per sample $\Rightarrow b\approx136$
+(in practice temporary buffers and the logits tensor limit this much earlier).
 
-#### Exercise 14.10
+#### Exercise 14.10 (Measure MFU).
 
-UniMax (budget 300B, cap 3): the 0.5B source gets 1.5B (3 epochs), the 5B source 15B (3 epochs), and
-the remaining 283.5B is split equally between the two large sources, 141.75B each. The weights are
-$(0.4725, 0.4725, 0.05, 0.005)$ and the epochs $(0.28, 2.84, 3, 3)$. Temperature sampling with
-$\alpha=0.3$ gives weights $(0.532,0.267,0.134,0.067)$ and epochs $(0.32, 1.6, 8.0, 40.2)$: the
-smallest source would be repeated 40 times, which is exactly what UniMax prevents.
+Typical ordering: fp32 lowest (no tensor cores; TF32 if enabled helps); bf16 autocast a large jump;
+SDPA a further gain (no $T\times T$ materialization, fewer memory-bound kernels); compile another
+10--30% from fusing LayerNorm/GELU/residual chains and reducing launches; activation checkpointing
+reduces MFU by roughly a quarter (recompute is not counted in MFU) but allows larger micro-batches,
+which can partly win it back.
 
-#### Exercise 14.11
+#### Exercise 14.11 (Chinchilla planning).
 
-Let $t$ be the measured seconds per shard on one core and $S=90{,}000$ shards. With $c$ effective
-cores the time is roughly $S t / (c\,\eta)$, where $\eta$ is the parallel efficiency from
-`bench.py scaling` (often 0.6--0.9 on one machine, lower when I/O-bound). For example, if $t=60$ s:
-a 4-core laptop needs about 15 days at $\eta=1$, a 64-core server about a day, and 1,000 vCPUs about
-1.5 hours. Rewrite first the stage that dominates the per-stage table. In our measurements that is
-pure-Python language ID and extraction, so replace them with fastText and Resiliparse (C++) or a
-vectorised implementation before considering anything else.
+$C=1000\cdot86{,}400\cdot0.4\cdot989\times10^{12}=3.4\times10^{22}$ FLOPs, so
+$N_{\text{opt}}=\sqrt{C/120}\approx16.9$B and $D_{\text{opt}}\approx338$B tokens. Inference over a
+year: $1.2\times10^{13}$ tokens $\times2N$. Option A ($N=16.9$B): $4.1\times10^{23}$ inference
+FLOPs, total $\approx4.4\times10^{23}$. Option B ($N=8.4$B, $D=1.35$T): training
+$6\cdot8.4\text{B}\cdot1.35\text{T}=6.8\times10^{22}$ (2$\times$ the budget), inference
+$2.0\times10^{23}$, total $\approx2.7\times10^{23}$. Option B is about 40% cheaper in total; with
+the Chinchilla loss fit its loss is only slightly higher than option A's, which is the argument for
+over-training models that will be served heavily.
+
+#### Exercise 14.12 (Chunked loss).
+
+Implement an `autograd.Function` whose forward takes the final hidden states $\mathbf{H}$ `(N, d)`,
+the head weight $\mathbf{W}$ `(V, d)` and targets. Loop over chunks of rows: compute
+$\mathbf{Z}_c=\mathbf{H}_c\mathbf{W}^\top$ in fp32, its log-sum-exp, the chunk loss, and immediately
+the gradient
+$\partial\mathcal L/\partial\mathbf{Z}_c=(\operatorname{softmax}(\mathbf{Z}_c)-\text{onehot})/N$;
+accumulate
+$\partial\mathcal L/\partial\mathbf{H}_c=\partial\mathcal L/\partial\mathbf{Z}_c\,\mathbf{W}$ and
+$\partial\mathcal L/\partial\mathbf{W}\mathrel{+}=(\partial\mathcal L/\partial\mathbf{Z}_c)^\top\mathbf{H}_c$.
+Save only these gradients for backward (which just scales them by the incoming gradient). Peak
+memory drops from $N\cdot V$ to $\text{chunk}\cdot V$ floats; verify with `torch.autograd.gradcheck`
+on small sizes in float64.

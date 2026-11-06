@@ -1,4 +1,4 @@
-"""A calculus for sharded computation: meshes, shard specs and the matmul rules (Chapter 19).
+"""A calculus for sharded computation: meshes, shard specs and the matmul rules (Chapter 20).
 
 The notation. A ``Mesh`` names the device axes (``("dp", "tp")`` with sizes ``(8, 2)``). A
 ``ShardSpec`` says, for every dimension of a tensor, which mesh axis it is split over (or ``None``

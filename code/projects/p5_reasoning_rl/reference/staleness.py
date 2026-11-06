@@ -1,4 +1,4 @@
-"""Rollout versioning and staleness control for asynchronous RL (Chapter 46, after Chapter 39).
+"""Rollout versioning and staleness control for asynchronous RL (Chapter 53, after Chapter 46).
 
 A rollout batch carries the *policy version* that generated it. The trainer at version ``v``
 may consume a batch of version ``u`` only if ``v - u <= K`` (``K = --async-staleness``);

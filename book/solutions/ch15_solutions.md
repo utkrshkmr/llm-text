@@ -1,117 +1,103 @@
-## Chapter 15: Scaling Laws in Practice {#chapter-15-scaling-laws-in-practice .unnumbered}
+## Chapter 15: Pretraining Data: From Common Crawl to Tokens {#chapter-15-pretraining-data-from-common-crawl-to-tokens .unnumbered}
 
 #### Exercise 15.1
 
-Minimise $E+AN^{-\alpha}+BD^{-\beta}$ subject to $6ND=C$. With $D=C/(6N)$ the objective is
-$f(N)=E+AN^{-\alpha}+B(6N/C)^{\beta}$, and $f'(N)=0$ gives
-$\alpha AN^{-\alpha}=\beta B(6N/C)^{\beta}=\beta BD^{-\beta}$. That is the stated $1:1$ ratio: at
-the optimum the *marginal* gains from a relative increase in $N$ and in $D$ are equal, so no
-reallocation helps. Solving $\alpha AN^{-\alpha}=\beta B(6N/C)^{\beta}$ gives
-$N^{\alpha+\beta}=\frac{\alpha A}{\beta B}(C/6)^{\beta}$, so
-$N_{\text{opt}}=G(C/6)^{\beta/(\alpha+\beta)}$ with $G=(\alpha A/\beta B)^{1/(\alpha+\beta)}$, and
-$D_{\text{opt}}=(C/6)/N_{\text{opt}}=G^{-1}(C/6)^{\alpha/(\alpha+\beta)}$.
+\(a\) The cp1252 bytes `caf\xe9` with no declaration: naive UTF-8 decoding yields "caf" followed by
+the replacement character U+FFFD; the cascade sees invalid UTF-8 and falls back to cp1252, giving
+"café". (b) A page whose HTTP header says `charset=iso-8859-1` and contains `\xe9`: the header wins
+and the text decodes correctly. (c) A UTF-8 page with a byte-order mark: naive decoding keeps a
+stray U+FEFF at the start; the BOM rule strips it. A failure case is a Shift-JIS or GBK page with no
+declaration: it is invalid UTF-8, so the cascade falls back to cp1252 and produces mojibake. The
+missing signal is a statistical detector that scores byte-pair frequencies under each candidate
+encoding (as chardet or Resiliparse do), possibly combined with language ID of the decoded result.
 
 #### Exercise 15.2
 
-The minimum of each IsoFLOP profile is exactly the constrained optimum of 12.1, so the minima lie on
-$N_{\text{opt}}\propto C^{\beta/(\alpha+\beta)}$ with no approximation. With $C=6(N+Vd)D$, the
-tokens a budget buys are $D=C/(6(N+Vd))$. At small $N$, where $Vd$ is comparable with $N$, a model
-gets fewer tokens than the $6ND$ rule assumes. This shifts the small-budget optima towards smaller
-$N$, where the per-token cost is relatively lower. As $C$ grows the embedding term fades, the optima
-move back onto the ideal line, and the fitted exponent over a small-scale range comes out *larger*
-than $\beta/(\alpha+\beta)$. This is one of the mechanisms behind Kaplan's larger exponent.
+With independent features, the log-odds between languages $a$ and $b$ is
+$\log\frac{p(a)}{p(b)} + \sum_g c_g(x)\log\frac{p(g\mid a)}{p(g\mid b)}$. Concatenating $m$ copies
+multiplies every $c_g$ by $m$, so the evidence term scales by $m$ and the posterior saturates to 0
+or 1 regardless of how ambiguous each copy is. Posteriors on long documents are therefore not
+calibrated confidences. A length-normalised score divides the evidence by the number of $n$-grams,
+$\frac{1}{|x|}\sum_g c_g\log\frac{p(g\mid a)}{p(g\mid b)}$ (the average log-likelihood ratio per
+feature), and thresholds that, or calibrates it with logistic regression on held-out labelled data
+(Platt scaling).
 
 #### Exercise 15.3
 
-Qwen3-0.6B: $L=28$, $d=1024$, 16 query heads of dimension 128 (query width 2048), 8 KV heads (K and
-V width 1024), $d_{\text{ff}}=3072$, $V=151{,}936$, tied embeddings. Per layer: $Q$ $1024\cdot2048$,
-$K$ and $V$ $1024\cdot1024$ each, $O$ $2048\cdot1024$, which is $6.29$M for attention; MLP
-$3\cdot1024\cdot3072=9.44$M; per layer $15.73$M, so $N_{\text{ne}}=440.4$M. The tied embedding holds
-$155.6$M ($26\%$ of all weights). Training FLOPs per token: $6(440.4+155.6)\text{M}=3.58\times10^9$
-for the matmuls (the tied table is still a full $V\times d$ matmul at the output), plus attention
-$6\cdot L\cdot T\cdot(Hd_h)=6\cdot28\cdot4096\cdot2048
-=1.41\times10^9$, which is 39% on top of $6N$. At long context the attention term is not negligible.
-The assumptions behind $12Ld^2$ that break here: query width $\neq d$ ($Hd_h=2d$), GQA shrinks K and
-V, $d_{\text{ff}}/d=3$ rather than $8/3$, and tied embeddings.
+False positives include long numeric identifiers with separators (`123-456-7890` used as an order
+number), dates such as `2024 555 0123` in tables, and fax numbers that you may decide to keep. False
+negatives include extensions (`x123`), international numbers (`+44 20 7946 0958`), vanity numbers
+(`1-800-FLOWERS`), and numbers split across lines by extraction. Measure precision as
+masked-and-correct over all masked strings, and recall as masked-and-correct over all true phone
+numbers in your list. Improvements that keep precision include requiring context words ("call",
+"tel", "phone") for ambiguous formats, adding an extension group, and accepting `+\d{1,3}` country
+codes only when followed by a plausible national format.
 
 #### Exercise 15.4
 
-Write $x=\log N$ and assume locally $L(x)=L^*+\tfrac\kappa2(x-x^*)^2$. On a grid with spacing
-$\ln r$, the nearest grid point is at most $\tfrac12\ln r$ from $x^*$, so the min reading has
-$|\Delta x|\le\tfrac12\ln r$ and $0\le\Delta L\le\kappa(\ln r)^2/8$. With noise of standard
-deviation $\sigma$ per run, the min reading can also pick the wrong neighbour whenever the loss gap
-between neighbours ($\approx\kappa(\ln r)^2/2$ one step from the optimum) is comparable to $\sigma$.
-A parabola through $k$ points averages the noise and interpolates, so it helps when
-$\sigma\lesssim\kappa(\ln r)^2/2$ and the valley is well approximated by a parabola over the grid;
-for very wide grids the quartic terms bias the vertex, which favours several sizes close to the
-minimum over a very wide sweep.
+On 400 synthetic pages, every rule-failing page belongs to spam, listings, login pages or foreign
+pages. Spam fails the symbol-ratio, ellipsis, alphabetic-word and stop-word rules (all 41 pages);
+listings fail symbol-ratio, bullet, alphabetic-word and stop-word rules (31/31); login pages fail
+word count and stop words (26/26); foreign pages fail only the stop-word rule (57/57). The stop-word
+rule alone removes every bad page here, so the other rules are redundant on this crawl. On a real
+crawl they are not: SEO spam and many menus contain stop words, short English pages fail only the
+word-count rule, and repetition rules catch templated pages that pass everything else.
 
 #### Exercise 15.5
 
-With $E=BS$ and $E_{\min}=B_{\text{crit}}S_{\min}$, write $s=S/S_{\min}$: then
-$E/E_{\min}=(B/B_{\text{crit}})s$ and $(s-1)\bigl((B/B_{\text{crit}})s-1\bigr)=1$ reduces to
-$s\bigl((B/B_{\text{crit}})s-B/B_{\text{crit}}-1\bigr)=0$, so $s=1+B_{\text{crit}}/B$. Hence
-$S=S_{\min}(1+B_{\text{crit}}/B)$ and $E=BS=E_{\min}(1+B/B_{\text{crit}})$. The time to target is
-$T(B)=S_{\min}(1+B_{\text{crit}}/B)(t_0+B/R)$, and $T'(B)=0$ gives $1/R=B_{\text{crit}}t_0/B^2$, so
-$B^*=\sqrt{B_{\text{crit}}\,t_0R}$. This exceeds $B_{\text{crit}}$ exactly when
-$t_0R>B_{\text{crit}}$: when the fixed per-step overhead (launches, communication latency, optimizer
-step) is worth more than $B_{\text{crit}}$ examples of throughput, it pays to take fewer, larger
-steps even though they waste data.
+Each of the $\binom{F}{2}$ feature pairs collides with probability $1/B$, so the expected number of
+colliding pairs is $\binom{F}{2}/B = 2000\cdot1999/2/2^{18}\approx 7.6$. With 2,000 features
+averaged into one logit, a handful of shared buckets shifts the score negligibly. Across the corpus,
+however, collisions are between *features*, not documents: a frequent feature colliding with a
+strongly weighted rare feature biases every document containing it. Larger $B$ or signed hashing (a
+second hash choosing $\pm1$) reduces this bias.
 
 #### Exercise 15.6
 
-In the synthetic service, intermediate losses of a cosine run sit above finished runs of the same
-length by an amount proportional to the not-yet-decayed LR. The early points are inflated most, so
-loss appears to fall faster with $D$ than it really does. One reference run (a 50M-parameter model,
-16 evaluations, separate runs for comparison) gave $\hat\beta\approx0.35$ from the intermediate
-losses versus $0.29$ from separate runs, which matches the hidden truth. An overestimated $\beta$
-makes data look more valuable and biases the allocation toward smaller models. With WSD, a short
-decay from a stable-phase checkpoint produces a genuinely finished run of that length, which removes
-the bias at the cost of the decays.
+Let $X_i=\mathbb{1}[\min_S h_i = \min_T h_i]$. By [@prop:data:minhash],
+$\mathbb{E}[X_i]=J$, so $\mathbb{E}[\hat J]=J$. Each $X_i$ is Bernoulli($J$) with variance $J(1-J)$,
+and independence gives $\mathrm{Var}(\hat J)=J(1-J)/k$. For a standard deviation of 0.02 at $J=0.8$:
+$k = 0.16/0.0004 = 400$. Empirically, repeat `MinHasher(400).signature` with different seeds on a
+pair of sets with known $J$ and compare the sample standard deviation with 0.02.
 
 #### Exercise 15.7
 
-Durations $D_{\max}2^{-j}$, $j=0..k-1$. Cosine: $m\sum_j D_{\max}2^{-j}\to
-2mD_{\max}$. WSD: $m\bigl(D_{\max}+f\sum_jD_{\max}2^{-j}\bigr)\to mD_{\max}(1+2f)$. The saving tends
-to $1-(1+2f)/2=\tfrac12-f$, which is $40\%$ for $f=0.1$. For $k=4$ the totals are $15/8$ versus
-$1+0.1\cdot15/8$ (in units of $mD_{\max}$), a $37\%$ saving, as in the napkin box.
+A brute-force search over $k=br$ finds the smallest feasible design at $k=312$ with $b=26$, $r=12$:
+$P(0.85)=0.981$ and $P(0.5)=0.0063$. Intuitively, $r$ must be large enough to suppress $J=0.5$
+($0.5^{12}\approx2.4\times10^{-4}$ per band) while $b$ restores recall at 0.85. Plotting
+$1-(1-s^{12})^{26}$ shows a curve much steeper than the $k=128$ curves of
+[@fig:data:scurve], centred near $(1/26)^{1/12}\approx0.76$.
 
 #### Exercise 15.8
 
-Adam's update has entries $\pm\eta$ (the sign of the normalised gradient). For a linear layer the
-gradient is an outer product $g x^\top$, so the update is aligned with $x$:
-$\Delta W\approx\eta\,\mathrm{sign}(g)\,\mathrm{sign}(x)^\top$. Then
-$(\Delta W x)_i\approx\eta\sum_j|x_j|=\Theta(\eta n)$, because the $n$ terms add coherently. Keeping
-the change $\Theta(1)$ requires $\eta\propto1/n$. With SGD the update is $\eta g x^\top$, and
-$(\Delta Wx)_i=\eta g_i\|x\|^2=\Theta(\eta n g_i)$. Since the backpropagated $g_i$ to a hidden layer
-scales as $1/n$ in $\mu$P, SGD's hidden-layer LR ends up width-independent: the rule depends on the
-optimizer because Adam normalises the gradient's scale away.
+$10^{6}$ identical pages in one bucket produce $\binom{10^6}{2}\approx5\times10^{11}$ pairs per
+band, which is infeasible. Cap bucket sizes at $M$ (say $10^{3}$). For an oversized bucket, do not
+enumerate pairs: emit $(\text{first},i)$ edges from one representative to every member, which is
+linear in bucket size, optionally after verifying a random sample of members against the
+representative. Union-find then merges the whole bucket into one cluster in $O(n\,\alpha(n))$.
 
 #### Exercise 15.9
 
-The constraint $6ND+2ND_{\text{inf}}=C$ gives $D=(C-2ND_{\text{inf}})/(6N)$, so each extra parameter
-now also costs inference compute, which moves the stationary point to smaller $N$ than in 12.1 (the
-extra term only increases the marginal cost of $N$). Numerically, for `GroundTruth()` at $C=10^{21}$
-and $D_{\text{inf}}=10^{11}$: the Chinchilla optimum is $N\approx1.77\times10^9$ at about 53 tokens
-per parameter, while the inference-aware optimum is $N\approx1.08\times10^9$, trained on
-$1.2\times10^{11}$ tokens, about 112 tokens per parameter.
+Bits per item $= -\ln 10^{-3}/(\ln2)^2\approx14.4$, so $m\approx4.3\times10^{11}$ bits
+$\approx54$ GB, with $k\approx10$. To shard over 16 machines, route each paragraph by a hash prefix
+to one shard that owns its own filter of about 3.4 GB. Each paragraph then needs only one network
+message carrying its 8--16-byte hash, about $3\times10^{10}\times16$ B $\approx
+0.5$ TB in total, and all $k$ bit lookups for that paragraph are local to its shard.
 
 #### Exercise 15.10
 
-Let the true runtime be $t=\hat t\,e^{\varepsilon}$ with $\varepsilon\sim\mathcal N(0,0.15^2)$, and
-let $p(s)=\Phi(\ln s/0.15)$ be the completion probability. The expected charge per *useful* run is
-$\bigl(\mathbb{E}[t;\,t<s\hat t]+s\hat t(1-p)\bigr)/p$. It decreases monotonically in $s$, from
-$1.33\hat t$ at $s=1.1$ to $1.08\hat t$ at $1.25$, $1.015\hat t$ at $1.5$ and $1.011\hat t$ (the
-mean runtime) beyond $2$, because refunds make large reservations free. Calendar throughput is
-different: with at most $R/(s\hat t)$ runs in flight, each occupying a slot for
-$\mathbb{E}[\min(t,s\hat t)]$, useful runs per hour are proportional to
-$p(s)/(s\,\mathbb{E}[\min(t,s\hat t)])$, which peaks at $s\approx1.23$. A margin of 1.2--1.5$\times$
-trades a few percent of budget for much better concurrency. Calibrate $\sigma$ on your own runs.
+UniMax (budget 300B, cap 3): the 0.5B source gets 1.5B (3 epochs), the 5B source 15B (3 epochs), and
+the remaining 283.5B is split equally between the two large sources, 141.75B each. The weights are
+$(0.4725, 0.4725, 0.05, 0.005)$ and the epochs $(0.28, 2.84, 3, 3)$. Temperature sampling with
+$\alpha=0.3$ gives weights $(0.532,0.267,0.134,0.067)$ and epochs $(0.32, 1.6, 8.0, 40.2)$: the
+smallest source would be repeated 40 times, which is exactly what UniMax prevents.
 
 #### Exercise 15.11
 
-Answers vary with the seeds. On the reference pipeline the regret is typically a few thousandths of
-a nat on the default truth and a few hundredths on randomised truths (`GroundTruth.sample`). Most of
-the spread comes from the LR transfer law and from the fixed aspect ratio, so the cheapest
-improvements are a wider LR sweep at the largest affordable size and a small aspect-ratio sweep. The
-prediction error is dominated by $E$ and is cut most by the verification run.
+Let $t$ be the measured seconds per shard on one core and $S=90{,}000$ shards. With $c$ effective
+cores the time is roughly $S t / (c\,\eta)$, where $\eta$ is the parallel efficiency from
+`bench.py scaling` (often 0.6--0.9 on one machine, lower when I/O-bound). For example, if $t=60$ s:
+a 4-core laptop needs about 15 days at $\eta=1$, a 64-core server about a day, and 1,000 vCPUs about
+1.5 hours. Rewrite first the stage that dominates the per-stage table. In our measurements that is
+pure-Python language ID and extraction, so replace them with fastText and Resiliparse (C++) or a
+vectorised implementation before considering anything else.

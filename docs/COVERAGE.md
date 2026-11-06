@@ -1,0 +1,96 @@
+# Coverage ledger
+
+Every topic the owner listed for the expanded book, with the chapter that owns it, the stage that writes or
+verifies it, and its status. A topic is ticked **done** only after the stage's coverage review confirms that a reader
+could implement it and extend it to next year's variant (BRIEF_conventions.md §7).
+
+Status values:
+
+- `existing`: the text is there today but has not yet passed the depth review.
+- `planned`: the topic is in a brief but not written yet.
+- `done`: the topic has been reviewed and ticked off.
+
+Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
+
+## Editing instructions from the owner
+
+| Instruction | Where | Stage | Status |
+|---|---|---|---|
+| Rename the book to *Big Book of LLMs: A Systems-First Textbook* | book.yml, web/*, README | 0 | done |
+| Remove all ebook parts, keeping the website only | repo-wide (LaTeX removed in 208b1ed) | 0 | done |
+| Figures ready for dark mode | web/figtheme.py, build_site.py, style.css | 0 | done |
+| Divide the work into development and verification stages | docs/PLAN.md §Stages | 0 | done |
+| Depth: master-researcher goal, nothing skimped | BRIEF_conventions.md §7; every chapter | all | planned |
+
+## Owner topics, as listed
+
+| Topic | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| Attention sinks, streaming LLMs | ch:attnalt (ch:kvcache) | 2, 6a | existing (brief) |
+| LoRA, in depth | ch:instruct | 5 | existing (brief) |
+| PagedAttention | ch:kvcache (ch:serving, app:triton) | 6a | existing (brief) |
+| Roofline, computational intensity | ch:pytorch (ch:gpuarch) | 1, 4a | existing |
+| Mixed-precision training and inference; all things precision | ch:numerics (ch:perf, ch:pretrain, ch:efficient) | 1 | planned |
+| Dockerising an ML project (appendix) | app:containers | 8 | planned |
+| RL setup in detail (asked for twice) | ch:rlsetup (ch:rlsys) | 7a | planned |
+| CUDA graphs | ch:inference (ch:perf, ch:profiling) | 6a, 4a | existing (brief) |
+| CUTLASS / CuTe | ch:cuda | 4a | planned |
+| CUPTI and profiling tools from other vendors | ch:profiling | 4a | planned |
+| Data-transfer benchmarking for a long-haul multi-stream reasoning setup, with detailed compute profiling | ch:movestudy (P9) | 6b, 9c | planned |
+| Prefix caching; KV eviction | ch:kvcache (ch:serving) | 6a | existing (brief) |
+
+## Detailed topic list: 1. Core CS and hardware systems
+
+| Topic | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| IR and SSA, CFGs, DDGs | ch:compilers | 4b | planned |
+| MLIR dialects and progressive lowering (linalg, affine, scf, gpu, llvm) | ch:compilers | 4b | planned |
+| Polyhedral model, affine loop nests, dependence analysis | ch:compilers | 4b | planned |
+| Loop tiling, fusion, unrolling; software pipelining (modulo scheduling) | ch:compilers (ch:cuda) | 4b | planned |
+| Symbolic shape analysis, dynamic dimensions without recompilation | ch:compilers (ch:moe) | 4b | planned |
+| Term rewriting, e-graphs, equality saturation | ch:compilers | 4b | planned |
+| SIMT vs SIMD vs systolic; NVIDIA warps/CTAs, AMD wavefronts/workgroups, TPU MXU/VMEM | ch:gpuarch (app:accel) | 4a, 8 | planned |
+| GPU memory hierarchy: registers, shared memory/LDS bank conflicts, L1/L2 lines, HBM coalescing | ch:gpuarch (ch:cuda) | 4a | planned |
+| Async copy: cp.async, TMA, async barriers, TMEM | ch:gpuarch (ch:cuda, ch:cudakernels) | 4a | planned |
+| Roofline in depth, Little's law, occupancy, hardware counters | ch:gpuarch (ch:profiling) | 4a | planned |
+| Warp specialisation, shuffles, CTA clusters | ch:gpuarch (ch:cuda, ch:cudakernels) | 4a, 4b | planned |
+| Virtual memory: page tables, TLBs, UVA, pinned memory, and how they lead to PagedAttention | ch:memory (ch:kvcache) | 4b | planned |
+| PCIe, NVLink/NVSwitch, Infinity Fabric, InfiniBand, RDMA/RoCE | ch:memory | 4b | planned |
+| Collective algorithms: ring, tree, halving-doubling; AR, AG, RS, A2A | ch:memory (ch:distributed) | 4b | planned |
+| Overlapping communication with compute streams | ch:memory (ch:distributed, ch:sharding) | 4b | planned |
+
+## 2. Foundational ML and numerical methods
+
+| Topic | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| GEMM tiling across CTAs, warps and MMA instructions (mma.sync, wgmma, mfma) | ch:cuda (ch:gpuarch) | 4a | planned |
+| Batch-1 decode is GEMV and bandwidth-bound | ch:inference (ch:gpuarch) | 6a, 4a | existing (brief) |
+| IEEE 754 FP32/FP16/BF16; FP8 E4M3/E5M2; FP4; MXFP4; INT8/INT4 | ch:numerics | 1 | planned |
+| Dynamic range, subnormals, underflow/overflow, stochastic rounding | ch:numerics | 1 | planned |
+| Uniform vs non-uniform; symmetric vs asymmetric; per-tensor/channel/group scaling | ch:numerics | 1 | planned |
+| Hessian-informed sensitivity: GPTQ, AWQ, SmoothQuant | ch:efficient (ch:numerics) | 6a | existing (brief) |
+| Autodiff graphs, activation checkpointing (rematerialisation) | ch:pytorch, ch:perf | 1, 3 | existing (brief) |
+| Operator categories: elementwise, reduction, broadcast, layout | ch:perf (ch:compilers) | 3 | planned |
+| Online softmax as a streaming reduction, the basis of FlashAttention | ch:attention (ch:numerics) | 2, 1 | existing (brief) |
+
+## 3. LLM architecture and serving mechanics
+
+| Topic | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| Prefill (compute-bound GEMM) vs decode (bandwidth-bound) | ch:inference | 6a | existing (brief) |
+| MHA, GQA, MQA, MLA; how the KV cache scales | ch:anatomy (ch:kvcache, ch:modern) | 2, 6a | planned |
+| MoE: top-k routing, capacity, load-balancing losses, ragged tensors, grouped GEMM, dynamic A2A | ch:moe (ch:cudakernels) | 2, 4b | partial code |
+| Block-sparse masks, sliding window, H2O, StreamingLLM, Quest | ch:attnalt, ch:kvcache | 2, 6a | planned |
+| Continuous batching, chunked prefill | ch:serving | 6a | existing (brief) |
+| Prefix caching (RadixAttention), disaggregated serving over RDMA | ch:kvcache, ch:serving (ch:memory) | 6a | existing (brief) |
+| Speculative decoding: draft models, Medusa, tree-attention verification | ch:efficient | 6a | existing (brief) |
+| TP (Megatron), PP (1F1B, interleaved, zero-bubble), SP/CP (Ring Attention), EP | ch:distributed (ch:shardcalc, ch:moe) | 3 | existing (brief) |
+
+## Every chapter (depth rules)
+
+| Requirement | Stage | Status |
+|---|---|---|
+| "Research frontier" section, closing every chapter and appendix | each stage, for its chapters | planned |
+| "Reading the research" box, one per chapter | each stage | planned |
+| At least two research-style exercises per chapter | each stage | planned |
+| Appendix G, *Doing LLM Systems Research* | 8 | planned |

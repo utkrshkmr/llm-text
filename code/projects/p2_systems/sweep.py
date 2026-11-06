@@ -1,4 +1,4 @@
-"""Run a command over a grid of settings and log one JSON line per run (Chapter 43).
+"""Run a command over a grid of settings and log one JSON line per run (Chapter 50).
 
     python projects/p2_systems/sweep.py --grid grid.json --out runs.jsonl -- \
         python my_benchmark.py --size {size} --ctx {ctx} --dtype {dtype}

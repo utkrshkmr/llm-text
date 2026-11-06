@@ -1,86 +1,101 @@
-## Chapter 17: Distributed Training Systems {#chapter-17-distributed-training-systems .unnumbered}
+## Chapter 17: Performance Engineering on One GPU {#chapter-17-performance-engineering-on-one-gpu .unnumbered}
 
-#### Exercise 17.1 (Ring all-reduce cost).
+#### Exercise 17.1
 
-Each of the $p-1$ reduce-scatter steps and $p-1$ all-gather steps sends one chunk of $n/p$ bytes per
-rank, all links busy in parallel: $2(p-1)(\alpha+\frac np\beta)$, which is [@eq:dist:ring].
-Recursive halving: in round $j=1..\log_2p$ each rank exchanges half of its current working set with
-a partner at distance $p/2^j$, i.e. $n/2,n/4,\dots,n/p$ bytes, summing to $n(p-1)/p$ in $\log_2p$
-messages; recursive doubling for the all-gather mirrors it. Total
-$2\log_2p\,\alpha+2\frac{p-1}{p}n\beta$.
+One-time costs: CUDA context creation and kernel-module loading; cuBLAS handle creation and
+heuristic or autotuning selection per new GEMM shape; Triton JIT compilation and `triton.autotune`
+sweeps; `torch.compile` tracing (Dynamo), joint-graph partitioning (AOTAutograd) and code generation
+(Inductor); caching-allocator growth (one `cudaMalloc` per new segment); CUDA-graph capture if
+enabled; GPU clock ramp-up. Experiment: wrap "import + model construction", "first forward", "first
+backward", "first optimizer step", "second step" and "steps 3--20" in separate NVTX ranges and
+profile without a capture range. Compile and autotune appear as long host-side ranges with no
+kernels; allocator growth appears as `cudaMalloc` calls in the CUDA API row; clock ramp-up shows as
+identical kernels getting faster over the first iterations (also visible with `nvidia-smi dmon`).
 
-#### Exercise 17.2 (Two-level all-reduce).
+#### Exercise 17.2
 
-Reduce-scatter inside the node: $\frac78\,n/B_1$; all-reduce of the $n/8$ shards across $N$ nodes
-(each GPU uses its own NIC): $2\frac{N-1}{N}\frac n8/B_2$; all-gather inside the node:
-$\frac78\,n/B_1$. For large $N$: $\approx1.75\,n/B_1+0.25\,n/B_2$. A flat ring over $8N$ GPUs is
-limited by its inter-node hops: $\approx2n/B_2$. With $B_1=450$, $B_2=50$ GB/s: $0.0089\,n$ vs
-$0.040\,n$ seconds per GB, about $4.5\times$ faster hierarchically (latency terms aside).
+Any launch-bound workload: for example, 1000 small elementwise kernels on $10^4$-element tensors.
+Each kernel runs for about $2\,\mu$s on the device, but the host needs about $5$--$10\,\mu$s per
+launch, so CUDA events (device time, roughly the sum of kernel durations when the queue never
+empties) report much less than wall-clock time, which includes the launch bottleneck. Report device
+time (events or `do_bench`) for a kernel paper, because the claim is about the kernel; report
+synchronised wall-clock time for training throughput, because host overhead is part of the real
+cost.
 
-#### Exercise 17.3 (Bucket size).
+#### Exercise 17.3
 
-Require $\alpha\le0.05\,n\beta$,
-i.e. $n\ge20\alpha/\beta=20\cdot20\,\mathrm{\micro s}\cdot50\,\mathrm{GB/s}
-=20\,\mathrm{MB}$. Very large buckets fill late: the first all-reduce starts only after a large
-fraction of the backward pass, and the final (exposed) bucket is large, so less communication is
-hidden.
+For `fc3(silu(fc1(x)) * fc2(x))` in eager mode: `fc1` and `fc2` save $x$ (the same storage, counted
+once): $BTd\cdot4$ bytes. `silu` saves its input $g=\texttt{fc1}(x)$: $BTh\cdot4$. The product saves
+both operands, `silu`$(g)$ and $u=\texttt{fc2}(x)$: $2BTh\cdot4$. `fc3` saves its input (the
+product): $BTh\cdot4$. Total $4BT(d+4h)$ bytes, i.e. $1+4h/d$ units of the residual stream (about 13
+for $h=3d$). Under `torch.compile` the partitioner typically keeps $x$, $g$ and $u$ and recomputes
+`silu`$(g)$ and the product in the backward kernel, dropping two $h$-wide tensors (about $1+2h/d$
+units). Verify by printing `tr.table()` in both modes.
 
-#### Exercise 17.4 (No-sync accumulation).
+#### Exercise 17.4
 
-Add a flag `self.sync=True` and a context manager that sets it to `False`; in `_on_grad_ready`
-return immediately when `not self.sync` (gradients simply keep accumulating in `.grad`); on the last
-micro-batch the flag is `True` and buckets launch as usual, carrying the accumulated sums. Without
-it, $k$-step accumulation performs $k$ all-reduces; with it, one---so communication time drops by
-$\approx k\times$.
+With outer groups of $k_1$ blocks, each recomputed with inner checkpoints every $k_2$ blocks, the
+peak (in units of $a$, with $A=30a$) is $M=\tfrac{L}{k_1}+\tfrac{k_1}{k_2}+30k_2$: outer
+checkpoints, the inner checkpoints of the outer group being recomputed, and one live inner group.
+Each block runs forward three times (original, outer recomputation, inner recomputation) versus
+twice for one level. Because $A\gg a$, $k_2=1$ is optimal, giving $M=64/k_1+k_1+30$, minimised at
+$k_1=8$: $M=46a$. The best one-level schedule ($k=1$ or $2$) gives $94a$ or $92a$. One extra forward
+per block roughly halves peak activation memory here.
 
-#### Exercise 17.5 (ZeRO arithmetic).
+#### Exercise 17.5
 
-[@tab:dist:zero] follows from $\Psi=7.5$B, $N_d=64$, $K=12$. For 13B on 16 GPUs: DP 208 GB
-(no); ZeRO-1 $(4+12/16)\cdot13=61.8$ GB (18 GB left, no); ZeRO-2 $(2+14/16)\cdot13=37.4$ GB (42.6 GB
-left, yes). ZeRO-2 is the lowest stage that works.
+Per parameter, AdamW does about 12--15 FLOPs (two moment updates, bias corrections, a square root, a
+division, weight decay, the update) and moves about 28 bytes ([@sec:perf:anatomy]): roughly
+0.5 FLOP/byte, far below any GPU's ridge point. Qwen3-1.7B has $1.72\times10^9$ parameters, so
+48.2 GB of traffic, or 14.4 ms at 3.35 TB/s. The model has about 310 parameter tensors (11 per layer
+over 28 layers, plus the embedding and final norm); at about ten kernels per tensor and $5\,\mu$s
+per launch, launching alone takes 15.5 ms of host time, and kernels on small tensors (norm weights)
+are too short to reach bandwidth. Expect 25--40 ms unfused. A fused (or multi-tensor) implementation
+launches a handful of kernels and approaches $14.4/0.8\approx18$ ms at 80% of peak bandwidth.
 
-#### Exercise 17.6 (TP backward).
+#### Exercise 17.6
 
-$\mathbf{Y}_r=\mathbf{X}\mathbf{W}_r^\top$ for every $r$, so $\mathcal L$ depends on $\mathbf{X}$
-through all $\mathbf{Y}_r$ and
-$\partial\mathcal L/\partial\mathbf{X}=\sum_r(\partial\mathcal L/\partial\mathbf{Y}_r)\mathbf{W}_r$.
-Rank $r$ only knows its own term, hence the all-reduce in the backward of $f$. For the row-parallel
-layer $\mathbf{Y}=\sum_r\mathbf{X}_r\mathbf{W}_r^\top$, so $\partial\mathcal L/\partial\mathbf{X}_r=
-(\partial\mathcal L/\partial\mathbf{Y})\mathbf{W}_r$: the output gradient is replicated after $g$'s
-(identity) backward, and each rank needs only its own $\mathbf{W}_r$---no communication.
+$16\times4096=65{,}536$ tokens. Logits in bf16: $65{,}536\times151{,}936\times2$ B $=19.9$ GB; the
+fp32 upcast doubles that to 39.8 GB; the gradient of the logits is another 19.9--39.8 GB. That is
+80--100 GB at the peak, more than an 80 GB GPU. To keep the fp32 slab under 1 GB: chunk
+$\le 10^9/(151{,}936\times4)\approx1645$ tokens, so use 1024 (0.62 GB fp32 plus 0.31 GB bf16).
+Recomputation repeats the LM-head forward ($2d_{\text{model}}V=622$ MFLOP per token),
+i.e. $4.1\times10^{13}$ extra FLOPs per step (about 41 ms at the H100's bf16 peak): one third more
+than the LM head's normal training cost.
 
-#### Exercise 17.7 (Attention under TP).
+#### Exercise 17.7
 
-Give each rank $H/t$ query heads with their Q/K/V columns (column-parallel) and the matching
-$H/t\cdot d_{h}$ input columns of the output projection (row-parallel); softmax and the causal mask
-act per head, so they stay local. Constraint: $t$ divides $H$. With GQA, each rank also needs the KV
-heads its query heads use; if $t$ exceeds the number of KV groups $G$, KV heads must be replicated
-on $t/G$ ranks (and their gradients all-reduced among those replicas), which wastes memory and
-compute and caps useful TP at $G$ for KV projections.
+With tile size $b$ and $n=T/b$ tiles per side, a causal forward visits $n(n+1)/2$ tiles and does two
+GEMMs of $2b^2d_{h}$ FLOPs on each, giving $2\,BHd_{h}\,T(T+b)$ FLOPs ($\approx2BHd_{h}T^2$, half of
+non-causal). The two-kernel backward does seven GEMMs per visited tile: $7\,BHd_{h}\,T(T+b)$,
+$3.5\times$ the forward. A backward reading a stored $\mathbf{P}$ does four GEMMs
+($\mathbf{dV},\mathbf{dP},\mathbf{dQ},\mathbf{dK}$), $2\times$ the forward, but must store and read
+$BHT^2$ elements. The diagonal tiles are computed in full and masked, so their wasted FLOPs are the
+$T\cdot b$ term.
 
-#### Exercise 17.8 (Bubbles).
+#### Exercise 17.8
 
-For $p=8$ both schedules give $7/(m+7)$: $46.7\%$, $30.4\%$, $17.9\%$, $9.9\%$ for $m=8,16,32,64$.
-Peak in-flight micro-batches: GPipe $m$ on every stage; 1F1B $\min(8-s,m)$, i.e. at most 8. With
-$v=2$ interleaving the bubble becomes $3.5/(m+3.5)$ (e.g. $9.9\%$ at $m=32$).
+Visited tiles $n(n+1)/2$, masked tiles $n$: a fraction of $2/(n+1)$, e.g. about 3% for $n=64$. With
+`BLOCK_M`$=2\,$`BLOCK_N` and $n_q=T/\texttt{BLOCK\_M}$ query tiles, query tile $i$ visits $2i+2$ key
+tiles, the last two of which straddle the diagonal and need masks. Visited $=n_q(n_q+1)$, masked
+$=2n_q$, so again $2/(n_q+1)$, now in terms of the (fewer) query tiles.
 
-#### Exercise 17.9 (Causal load balance).
+#### Exercise 17.9
 
-With contiguous chunks, device $i$'s queries attend to key blocks $0..i$: $i+1$ block pairs (the
-diagonal one half-masked), so device $c-1$ does $c$ times the work of device 0. Split the sequence
-into $2c$ chunks and give device $i$ chunks $i$ and $2c-1-i$: it computes $(i+1)+(2c-i)=2c+1$ block
-pairs, the same for every device.
+Tiles $=16\lceil M/128\rceil$ and waves $=\lceil\text{tiles}/132\rceil$; achieved fraction
+$=\text{tiles}/(132\cdot\text{waves})$. At $M=4096$: 512 tiles, 4 waves, 97%. Throughput drops just
+above $M=4224$ (528 tiles fill exactly 4 waves; 544 need 5, falling to 82%), $M=5248$ (656 to 672
+tiles: 99% to 85%), $M=6272$ (784 to 800 tiles) and $M=7296$ (912 to 928 tiles), with smaller steps
+at every multiple of 128 from tile quantisation. A sweep of measured throughput shows the same
+sawtooth.
 
-#### Exercise 17.10 (Plan a 405B run).
+#### Exercise 17.10
 
-One defensible plan (close to the layout Meta reported for Llama 3 405B at 8k context): TP $=8$ (one
-node), PP $=16$ ($\approx8$ layers per stage, first/last stage lighter), CP $=1$, DP $=128$ with
-ZeRO-1. Parameters per GPU $405\text{B}/128=3.2$B; ZeRO-1 states $(4+12/128)\cdot3.2\approx13$ GB.
-Global batch 16M tokens $=2{,}048$ sequences, i.e. 16 micro-batches per pipeline. Plain 1F1B would
-idle $15/31\approx48\%$, so use interleaving with $v=4$ virtual stages: $3.75/(16+3.75)\approx19\%$.
-Activations with FlashAttention and TP+SP: $8192\cdot16{,}384\cdot34/8\approx0.57$ GB per layer per
-micro-batch; stage 0 can hold up to 16 micro-batches $\times$ 8 layers, so selective or full
-recomputation is needed (full recompute: $\approx4$ GB). DP traffic: each rank reduces a 6.4 GB bf16
-gradient shard over 128 replicas, $\approx0.26$ s at 50 GB/s, well hidden behind $\approx6$ s of
-compute per step at 40% MFU. The remaining inefficiency is the pipeline bubble, which is why larger
-batches or zero-bubble schedules are attractive at this scale.
+With `fullgraph=True`, Dynamo raises at `loss.item()` ("data-dependent" or "Tensor.item" graph
+break) because converting a tensor to a Python number needs a device synchronisation and leaves the
+graph. `TORCH_LOGS=graph_breaks` on the original code lists remaining breaks, typically from
+NVTX/profiler calls inside the compiled region, `print`s, Python-side conditionals on tensor values
+and calls into unsupported libraries. The remedies: move logging outside the compiled function
+(return the loss tensor and call `.item()` every $k$ steps), replace data-dependent branches with
+`torch.where`, mark helper functions with `torch.compiler.disable` if they must stay in Python, and
+compile per block so that remaining breaks fall between compiled regions.

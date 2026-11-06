@@ -1,93 +1,96 @@
-## Chapter 31: Evaluating LLMs and Reasoning Models {#chapter-31-evaluating-llms-and-reasoning-models .unnumbered}
+## Chapter 31: Batching and Serving Engines {#chapter-31-batching-and-serving-engines .unnumbered}
 
-#### Exercise 31.1
+#### Exercise 31.1 (Per-row positions).
 
-Typical findings: (i) *false negative* for unordered answers ("2, 3" vs. "3, 2" for "all
-solutions"), because tuples are compared in order; fixing it globally would break ordered pairs, so
-make it opt-in per problem (Exercise 31.2). (ii) *false negative* for units the reference keeps
-("5 \\text{ cm}" vs. "5" unwraps the `\text`, leaving "5 cm", which SymPy parses as $5\,c\,m$);
-stripping known unit words fixes it but risks deleting variables named $m$. (iii) *false positive*
-from the assignment rule: "$y = 5$" accepted for a question about $x$; restricting the rule to the
-variable named in the problem fixes it at the cost of parsing the problem. Every fix is a policy
-change --- add a regression test for each.
+Compute $p_b$ = number of left pads of row $b$ and pass
+`position_ids = clamp(arange(T) - p_b, min=0)` for the prefill; during decoding, each row's next
+position is its previous position plus one. Replace `self.pos_emb(arange(start, start+T))` by
+`self.pos_emb(position_ids)`. With the fix, greedy outputs match single-sequence generation exactly
+(up to floating-point reordering). Without it, rows with padding see shifted learned position
+vectors; the logits change noticeably and greedy continuations often diverge after a few tokens.
 
-#### Exercise 31.2
+#### Exercise 31.2 (Dropping finished rows).
 
-Normalize both sides, split into components, then match as a multiset: for each gold component find
-an unused predicted component with `equality_check`. Naively that is $O(k^2)$ SymPy calls. Cheaper:
-first bucket components by a canonical numeric key (evaluate each with `sympy.N` to, say, 12
-significant digits, or use the normalized string), match identical keys in $O(k \log k)$, and fall
-back to pairwise symbolic checks only for the unmatched remainder.
+After each step compute `keep = ~done`; index the next-token tensor, the validity mask and, for
+every layer, the cache tensors `k[layer] = k[layer][keep]` (same for `v`). Keep a map from active
+row to original request. With geometric output lengths (mean 200, cap 2,000) a static batch runs to
+near the cap while the mean row needs 200 steps, so dropping rows saves most decode work; the saving
+in wall time is smaller on a GPU at small batch sizes (where step time barely depends on $B$) and
+larger on CPUs or at large $B$.
 
-#### Exercise 31.3
+#### Exercise 31.3 (Padding efficiency).
 
-Record `hit_eos` (generation ended with EOS before the budget) and `has_box`. Then: `has_box` and
-wrong $\Rightarrow$ the model is wrong; `not hit_eos` and `not has_box` $\Rightarrow$ the budget
-truncated the chain of thought (raise `max_new_tokens`); `hit_eos` and `not has_box` $\Rightarrow$ a
-format failure (adjust the prompt or extraction fallback). Reporting the three rates alongside
-accuracy explains most surprising accuracy changes.
+For i.i.d. $U(a,b)$ lengths, $\mathbb{E}[\max]=a+(b-a)\,B/(B+1)$, so
+$\eta=\frac{(a+b)/2}{a+(b-a)B/(B+1)}$. With $a=50,b=1500$: $\eta=1$ for $B=1$, $0.58$ for $B=8$,
+$0.52$ for $B=64$. Continuous batching has no idle decode slots ($\eta\approx1$); its only waste is
+the scheduler's inability to fill the batch when few requests are present.
 
-#### Exercise 31.4
+#### Exercise 31.4 (Block size).
 
-\(a\) A: 205/500, Wilson 95% CI $[0.368, 0.454]$; B: 223/500, CI $[0.403, 0.490]$. The intervals
-overlap, so independent intervals suggest no clear difference. (b) McNemar uses only discordant
-items: $b = 30$, $c = 48$. With continuity correction $\chi^2 = (|b-c|-1)^2/(b+c) = 289/78 = 3.71$,
-$p \approx 0.054$; without correction $\chi^2 = 4.15$, $p \approx 0.042$; the exact binomial test
-gives $p \approx 0.054$. The paired test is the right one and is far more sensitive than comparing
-intervals, because per-item difficulty cancels; here the evidence is borderline, and a second seed
-or more items would be needed before claiming B is better.
+Throughput is nearly flat for block sizes 4--64 in the simulator (which charges no indirection
+cost), while internal fragmentation grows roughly as $\text{bs}/2$ tokens per sequence; at 256 the
+waste becomes visible for short requests and reduces the effective batch under memory pressure. On a
+GPU, block size 1 turns every key read into a separate gather through the block table: poor memory
+coalescing, a table as large as the sequence, and many more address computations; blocks of 16--32
+tokens let a warp stream contiguous chunks of K/V and keep tables small.
 
-#### Exercise 31.5
+#### Exercise 31.5 (Copy-on-write fork).
 
-Useful row-steps are $\sum_i \ell_i$ out of $B \max_i \ell_i$, so the wasted fraction is
-$1 - \bar\ell / \max_i \ell_i$. For i.i.d. exponential lengths with mean $\mu = 600$,
-$\mathbb{E}[\max] = \mu H_B$ with $H_{64} \approx 4.744$, i.e. $\approx 2846$ tokens, so waste
-$\approx 1 - 600/2846 \approx 79\%$. Even with a budget cap that truncates the tail, static batching
-of long reasoning traces wastes most of the batch --- the motivation for continuous batching
-([@ch:serving]).
+After the parent's prefill, each child copies the parent's block table and increments every block's
+reference count. Before a child appends to its last block, check its reference count; if $>1$,
+allocate a fresh block, copy the existing slots (K and V of all layers), decrement the shared block
+and replace the table entry. Give each child its own `torch.Generator`. For $n=16$ children of a
+$P$-token prompt, memory drops from $16(P+L)$ to $P+16L$ tokens (plus at most 16 partially copied
+blocks), and prefill compute drops by $16\times$.
 
-#### Exercise 31.6
+#### Exercise 31.6 (Swap vs. recompute).
 
-For GPT-2 and Qwen BPE, `"A"` and `" A"` are distinct ids, and `encode("Answer: A")[-1]` is the
-space-prefixed variant. Summing the softmax probability of both variants per letter (computed in
-float32) is the robust choice; on base models the single-variant (no-space) version can disagree on
-a noticeable fraction of questions because almost all of the mass sits on the space-prefixed token.
+Swap: $2\kappa/\beta=2\times147456\,\mathrm{B}/50\,\mathrm{GB/s}\approx5.9\,\mathrm{\micro s}$ per
+token. Recompute: $2N/\Pi\approx16.6\,\mathrm{\micro s}$ per token at peak plus attention, which
+grows with sequence length. For Qwen3-8B, swapping is cheaper at every length (ignoring fixed
+per-transfer latency), and the gap widens with length. With MHA (32 KV heads,
+$\kappa=576\,\mathrm{KiB}$) swapping costs 23.6 /token; recompute is cheaper until its attention
+term, $4LHd\cdot S/2$ FLOPs per token on average, adds the missing 7 , at $S\approx23{,}600$ tokens.
+An fp8 KV cache halves swap cost (2.9 /token) and makes swapping even more attractive. Real
+decisions also weigh PCIe contention, host memory capacity and prefix-cache hits that make
+recomputation partly free.
 
-#### Exercise 31.7
+#### Exercise 31.7 (Budget trade-off).
 
-Sample votes from fixed strengths (e.g. Elo-scale 1000, 1050, 1100, 1200) by drawing random pairs
-and a winner with probability $p_i/(p_i+p_j)$. Online Elo with $K = 32$ produces visibly different
-ratings for different vote orders (spreads of tens of points), most of it driven by the last few
-hundred votes; BT is order-invariant by construction, and its bootstrap interval reflects only
-sampling noise. Lowering $K$ reduces Elo's order dependence but slows convergence.
+Small budgets keep every step short (low TPOT) but admit prefill slowly: TTFT explodes and
+throughput drops because steps are dominated by fixed overheads. Large budgets finish prefills
+quickly but make steps long, so TPOT rises; very large budgets can also hurt TTFT because a few long
+prefills monopolize steps. The curve is a Pareto front with a knee near the budget at which a step
+becomes compute-bound (a few hundred to a few thousand tokens on an H100 for an 8B model). With our
+default trace (`bench.py --exp budget`), budgets of 256--1024 give the best TTFT/TPOT compromise.
 
-#### Exercise 31.8
+#### Exercise 31.8 (Multi-turn chat).
 
-Write $\ell(p) = \sum_i W_i \log p_i - \sum_{i<j} n_{ij}\log(p_i+p_j)$. Since
-$-\log x \ge 1 - \log y - x/y$ for $x, y > 0$ (concavity of $\log$), at the current iterate
-$p^{(k)}$ the function
-$Q(p) = \sum_i W_i\log p_i - \sum_{i<j} n_{ij}\bigl(\log(p^{(k)}_i+p^{(k)}_j) + \frac{p_i+p_j}{p^{(k)}_i+p^{(k)}_j} - 1\bigr)$
-minorizes $\ell$ and touches it at $p^{(k)}$. $Q$ separates over $i$; setting
-$\partial Q/\partial p_i = W_i/p_i - \sum_{j\ne i} n_{ij}/(p^{(k)}_i+p^{(k)}_j) = 0$ gives exactly
-the MM update. Hence $\ell(p^{(k+1)}) \ge Q(p^{(k+1)}) \ge Q(p^{(k)}) = \ell(p^{(k)})$. Rescaling
-does not change $\ell$, which is invariant to multiplying all $p_i$ by a constant.
+At turn $k$ the prompt is the whole conversation, whose length grows linearly in $k$, while only the
+newest user message (and the previous reply, if it was not cached during generation) is new. Without
+caching the cumulative prefill over $K$ turns is quadratic in $K$; with caching it is linear, and
+the hit rate approaches $1-(\text{new tokens})/(\text{conversation length})\to1$. Caching generated
+blocks too (our engine publishes every full block, including output blocks) makes even the previous
+reply a hit.
 
-#### Exercise 31.9
+#### Exercise 31.9 (Disaggregation sizing).
 
-Position bias appears as verdicts that flip when the order of the two responses is swapped; with
-small local judges flip rates of tens of percent are common. Debias by evaluating both orders and
-(a) counting a win only if it holds in both (ties otherwise), or (b) averaging the two
-scores/probabilities. Report the flip rate as a judge-quality metric.
+Prefill of 3,000 tokens:
+$3000\times15.1\,\mathrm{GFLOP}/(0.6\times989\,\mathrm{TFLOP/s})\approx76\,\mathrm{ms}$, so one
+prefill GPU serves $\approx13$ requests/s. Decode: the KV pool of $\approx52\,\mathrm{GB}$ holds
+$\approx111$ sequences of $\approx3{,}150$ tokens; a step then reads
+$16.4+111\times3150\times147\,\mathrm{KB}\approx68\,\mathrm{GB}$: $\approx20\,\mathrm{ms}$, under
+the 30  target. Each decode GPU completes $111/(300\times0.020)\approx18$ requests/s, so roughly 1.4
+prefill GPUs per decode GPU. For the reasoning workload (prompt 300, output 8,000), prefill takes
+$\approx8\,\mathrm{ms}$ (130 requests/s per GPU) while a decode GPU holds only $\approx42$ sequences
+and completes $\approx0.4$ requests/s: about 300 decode GPUs per prefill GPU. Disaggregation buys
+little there; the system is entirely decode-bound and KV memory is the lever.
 
-#### Exercise 31.10
+#### Exercise 31.10 (Fairness).
 
-Work: $20 \times 500 \times 8 = 80000$ generations; at an assumed mean of 2000 tokens that is
-$1.6\times10^8$ decode tokens. A 7B model is 14 GB in bf16 and fits on one GPU, so use data
-parallelism (one replica per GPU; tensor parallelism only adds communication). KV for a Llama-style
-7B with GQA (32 layers, 8 KV heads, head dim 128) is $\approx 131$ KB/token; at batch 128 and
-2000-token average context that is $\approx 34$ GB. Each step moves $\approx 14 + 34 = 48$ GB,
-i.e. $\approx 14$ ms on an H100, producing 128 tokens: $\approx 9$k tokens/s per GPU, $\approx 72$k
-tokens/s for 8 GPUs, so $\approx 37$ minutes at the roofline; with realistic 2--3$\times$ overheads,
-1.5--2 hours. That fits in 6 hours. Grading 80k answers at $\sim$`<!-- -->`{=html}10 ms per SymPy
-check is $\sim$`<!-- -->`{=html}800 CPU-seconds --- a few cores keep up easily, provided grading
-runs concurrently with generation.
+Keep `served[tenant]` (input tokens weighted plus output tokens) and, when admitting, pick the
+waiting request whose tenant has the smallest counter (lifting a newly active tenant's counter to
+the minimum of the active ones, so idle time is not banked). In the simulator, a heavy tenant at
+$10\times$ the light tenant's rate then fills only the capacity the light tenant leaves unused; the
+light tenant's TTFT stays close to its value in isolation instead of growing with the heavy tenant's
+queue.

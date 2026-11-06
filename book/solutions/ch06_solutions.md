@@ -1,97 +1,86 @@
-## Chapter 6: Modern Architectures: Qwen3 from Scratch {#chapter-6-modern-architectures-qwen3-from-scratch .unnumbered}
+## Chapter 6: Implementing a GPT Model {#chapter-6-implementing-a-gpt-model .unnumbered}
 
 #### Exercise 6.1.
 
-If $\mu=0$ then
-$\sigma^2=\tfrac1d\sum_i(x_i-\mu)^2=\tfrac1d\sum_i x_i^2=\operatorname{RMS}(\boldsymbol{x})^2$, so
-$(\boldsymbol{x}-\mu)/\sqrt{\sigma^2+\epsilon}=\boldsymbol{x}/\sqrt{\operatorname{RMS}^2+\epsilon}$
-and the outputs coincide. In the explicit implementations the LayerNorm saves $x-\mu$, the
-denominator and the normalized tensor (plus the input), while RMSNorm saves the fp32 input, the
-reciprocal RMS (one value per row) and the normalized tensor; for a $(4,256,1024)$ fp32 input expect
-RMSNorm to save roughly one full $4\cdot256\cdot1024\cdot4$ B $=4.2\,\mathrm{\mega\byte}$ tensor
-less.
+With [@eq:gpt:params] (untied head, no QKV bias, $V=50257$, $T_\text{max}=1024$): GPT-2
+medium has 406212608 parameters (attention 100.7 , FFN 201.4 ); large has 838220800 (attention
+236.0 , FFN 472.1 ); XL has 1637792000 (attention 491.6 , FFN 983.4 ). For $L=12$ the FFN holds
+$12(8d^2+5d)$ parameters and the embeddings plus head hold $(2V+T_\text{max})d$. Equality gives
+$96d+60=2\cdot50257+1024$, i.e. $d\approx1057$; any width above that (in practice the next multiple
+of 64, $d=1088$) puts more parameters in the FFNs than in the vocabulary-sized matrices.
 
 #### Exercise 6.2.
 
-$8d^2=3dh$ gives $h=\tfrac83d$. For $d=4096$ parity is $h\approx10923$; Llama 2-7B's $h=11008$ is
-0.8% larger. $11008=43\times256$: rounding to a multiple of 256 makes every GEMM tile full and lets
-$h$ be split evenly across 2, 4 or 8 tensor-parallel ranks while keeping each shard a multiple of 32
-or 64.
+Add three keys, e.g. `drop_emb`, `drop_attn` and `drop_resid`, pass `drop_attn` to
+`MultiHeadAttention` and `drop_resid` to `drop_shortcut`, and use `drop_emb` in `GPTModel`. Removing
+the *attention-weight* dropout saves the most: it acts on the largest activation ($BHT^2$ elements
+per layer), its mask must otherwise be stored or regenerated, and many fused attention kernels have
+a faster code path when dropout is zero.
 
 #### Exercise 6.3.
 
-Reorder the coordinates so that dimension $i$ and $i+d_{h}/2$ are adjacent; in that basis RoPE at
-position $m$ is the block-diagonal matrix
-$R_m=\mathrm{diag}(R(m\theta_0),\ldots,R(m\theta_{d_{h}/2-1}))$. Then
-$\langle R_mq,R_nk\rangle=q^\top R_m^\top R_nk=q^\top R_{n-m}k$ block by block, as in the 2-D case;
-permuting both vectors identically does not change a dot product. Shifting $m$ and $n$ by the same
-$c$ leaves $n-m$ unchanged. Left padding by $c$ tokens shifts every real token's position by $c$
-within that row, so all scores between real tokens are unchanged (pad keys are masked out).
+The next multiple of 128 above 50257 is 50304: 47 extra rows, $47\times768=36096$ parameters per
+vocabulary matrix (72192 if the head is untied). Two fp32 Adam moments add 8 bytes per parameter:
+289  (tied) or 578  (untied)---negligible. During generation either slice the logits to the true
+vocabulary (`logits[..., :50257]`) or set the padded entries to $-\infty$ before argmax/sampling, so
+a padded ID can never be emitted.
 
 #### Exercise 6.4.
 
-With `p = halves_to_interleaved_perm(D)`, the interleaved model's $q$ satisfies
-$q_\text{inter}=q_\text{halves}[p]$ per head. Hence, for each head $h$, the rows `W[h*D:(h+1)*D]` of
-the rotate-half checkpoint equal the interleaved rows reindexed by the inverse permutation:
-`W_halves[h*D + j] = W_inter[h*D + inv(p)[j]]`; apply this to $\mathbf{W}_Q$ and $\mathbf{W}_K$ (and
-to the QK-norm gains if present). $\mathbf{W}_V$ is untouched: RoPE is not applied to values, and
-the attention scores---the only place the permutation acts---are invariant.
+From $8Nd^2=r\,(10Nd+8d^2)$ with ridge point $r$ we get $N^\star=8rd/(8d-10r)$. For the A100,
+$r=312/2.039\approx153$ FLOP/byte, giving $N^\star\approx204$ tokens for $d=768$ and $\approx160$
+for $d=4096$. The second FFN GEMM, $(N\times4d)\cdot(4d\times d)$, also performs $8Nd^2$ FLOPs and
+moves $2(4Nd)+2(4d^2)+2(Nd)=10Nd+8d^2$ bytes: its intensity is identical, so (ignoring tiling
+effects) both GEMMs reach the ridge at the same $N^\star$.
 
 #### Exercise 6.5.
 
-Qwen3-8B stores 144  per token in bf16, so 131072 tokens need 18 
-($\approx19.3\,\mathrm{\giga\byte}$); in fp8, 9.7 . Next to 16.4  of bf16 weights a single context
-needs 35.7 : it fits on an 80 GB GPU, and with a 10% reserve two such contexts fit
-($\lfloor(72-16.4)/19.3\rfloor=2$). With 8-bit weights (8.2 ) three fit with a bf16 cache and six
-with an fp8 cache.
+Without scaling, each of the $2L$ sublayers adds an update of roughly constant variance $\sigma_u^2$
+to the stream, so after $\ell$ sublayers the variance is $\sigma_0^2+\ell\sigma_u^2$ and the RMS
+grows like $\sqrt{\ell}$: a concave, square-root-shaped curve. Scaling the output projections by
+$1/\sqrt{2L}$ shrinks each update's variance by $2L$, so the total added variance after all $2L$
+sublayers is about $\sigma_u^2$ and the curve becomes nearly flat.
 
 #### Exercise 6.6.
 
-Per decode token and layer, attention costs $4THd_{h}$ FLOPs and reads $2TGd_{h}b$ bytes of cache
-($b$ bytes per element), so $I=2H/(Gb)$. In bf16 ($b=2$): $I=H/G=2,4,8$ for 0.6B, 8B, 32B; in fp8
-($b=1$): $4,8,16$. Materializing `repeat_interleave` writes and then reads an $H$-head copy, so the
-bytes per FLOP grow by at least $H/G$ and the effective intensity falls back to about 1 (or below,
-counting the extra write).
+Post-LN computes `x = norm(x + f(x))`. Without warmup, the post-LN model typically diverges (loss
+spikes to NaN or plateaus at the unigram entropy) at a learning rate several times lower than the
+pre-LN model tolerates, because the gradients of the last layers are large at initialization (Xiong
+et al., 2020); adding a linear warmup closes much of the gap.
 
 #### Exercise 6.7.
 
-If the cos/sin tables are computed in fp32 and only then cast to bf16, each entry has a relative
-error of about $2^{-9}$, so the angle error stays near $0.004$ radians at every position. If,
-however, the angles $m\theta_i$ themselves are formed in bf16 (e.g. because the model, including its
-buffers, was cast before the tables were built), the fastest frequency has $\theta_0=1$ and the
-angle equals $m$; bf16's spacing at magnitude $m\in[2^e,2^{e+1})$ is $2^{e-7}$, so the rounding
-error ($\le2^{e-8}$) exceeds $0.1$ rad once $e\ge5$, i.e. already at positions of a few dozen
-tokens.
+\(a\) The explicit tanh-GELU saves, per element of the $4d$-wide hidden tensor, the input (for `pow`
+and the outer multiply), the `tanh` output, the half-scaled input and the $(1+\tanh)$ factor: about
+four $4d$-wide tensors. (b) `nn.GELU` saves only its input, removing roughly three of them
+(1387 $\to$`<!-- -->`{=html}994  on the tiny configuration). (c) The explicit LayerNorm saves
+$x-\mu$, the denominator and the normalized tensor; `nn.LayerNorm` saves the input plus one mean and
+one reciprocal standard deviation per row, so roughly one to two $d$-wide tensors disappear per
+norm.
 
 #### Exercise 6.8.
 
-$\beta'=10^6\cdot4^{128/126}\approx4.09e6$. The frequency ratio for pair $i$ is
-$\theta_i'/\theta_i=s^{-2i/(d_{h}-2)}$, so the wavelength is multiplied by $s^{2i/(d_{h}-2)}$:
-unchanged for $i=0$ (smallest change) and multiplied by exactly $s=4$ for $i=d_{h}/2-1=63$
-(largest).
+Causal attention computes, per head and sequence, $\sum_{i=1}^{T} i\,d_{h}\cdot2 = T(T+1)d_{h}$
+FLOPs for $QK^\top$ and the same for $AV$, i.e. $2T(T+1)d$ per layer instead of $4T^2d$---a factor
+$(T+1)/2T\approx\tfrac12$. For GPT-2 small the total forward FLOPs per token drop from 284.8M to
+265.9M at $T=1024$ (6.6% less) and from 549.1M to 398.1M at $T=8192$ (27.5% less). If one paper
+counts full attention and another counts only the causal half, their MFU numbers differ by this
+amount for the same hardware efficiency, increasingly so at long context.
 
 #### Exercise 6.9.
 
-Capacity $=\lceil c\,Nk/E\rceil=1.25\cdot4096\cdot2/64=160$ slots per expert. Under uniform random
-routing an expert's load is approximately $\mathcal N(128,\,11.2^2)$. The expected overflow
-$\mathbb{E}[(X-160)^+]=\sigma[\varphi(z)-z(1-\Phi(z))]$ with $z=2.85$ is $\approx0.007$ slots per
-expert, i.e. $\approx0.006\%$ dropped. With $c=1.0$ ($z=0$) it is $\sigma\varphi(0)\approx4.5$ slots
-per expert, about 3.5% dropped; with $c=2.0$ ($z\approx11$) essentially none. Trained routers are
-far from uniform, so real drop rates at $c=1$ are much higher, which is why dropless kernels became
-popular.
+Neglecting attention terms, a forward pass over $t$ tokens costs $\approx2Pt$. Without a cache,
+generating $n$ tokens costs $\sum_{t=p}^{p+n-1}2Pt\approx2P(pn+n^2/2)$; with a cache, $2P(p+n)$
+(prefill plus one token per step). The ratio is $(pn+n^2/2)/(p+n)$, which for $p=100$ reaches 100 at
+$n^2/2=10^4$, i.e. $n\approx141$. Including attention makes the uncached version slightly worse
+still.
 
 #### Exercise 6.10.
 
-Assume the 16384 tokens are spread evenly, 2048 per GPU. Each token sends $k=8$ copies of a $d=2048$
-bf16 vector, 7/8 of which leave the GPU: dispatch is $2048\cdot8\cdot2048\cdot2\cdot\tfrac78
-\approx58.7\,\mathrm{\mega\byte}$ per GPU, and the combine step returns the same, 117  per layer, or
-about 0.26  at 450 . Each GPU's experts process about 16384 token-slots at $6dh=9.4\,\mathrm{M}$
-FLOPs each, 155 , i.e. $\approx0.16\,\mathrm{\milli\second}$ at peak on an H100. Communication is
-comparable to (or larger than) compute, so production systems overlap the all-to-all of one
-micro-batch with the expert GEMMs of another.
-
-#### Exercise 6.11.
-
-Naive loading of the 1.7B model in default fp32 holds the randomly initialized fp32 model (6.9 )
-plus the bf16 state dict (3.4 ); even in bf16 it holds two copies (6.9 ). The meta-device path peaks
-at one copy plus the largest single tensor, the $151936\times2048$ embedding (0.62 ): about 4.1 .
+Loop over sequence chunks of 128 positions: compute the chunk's logits, its cross-entropy summed
+over tokens, and accumulate; wrap each chunk in `torch.utils.checkpoint` so the chunk logits are
+recomputed in backward rather than stored. Peak logits memory falls from
+$8\cdot1024\cdot50257\cdot4\,\text{B}=1.65\,\mathrm{\giga\byte}$ to
+$8\cdot128\cdot50257\cdot4\,\text{B}=206\,\mathrm{\mega\byte}$ (and the same for the softmax
+gradient). The price is recomputing the head GEMM in the backward pass, about $2NVd$ extra FLOPs,
+i.e. one third more work for the output layer.

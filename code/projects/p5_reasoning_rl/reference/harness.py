@@ -1,10 +1,10 @@
-"""Reproducible evaluation and the reward-hacking audit (Chapter 46).
+"""Reproducible evaluation and the reward-hacking audit (Chapter 53).
 
 ``evaluate`` is the one function every method is judged by: greedy (or seeded sampled)
 generation on held-out problems, graded by the task's verifier, with a Wilson interval and a
 configuration record. Same seed, same model, same examples -> the same texts and the same
 accuracy, which ``test_p5_acceptance.py`` asserts. ``audit`` looks at what the policy writes,
-not only whether it is right: it reports the signatures of reward hacking that Chapter 38's
+not only whether it is right: it reports the signatures of reward hacking that Chapter 45's
 inspections taught us to look for.
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ def evaluate(model, task, examples: Optional[Sequence[Dict]] = None, seed: int =
     """Accuracy of ``model`` on ``examples`` (default: the task's held-out set).
 
     ``n_samples > 1`` with a positive temperature reports mean accuracy over samples (the
-    avg@k of Chapter 31) using one generator seeded once, so the whole run is reproducible.
+    avg@k of Chapter 37) using one generator seeded once, so the whole run is reproducible.
     """
     examples = list(task.eval if examples is None else examples)
     L = max_new_tokens or task.eval_max_new_tokens or task.max_new_tokens

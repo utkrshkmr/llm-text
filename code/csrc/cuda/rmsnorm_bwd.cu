@@ -1,4 +1,4 @@
-// RMSNorm backward on the GPU (Chapter 21).
+// RMSNorm backward on the GPU (Chapter 23).
 //
 //   rmsnorm_backward(Tensor grad_out, Tensor x, Tensor weight, float eps) -> (Tensor dx, Tensor dweight)
 //

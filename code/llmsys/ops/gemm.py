@@ -1,4 +1,4 @@
-"""The GEMM ladder: seven CUDA matrix multiplications behind one operator (Chapter 21).
+"""The GEMM ladder: seven CUDA matrix multiplications behind one operator (Chapter 23).
 
     from llmsys.ops import gemm
     c = gemm.gemm(a, b, variant=gemm.VARIANTS.index("cp.async"))   # compiled kernel on a GPU

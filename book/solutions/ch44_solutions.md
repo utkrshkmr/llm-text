@@ -1,0 +1,119 @@
+## Chapter 44: Reinforcement Learning with Verifiable Rewards: GRPO {#chapter-44-reinforcement-learning-with-verifiable-rewards-grpo .unnumbered}
+
+#### Exercise 44.1
+
+With partial credit the rewards of [@fig:grpo:step] become $(1,1,0.5,0)$: mean $0.625$,
+unbiased std $0.479$, advantages $(+0.783,+0.783,-0.261,-1.305)$. The unboxed "7" is still pushed
+down, but by a third of its previous weight, and the wrong boxed "8" is now pushed down hardest. The
+loss is $-\frac14[0.783(-2.269)+0.783(-3.059)-0.261(-1.299)-1.305(-3.400)]=-0.151$. Partial credit
+makes *correctness* the dominant signal early (correct-but-unboxed answers are no longer lumped with
+wrong ones), which helps when the model is rarely correct. It weakens the pressure to adopt the
+format, since an unboxed correct answer is only mildly penalised, so format adoption is slower. A
+common compromise is to anneal the partial credit to 0.
+
+#### Exercise 44.2
+
+With identical rewards, $r-\bar r=0$ for every rollout, the advantages are exactly 0, the loss is
+$-0\cdot\sum\log\pi=0$ and autograd propagates zeros to every parameter (the optimiser step is still
+taken; AdamW's weight decay is the only change, and it is zero in our loop). This is desirable
+because the group carries no information about *which* behaviour is better. For $p\sim U[0,1]$,
+$\mathbb{E}[p^G+(1-p)^G]=\frac2{G+1}$: 40% wasted for $G=4$ and 11.8% for $G=16$.
+
+#### Exercise 44.3
+
+With $k$ correct rollouts, $\bar r=p=k/G$ and $\sum_i(r_i-\bar r)^2=k(1-p)^2+(G-k)p^2=Gp(1-p)$, so
+$s^2=\frac{G}{G-1}p(1-p)$, giving $A^+=(1-p)/s$ and $A^-=-p/s$. Then
+$\sum_iA_i=[k(1-p)-(G-k)p]/s=G(p-p)/s=0$, and $\frac1{G-1}\sum_iA_i^2=\frac{Gp(1-p)}{(G-1)s^2}=1$
+exactly (ignoring $\epsilon$). As $p\to1/G$ with $G$ large,
+$A^+=(1-p)/s\approx\sqrt{(1-p)/p}\approx\sqrt{G}$: a single success in a large group receives an
+advantage of order $\sqrt G$.
+
+#### Exercise 44.4
+
+$b_i$ is a function of the other samples only, which are independent of $y_i$ given $x$, so
+$\mathbb{E}[b_i\nabla\log\pi(y_i)]=\mathbb{E}[b_i]\,\mathbb{E}[\nabla\log\pi(y_i)]=0$ and the
+estimator is unbiased. Algebra: $r_i-b_i=r_i-\frac{G\bar r-r_i}{G-1}=\frac{G}{G-1}(r_i-\bar r)$. So
+GRPO's mean-centred advantage equals the RLOO advantage times $\frac{G-1}{G}$, a constant that the
+learning rate absorbs. The "bias" of including $r_i$ in its own baseline is therefore only a
+rescaling. Dividing by the std adds a genuine per-prompt reweighting.
+
+#### Exercise 44.5
+
+\(a\) Summed loss: every token of rollout $i$ has gradient weight $A_i/G$, independent of length.
+(b) Per-sequence mean: each token has weight $A_i/(G|y_i|)$. For correct answers of lengths 20 and
+2000, the per-token push ratio is $1:1$ under (a) and $100:1$ under (b). Under (a) the total push on
+a sequence's log-likelihood is the same for both, but because $\log\pi$ of the long sequence is a
+sum of 100 times more terms, raising it is "harder". In practice the summed objective most
+efficiently increases the probability of the *short* correct answer. Under (b), long sequences are
+barely pushed per token, so long *wrong* answers are barely penalised. That is the length bias DAPO
+and Dr. GRPO criticise ([@ch:grpo2]).
+
+#### Exercise 44.6
+
+PyTorch raises *"Inference tensors cannot be saved for backward"* when the sampled ids (created
+inside inference mode) are fed through `nn.Embedding` in the differentiable pass. The embedding
+saves its index input for backward. Fixes: sample under `no_grad`; or keep inference mode for
+sampling but `.clone()` the ids outside it (cloning outside inference mode produces a normal
+tensor).
+
+#### Exercise 44.7
+
+$16\times4096\times151936\times4\,\text{B}\approx39.8$ GB for the log-softmax, and the same again
+for its gradient, so $\approx80$ GB. Chunked version:
+
+``` python
+def sequence_logprob_chunked(model, ids, prompt_len, C=512):
+    h = model_hidden_states(model, ids)          # (T, d) before the LM head
+    total = 0.0
+    for s in range(prompt_len - 1, ids.numel() - 1, C):
+        logits = model.out_head(model.final_norm(h[s:s+C])).float()
+        lp = torch.log_softmax(logits, -1)
+        total = total + lp.gather(1, ids[s+1:s+1+C, None]).sum()
+    return total
+```
+
+Peak memory scales with $C\cdot|\mathcal V|$ instead of $T\cdot|\mathcal V|$. With activation
+checkpointing per chunk the backward is bounded the same way. (Exposing hidden states requires a
+small model hook; `llmsys.rl.logprobs.token_logprobs(chunk=...)` chunks after the LM head, which
+bounds the float32 copy but not the bf16 logits.)
+
+#### Exercise 44.8
+
+Sequentially, $t_{\text{sample}}$ grows linearly in both $G$ and $T$ (one forward per token per
+rollout); on CPU the toy gives $a$ of the order of milliseconds per token. $t_{\text{train}}$ is
+also linear in $G\cdot T$ but with a smaller constant per token, since a prefill-style forward
+processes all tokens in parallel. With `sample_rollouts` the $G$ rollouts share each decode step, so
+$t_{\text{sample}}\approx a'\,T$ with $a'$ almost independent of $G$ until the batch stops being
+memory-bound. This is the decode roofline: weights are streamed once per step regardless of batch
+size.
+
+#### Exercise 44.9
+
+Qwen3-4B: 36 layers, 8 KV heads, head dim 128, so the KV cache is
+$2\cdot36\cdot8\cdot128\cdot2=147$ KB per token. (i) $256$ sequences $\times4352$ tokens
+$\approx1.11\times10^6$ tokens, about 164 GB. (ii) Weights $\approx8.0$ GB in bf16. Each of the 4096
+decode steps streams the weights plus a cache that grows from 9.7 GB to 164 GB, about 95 GB on
+average, so roughly $4096\times95\,\text{GB}/3.35\,\text{TB/s}\approx116$ s. (iii) Training FLOPs
+$6\cdot4.0\times10^9\cdot1.11\times10^6\approx2.7\times10^{16}$, about 68 s at 40% MFU. The cache
+does not fit next to the weights on one 80 GB GPU ($\approx72$ GB free). It needs
+$\lceil164/72\rceil=3$ waves (or 3+ GPUs), which roughly preserves total sampling time, since each
+wave streams the weights 4096 times.
+
+#### Exercise 44.10
+
+Examples: (1) "`\boxed{7}` ... actually `\boxed{8}`" (first-box readers accept the wrong final
+answer); (2) "`\boxed{17}`" with truth 7 (substring match accepts); (3) "`\boxed{7.0}`" (no
+normalisation rejects a correct answer); (4) "`\boxed{\frac{14}{2}}`" (rejected without fraction
+handling); (5) "`\boxed{1, 2, 3, 4, 5, 6, 7}`" (substring or "contains" accepts). Harden by taking
+the last box, comparing normalised values exactly, and rejecting boxed lists when a scalar is
+expected. RL is most likely to discover the cheap ones (many boxes, lists), because they increase
+reward on *every* prompt without solving anything.
+
+#### Exercise 44.11
+
+With 20 held-out facts, GRPO transfers the *format* almost perfectly (boxing is prompt-independent
+behaviour). Correctness on held-out facts improves little, because a 76k-parameter model trained on
+80 facts has not learned an addition algorithm, and RL with an outcome reward cannot teach a fact it
+never produces. This mirrors the MATH/MATH-500 split: RLVR mostly improves how existing knowledge is
+deployed (format, persistence, self-checking), and held-out evaluation is what separates that from
+memorising the training prompts.

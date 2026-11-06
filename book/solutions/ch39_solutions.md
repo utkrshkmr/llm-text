@@ -1,99 +1,72 @@
-## Chapter 39: RL Training Systems {#chapter-39-rl-training-systems .unnumbered}
+## Chapter 39: Self-Refinement and Scoring {#chapter-39-self-refinement-and-scoring .unnumbered}
 
-#### Exercise 39.1 (Optimal split).
+#### Exercise 39.1
 
-Let $x=G_{\text{gen}}$. $T(x)=W_g/x+W_t/(G-x)+T_{\text{sync}}$; setting $T'(x)=0$ gives
-$W_g/x^2=W_t/(G-x)^2$, so $x^\star/G=\sqrt{W_g}/(\sqrt{W_g}+\sqrt{W_t})$ and
-$T^\star=(\sqrt{W_g}+\sqrt{W_t})^2/G+T_{\text{sync}}=(W_g+W_t+2\sqrt{W_gW_t})/G+T_{\text{sync}}$.
-Since $2\sqrt{W_gW_t}\ge0$, $T^\star\ge (W_g+W_t)/G=T_{\text{coloc}}-T_{\text{switch}}$ (ignoring
-$T_{\text{sync}}$), with equality iff $W_gW_t=0$. The synchronous split wins iff
-$T_{\text{switch}}>2\sqrt{W_gW_t}/G+T_{\text{sync}}$, i.e. only when switching is very expensive.
+With `logits[1:]`, the row used for target token $i{+}1$ is the distribution for token $i{+}2$, so
+every answer token is scored under the wrong context (and the gather still succeeds, because shapes
+match after the targets are sliced accordingly). The values are log-probabilities of real tokens
+under some distribution, hence plausible negative numbers. `test_token_logprobs_match_incremental`
+catches it, because it compares each entry with a token-by-token incremental computation.
 
-#### Exercise 39.2 (KV budget).
+#### Exercise 39.2
 
-Qwen3-4B has $\approx$`<!-- -->`{=html}4.02B parameters ($\approx$`<!-- -->`{=html}8.0 GB in bf16).
-Its KV cost is the same as the 8B model's, $2\cdot36\cdot8\cdot128\cdot2=147$ KB per token, because
-layer count and KV heads match. Budget $\approx 80-8.0-8=64$ GB; at 6,000 live tokens per sequence,
-$64\text{e}9/(147\text{e}3\cdot
-6000)\approx 72$ sequences. Each decode step streams $\approx72$ GB, $\approx21.5$ ms at 3.35 TB/s,
-so the bound is $\approx 72/0.0215\approx 3{,}400$ tokens/s per GPU---long contexts make KV, not
-weights, the dominant traffic.
+$\log\sum_j e^{z_j} = \log\bigl(e^M\sum_j e^{z_j - M}\bigr) = M + \log\sum_j
+e^{z_j-M}$. All exponents are $\le 0$, so no term overflows; the term with $z_j = M$ equals 1, so
+the sum lies in $[1, V]$ and its log in $[0, \log V]$ --- no underflow to $\log 0$. The output for
+the argmax entry is $M - \mathrm{LSE} = -\log\sum_j e^{z_j - M} \in [-\log V, 0]$, and it is the
+largest output entry.
 
-#### Exercise 39.3 (Staleness bound).
+#### Exercise 39.3
 
-Batch $k$ starts generating at time $\ge$ the completion of training step $k-s-1$, so at least $k-s$
-updates have been applied; its version $v\ge k-s$. It is consumed by training step $k$, after which
-the policy has version $k+1$; the update to $\theta_{k+1}$ uses data from $\theta_v$, staleness
-$k-v\le s$. With $s=0$, batch $k$ cannot start until step $k-1$ finishes, which is the synchronous
-split schedule ([@fig:rlsys:timelines]a with separate pools).
+Appending tokens adds terms $\log p < 0$, so the joint log-probability strictly decreases. The
+average can increase: an answer with token log-probs $(-3, -3)$ (mean $-3$) extended by
+$(-0.1, -0.1)$ has mean $-1.55$. To compare a 50-token and a 500-token solution use a
+length-normalized score (mean log-prob or perplexity), ideally restricted to the final-answer tokens
+if you care about the result rather than the prose.
 
-#### Exercise 39.4 (Loss normalisation).
+#### Exercise 39.4
 
-\(a\) $(\ell_1+\ell_2)/2$, each micro-batch weighted equally regardless of size. (b)
-$(100\ell_1+1000\ell_2)/1100$. Fix: before the accumulation loop all-reduce the total number of loss
-tokens $N_{\text{glob}}$ over micro-batches and ranks, compute each micro-batch loss as
-`(tok_loss * mask).sum() / N_glob`, and do not divide by the number of micro-batches or ranks again
-(set the DDP gradient averaging accordingly, or multiply by the world size).
+Compute $\bar\ell$ for each answer under the original prompt, grade with the verifier, bin by score
+decile and plot per-bin accuracy. A useful scorer shows accuracy rising with the decile; small base
+models are often only weakly calibrated, and the minimum-token or boxed-tokens-only variants can be
+more informative than the plain mean. Report the area under the ROC curve of score versus
+correctness as a single-number summary.
 
-#### Exercise 39.5 (TIS bias).
+#### Exercise 39.5
 
-With $\log\rho\sim\mathcal{N}(-s^2/2,s^2)$ (so $\mathbb{E}[\rho]=1$),
-$\mathbb{E}[\min(\rho,C)]=\Phi\!\big(\tfrac{\ln C-s^2/2}{s}\big)+C\big(1-\Phi\big(\tfrac{\ln C+s^2/2}{s}\big)\big)$.
-For $C=2$ the bias $\mathbb{E}[\min(\rho,C)]-1$ is $\approx0$ at $s=0.1$, $-0.0015$ at $s=0.3$,
-$-0.026$ at $s=0.5$ and $-0.19$ at $s=1$. Mismatch is usually small ($s\ll1$), so the bias is
-negligible while the variance reduction from removing the heavy right tail is large; when $s$ is
-large the bias is a warning that the engine and trainer disagree too much.
+Loop over position chunks of size $C$: run the model once to get the hidden states (or logits), and
+for each chunk compute `log_softmax` in float32 on $C$ rows and gather the targets, keeping only the
+gathered values. Peak extra memory drops from $TV\times 4$ B ($\approx 2.5$ GB at $T = 4096$) to
+$CV\times 4$ B ($\approx 39$ MB at $C = 64$). Going further and chunking the final projection avoids
+materializing full logits at all.
 
-#### Exercise 39.6 (Packing efficiency).
+#### Exercise 39.6
 
-At most one bin in a first-fit packing is at most half full: if bins $i<j$ were both at most half
-full, the items of $j$ would have fit into $i$ when they were placed. Hence with $k$ bins the total
-size exceeds $(k-1)\cdot\text{cap}/2$, and $\mathrm{OPT}\ge$ total/cap gives $k<2\,\mathrm{OPT}+1$.
-Empirically, padded efficiency falls quickly with $\sigma$ (e.g. $\approx$`<!-- -->`{=html}0.4 at
-$\sigma=0.8$ for batches of 8), sorting recovers a large part, and FFD packing stays above 0.9.
+Report the three rates per scorer. Typically: no scorer has the highest harm rate (correct drafts
+broken by spurious critiques); the heuristic scorer mainly rejects revisions that lose the box or
+ramble; the log-prob scorer rejects many revisions and therefore has a low harm rate but also a low
+fix rate. The best ratio of fixes to harms is model-dependent, which is the point of measuring it.
 
-#### Exercise 39.7 (Partial-rollout bias).
+#### Exercise 39.7
 
-Record `[r.length for r in fin]` per step. In the first steps the consumed mean length is well below
-the generated mean (short responses finish first); as carried-over long responses complete, later
-batches contain them and the consumed distribution approaches the generated one after a few steps.
-Larger `oversample` increases the bias in each step (more short responses compete for the $B$ slots)
-but also increases throughput; the steady-state mixed-policy fraction grows with it.
+Ask the draft to state a checkable consequence (e.g. substitute the answer into the original
+equation) and evaluate it with SymPy; if the check fails, put "Substituting your answer gives ...,
+which is not equal to ..." into the review. With external feedback, revisions are triggered only by
+real errors and carry specific information, which typically improves the fix rate and nearly
+eliminates harm on correct drafts.
 
-#### Exercise 39.8 (Weight sync across sites).
+#### Exercise 39.8
 
-Qwen3-32B has $\approx32.8$B parameters: bf16 $\approx65.5$ GB, i.e. $\approx5.2$ s at 12.5 GB/s;
-fp8 $\approx2.6$ s. LoRA rank 64 on all seven projections of 64 layers is
-$64\cdot64\cdot\sum(d_{\text{in}}+d_{\text{out}})\approx 537$M parameters, $\approx1.07$ GB in bf16,
-$\approx0.09$ s. With full weights, use bounded-staleness asynchronous RL so the 5 s transfer
-overlaps generation; with LoRA, even a synchronous schedule pays little.
+Order each call as `[question][draft][critique][instruction]` (or run the loop as one growing
+conversation), so each call's prompt is the previous call's prompt plus its output plus a short
+instruction. Then, with perfect prefix caching, each call prefills only its new instruction: total
+prefill $\approx q = 150$ tokens instead of $q + k(2q + 2a + c) = 150 +
+2(300 + 1000 + 120) = 2990$, a saving of $\approx 2840$ tokens (95%). Decode work is unchanged.
 
-#### Exercise 39.9 (Attacking the grader).
+#### Exercise 39.9
 
-\(1\) `os._exit(0)` or `sys.exit(0)` before the tests run---run tests in a separate process that
-imports the candidate, and require a sentinel printed after all tests; (2) returning an object whose
-`__eq__` always returns `True`---compare with type checks or serialise results; (3) monkeypatching
-`assert`-like helpers, `unittest` or builtins---execute tests in a fresh namespace after the
-candidate code and verify the runner's integrity; (4) reading expected outputs from disk or
-environment---keep tests outside the sandbox, mount nothing, empty environment; (5) exhausting
-memory/CPU so the grader crashes into a default---treat every abnormal exit as failure and count
-resources. Writing (1) and (2) as tests against [@lst:rlsys:sandbox] shows that the
-teaching sandbox is vulnerable to both.
-
-#### Exercise 39.10 (Measurement).
-
-An `async+partial` policy runs the partial-rollout generator in its own pool while the previous
-batch trains. Expect throughput above both `async` and `partial` for heavy tails, with mean
-staleness between 1 and 2 and a mixed-policy fraction similar to `partial`; throughput rises and
-saturates with `oversample` while staleness and length bias grow.
-
-#### Exercise 39.11 (Design).
-
-One reasonable answer: 14B bf16 weights are $\approx29$ GB, KV $\approx 2\cdot40\cdot8\cdot128\cdot2
-\approx164$ KB/token. Responses average 6k tokens and are capped at 32k, so the tail is severe: use
-split pools with bounded-staleness async plus partial rollouts. Generation: 12 GPUs as TP$=2$
-engines (6 replicas, $\sim$`<!-- -->`{=html}100 GB KV each for $\sim$`<!-- -->`{=html}100--150
-concurrent long sequences per replica); training: 20 GPUs with FSDP (16 B/param $\Rightarrow$ 224 GB
-of state, $\approx11$ GB per GPU) plus activation checkpointing and token-budget packing. Balance
-the pools by measuring $W_g$ and $W_t$ in the first steps, drop the reference model (KL$=0$) to save
-memory, enable TIS and log mismatch, and stream rewards to a CPU verifier pool.
+At $\approx$`<!-- -->`{=html}2000 decode tokens, best-of-4 decodes four 500-token answers in one
+batched call and scores them with four prefills; refinement with $k = 2$ makes five sequential
+calls. Expect best-of-4 to have roughly a third of the latency; which is more accurate depends on
+the scorer's calibration (best-of-$n$) versus the critique's quality (refinement), and must be
+measured.

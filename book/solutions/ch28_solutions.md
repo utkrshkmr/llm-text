@@ -1,115 +1,119 @@
-## Chapter 28: Making Inference Cheaper and Deploying It {#chapter-28-making-inference-cheaper-and-deploying-it .unnumbered}
+## Chapter 28: Fine-Tuning for Classification {#chapter-28-fine-tuning-for-classification .unnumbered}
 
 #### Exercise 28.1.
 
-Qwen3-0.6B stores $2\cdot28\cdot8\cdot128\cdot2=114{,}688$ bytes of KV per token, i.e. 235 MB per
-2048-token sequence. Its weights take 1.19 GB, so the two are equal at
-$B\approx1.19\cdot10^9/2.35\cdot10^8\approx5$. Beyond a handful of concurrent sequences the KV cache
-dominates the bytes per step. Weight-only quantization of a small model therefore barely helps a
-busy server; KV quantization, paging and prefix sharing matter far more.
+With global padding every batch is $8\times120$; with dynamic padding the mean batch width falls to
+roughly the batch's longest message (typically 30--60 tokens for SMS), so epoch time drops roughly
+in proportion once the GPU is compute-bound. On CPU, or with tiny batches, the gain is smaller
+because fixed overheads dominate. Accuracy should be statistically indistinguishable *if* the head
+reads the last real token. Padding to 1,024 multiplies linear-layer work by about
+$1024/120\approx8.5$ and attention-score work by about $73$. If the head reads position $-1$, it now
+reads a padding token that sits 900+ positions after the message. Its hidden state is still a
+function of the message, but a very different input distribution from the one seen in training, and
+accuracy typically drops sharply.
 
 #### Exercise 28.2.
 
-With $e$ uniform on $[-s/2,s/2]$, $\mathbb{E}[e^2]=\frac1s\int_{-s/2}^{s/2}e^2\,de=s^2/12$. A
-full-range signal uniform on $[-A,A]$ has power $A^2/3$, and $b$ bits give $s=2A/2^b$, so the noise
-power is $A^2/(3\cdot4^b)$. Hence $\mathrm{SQNR}=4^b$, or $10\log_{10}4^b\approx6.02\,b$ dB.
+Per-step cost is predicted by $2N + 4N_{\text{tr}}$ per token: with $k$ trainable blocks out of 12,
+$N_{\text{tr}}\approx (k/12)N$, so time per step $\propto 2 + 4k/12$. That is $1.0$ ($k=0$, head
+only, up to a tiny head), $1.17$ ($k=1$), $1.33$ ($k=2$), $1.67$ ($k=4$) and $3.0$ ($k=12$) relative
+to a forward pass. Peak memory grows with $k$ through activations kept for backward (only blocks
+above the lowest trainable one store them) and through $14$ bytes per trainable parameter. Accuracy
+usually improves from $k=0$ to $k=1$ and changes little after that. Discrepancies come from fixed
+overheads (optimizer step, kernel launches) and from the embedding/head layers, which the
+block-count model ignores.
 
 #### Exercise 28.3.
 
-Per row: $s=40/7\approx5.71$, and a value rounds to zero when $|x|<s/2\approx2.86$, which holds for
-$\approx99.6\%$ of standard normal draws. The row is destroyed. With $g=32$, only the outlier's
-group (31 normal values) suffers this. In the other groups the scale is set by the group's own
-maximum ($\approx2.3$), so only $|x|\lesssim0.17$ rounds to zero. A simulation gives $\approx34\%$
-zeros overall, almost all of them in the outlier's group.
+Run blocks 1--11 under `torch.no_grad()` once, storing $h_{11}$ of shape $(n, T, 768)$ in bf16
+(about 193  for 1,045 messages padded to 120). Train block 12, the final norm and the head on the
+cache. With dropout off, the forward computation is identical, so the loss curves match to
+floating-point tolerance. Measuring cost in units of one block's forward FLOPs (2 per parameter), an
+uncached step costs $12\times2 + 4 = 28$ (twelve forwards, one backward of block 12), a cached step
+$2+4=6$, so each epoch is about $28/6\approx4.7\times$ faster (less if data movement of the cache
+dominates).
 
 #### Exercise 28.4.
 
-\(a\) $4+(16+16)/64=4.5$ bits. (b) $4+8/32=4.25$ bits. (c) $4+8/16=4.5$ bits, plus a negligible
-per-tensor fp32 scale.
+Plain cross-entropy on 87/13 data reaches high accuracy but lower spam recall. Class weights
+$w_c\propto 1/\text{freq}(c)$ raise recall at some cost in precision. Undersampling behaves
+similarly but trains on less data. Accuracy is misleading under imbalance; report
+precision/recall/F1 for the spam class, and for a dashboard prefer precision at a fixed recall (or
+vice versa), matched to the product cost of each error.
 
 #### Exercise 28.5.
 
-For one row, the loss is
-$\ell(\boldsymbol{w}')=(\boldsymbol{w}'-\boldsymbol{w})^\top H(\boldsymbol{w}'-\boldsymbol{w})$.
-Minimise $\ell$ subject to $\boldsymbol{e}_i^\top(\boldsymbol{w}'-\boldsymbol{w})=q_i-w_i$. The
-Lagrangian gives $2H\boldsymbol\delta=\lambda\boldsymbol{e}_i$, so
-$\boldsymbol\delta=\frac{\lambda}{2}H^{-1}\boldsymbol{e}_i$, and the constraint fixes
-$\lambda/2=(q_i-w_i)/[H^{-1}]_{ii}$. Therefore
-$\boldsymbol\delta=-\frac{w_i-q_i}{[H^{-1}]_{ii}}H^{-1}_{:,i}$, whose $i$-th entry is exactly
-$q_i-w_i$ and whose other entries are the stated update. Substituting back,
-$\ell=\boldsymbol\delta^\top H\boldsymbol\delta=(w_i-q_i)^2/[H^{-1}]_{ii}$. GPTQ then removes row
-and column $i$ from $H^{-1}$ (a Schur-complement update), which is what the Cholesky formulation
-does implicitly.
+Let a message occupy positions $0..\ell-1$ with padding at $\ell..T-1$. Under the causal mask, the
+hidden state at position $t$ depends only on tokens $0..t$. In particular position $\ell-1$ never
+attends to padding, and LayerNorm/MLP act per position, so $h_{\ell-1}$, and hence the logits read
+there, are independent of $T-\ell$. Counterexample for position $-1$: with $T=\ell+1$, the last
+position is a padding token attending to $\ell+1$ keys. With $T=\ell+5$ it attends to $\ell+5$ keys,
+four of which are padding tokens with different position embeddings, so the softmax weights and the
+output differ.
 
 #### Exercise 28.6.
 
-$(X\,\mathrm{diag}(\boldsymbol{s})^{-1})(W\,\mathrm{diag}(\boldsymbol{s}))^\top
-=X\,\mathrm{diag}(\boldsymbol{s})^{-1}\mathrm{diag}(\boldsymbol{s})W^\top=XW^\top$. With
-$\alpha=\tfrac12$, $s_j=\sqrt{a_j/w_j}$ where $a_j=\max|X_{:,j}|$ and $w_j=\max|W_{:,j}|$. Then
-$\max|X'_{:,j}|=a_j/s_j=\sqrt{a_jw_j}=w_js_j=\max|W'_{:,j}|$. To fold the division, note that $X$ is
-the output of RMSNorm with per-channel gain $\gamma_j$; replace $\gamma_j$ by $\gamma_j/s_j$
-offline. (When several linears consume the same normalised input, e.g. Q, K and V, they must share
-$\boldsymbol{s}$.)
+With left padding the real tokens occupy positions $T-\ell..T-1$ instead of $0..\ell-1$, so they
+receive different learned position embeddings, and the logits differ (often by a few percent of
+their magnitude, enough to flip borderline cases). The key mask removes the influence of padded
+tokens but cannot undo the position shift. With RoPE, attention depends only on $i-j$, which is
+unchanged for every pair of real tokens, so the logits match up to floating-point error.
 
 #### Exercise 28.7.
 
-Let $x_1$ be emitted at position 1 with probability $p(x_1)$, by the proposition. Conditioned on the
-first draft having been accepted with value $x_1$, the second draft is sampled from
-$q(\cdot\mid x_1)$ and verified against $p(\cdot\mid x_1)$, because the target's second output row
-is computed with $x_1$ in its context. Applying the proposition to this conditional pair gives
-$\Pr[x_2\mid x_1]=p(x_2\mid x_1)$. If the first draft is rejected, the round ends and position 2 is
-produced in the next round, again conditioned on the emitted $x_1$. Either way the joint law is
-$p(x_1)p(x_2\mid x_1)$. Induction extends this to whole sequences.
+Sort-within-mega-batch as in [@lst:classify:bucket], then greedily add sequences to the
+current batch while $\max(\text{len})\times(\text{count})
+\le K$. Short-message batches then contain many sequences and long ones few. The number of batches
+varies, padding waste matches bucketing, and step-time variance drops because every batch has
+roughly $K$ token-slots. Learning-rate schedules should then be defined in tokens rather than steps.
 
 #### Exercise 28.8.
 
-Maximising $S(\gamma)=(1-\alpha^{\gamma+1})/((1-\alpha)(0.05\gamma+1))$ over integers gives
-$\gamma^{*}=4$ ($S\approx1.92$) for $\alpha=0.6$, $\gamma^{*}=8$ ($S\approx3.09$) for $\alpha=0.8$,
-and $\gamma^{*}=13$ ($S\approx4.67$) for $\alpha=0.9$. Going from $\gamma$ to $\gamma+1$ helps iff
-$S(\gamma+1)>S(\gamma)$, i.e. $\alpha^{\gamma+1}(1-\alpha)(c\gamma+1)>c\,(1-\alpha^{\gamma+1})$: the
-expected marginal token $\alpha^{\gamma+1}$ must outweigh the marginal drafting cost relative to the
-current expected yield.
+Compute $\log p(\text{`` spam''}\mid\text{prompt})$ and $\log p(\text{`` ham''}\mid\text{prompt})$
+from one forward pass each (or one pass with both continuations scored via `sequence_logprob`) and
+predict the larger. Base GPT-2 models typically score only modestly above chance on the balanced
+split, and the improvement with model size is gradual. Fine-tuning closes most of the gap. Note that
+the label words should be chosen as single tokens with a leading space, otherwise multi-token labels
+are penalised by length.
 
 #### Exercise 28.9.
 
-The step reads $16.4$ GB of weights plus $128\cdot2048\cdot147.5$ KB$\approx38.7$ GB of KV:
-$t_{\text{mem}}\approx16.4$ ms. With $\gamma+1=5$, the step processes 640 tokens:
-$\approx2\cdot8.19\cdot10^9\cdot640\approx
-1.05\cdot10^{13}$ matmul FLOPs, plus $\approx0.8\cdot10^{12}$ for attention, so
-$t_{\text{comp}}\approx11.4$ ms at peak. That is still memory-bound on paper, but at a realistic
-50--60% of peak the compute time reaches $\approx20$ ms, which exceeds the memory time. Every
-rejected draft then costs real time. Choose $\gamma\le2$ (or adapt $\gamma$ to load), and turn
-speculation off entirely at higher batch sizes.
+Demand: $20{,}000\times35 = 7.0\times10^5$ real tokens/s. With random batching at about 60% waste,
+the GPUs must process $7.0\times10^5/0.4=1.75\times
+10^6$ token-slots/s; with bucketing at about 7% waste, $7.5\times10^5$. An L4 offers 121 ; at 40%
+utilisation and $1.7\times10^8$ FLOPs/token it processes about $2.85\times10^5$ tokens/s. So random
+batching needs $\lceil 6.1\rceil = 7$ GPUs and bucketing needs $\lceil 2.6\rceil=3$, plus headroom
+for peaks. A 160-token message in a batch of 64 takes about
+$64\times160\times1.7\times10^8/4.8\times10^{13}\approx
+36\,\mathrm{ms}$ of compute, so the 50  p99 constrains the batching window to a few milliseconds.
+The weakest assumption is the 40% utilisation: at such short sequences, kernel-launch and framework
+overheads can halve it unless CUDA graphs or a compiled engine are used.
 
 #### Exercise 28.10.
 
-The message size is $m=5120\cdot2=10$ KB per sequence, which is negligible on NVLink
-($m/\beta\approx0.02\,\mu$s). If the per-collective latency is constant ($a=8\,\mu$s, one-shot
-all-reduce), $t(P)=19.6/P+2\cdot64\cdot0.008$ ms$=19.6/P+1.02$ ms. This decreases monotonically:
-10.8 ms at $P=2$, 5.9 ms at $P=4$, 3.5 ms at $P=8$. So use the whole NVLink domain. If the latency
-instead grows like a ring all-reduce, $a(P)=2(P-1)\alpha$ with $\alpha=2\,\mu$s, then $t=10.3$,
-$6.4$ and $6.0$ ms for $P=2,4,8$: diminishing returns, and a two-node $P=16$ would be slower.
-Collective latency, not bandwidth, sets the limit on TP for decode.
+The SMS collection contains several hundred exact duplicate texts, mostly spam templates, and more
+after normalisation. Re-splitting after deduplication typically lowers test accuracy slightly. The
+difference measures how much the original score benefited from test messages whose duplicates were
+in training.
 
 #### Exercise 28.11.
 
-In a closed loop a new request is issued only when an old one completes, so the number in the system
-is capped at 64 and the offered load automatically drops when the server slows down. No queue can
-build up, and latency stays bounded by construction. Real traffic is open-loop: Poisson bursts
-arrive regardless of server state. During a burst the queue and the KV cache fill up, and preemption
-and queueing delay grow superlinearly near capacity (Little's law plus queueing theory). Closed-loop
-tools also suffer from "coordinated omission": the slow periods generate fewer samples, so they are
-under-represented in the percentiles.
+Temperature scaling multiplies all logits of an example by the same positive constant $1/T$. Because
+$\operatorname*{arg\,max}_c z_c/T = \operatorname*{arg\,max}_c z_c$ for $T>0$, predictions and
+therefore accuracy are unchanged. A fine-tuned classifier is typically over-confident ($T>1$ after
+fitting), and ECE drops substantially after scaling.
 
 #### Exercise 28.12.
 
-Assume every message is 150 tokens. The prompt at turn $k$ is about $300(k-1)+150$ tokens, so
-without reuse the total prefill is $\sum_{k=1}^{20}(300k-150)=60{,}000$ tokens. With perfect reuse
-each turn prefills only the new user message plus a few template tokens (and the one generated token
-that was never fed back): about $20\cdot150=3{,}000$ tokens, a $20\times$ reduction. With the
-official Qwen3 template, pitfall (1) strikes first: the earlier assistant turns' `<think>` blocks
-are stripped when the history is re-serialised, so the common prefix ends at the start of the most
-recent assistant reply. Fixes: store in the history exactly what the template will emit (the reply
-without its think block) and accept re-prefilling that shorter reply once, or keep a cache keyed on
-the template's output. Engine-level prefix caching (radix trees) handles this automatically, at
-block granularity.
+Sort test examples by calibrated confidence. Escalating the least confident fraction $e$ makes
+cascade accuracy $=1-(\text{errors among the confident }1-e)/n$. Increase $e$ until accuracy reaches
+99.5%; the cost is then $(1+eR)/R$ of the large-only budget. Well-calibrated models concentrate
+their errors in the low-confidence region, so a small $e$ suffices.
+
+#### Exercise 28.13.
+
+For pretrained GPT-2 small, probe accuracy typically rises over the first several blocks and
+plateaus in the middle-to-upper layers. Sometimes it dips slightly in the last block, which is
+specialised for next-token prediction. If the plateau is reached by block $\ell$, serving only
+blocks $1..\ell$ plus a head saves about $(12-\ell)/12$ of the per-token FLOPs (embeddings and head
+aside).

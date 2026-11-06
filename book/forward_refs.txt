@@ -1,0 +1,14 @@
+# Labels that may stay unresolved until their chapter or section is written (web/build_site.py --strict).
+# Each stage removes the entries it resolves; stage 10 requires this file to be empty.
+ch:compilers      # stage 4b
+ch:cpp            # stage 4a
+ch:cuda           # stage 4a
+ch:cudakernels    # stage 4b
+ch:moe            # stage 2
+ch:ondevice       # stage 6b
+ch:retrieval      # stage 6b
+ch:shardcalc      # stage 3
+sec:encoders:lab      # stage 2 (ch10 draft)
+sec:encoders:serving  # stage 2 (ch10 draft)
+sec:jax:cmm           # stage 8 (appendix C draft)
+sec:jax:shardmap      # stage 8 (appendix C draft)

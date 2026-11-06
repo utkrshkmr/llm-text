@@ -74,8 +74,8 @@ The tests run on a laptop CPU in under a minute with tiny model configurations:
 ``` bash
 cd code
 pip install -r requirements.txt
-LAB_IMPL=starter  python -m pytest labs/lab04_attention   # grade your work
-LAB_IMPL=solution python -m pytest labs/lab04_attention   # check the reference
+LAB_IMPL=starter  python -m pytest labs/lab05_attention   # grade your work
+LAB_IMPL=solution python -m pytest labs/lab05_attention   # check the reference
 ```
 
 Several labs have a C++ or CUDA extension: the performance-critical operators live in `code/csrc`

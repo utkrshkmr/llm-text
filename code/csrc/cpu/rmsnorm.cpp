@@ -1,4 +1,4 @@
-// RMSNorm forward on the CPU (Chapter 20): the first operator of the extension.
+// RMSNorm forward on the CPU (Chapter 21): the first operator of the extension.
 //
 // y = x * rsqrt(mean(x^2) + eps) * weight, statistics in fp32, output in x's dtype.
 // Rows are independent, so at::parallel_for splits them over the intra-op thread pool.

@@ -1,106 +1,102 @@
-## Chapter 13: Pretraining on Unlabeled Data {#chapter-13-pretraining-on-unlabeled-data .unnumbered}
+## Chapter 13: Optimizers and the Training Loop from First Principles {#chapter-13-optimizers-and-the-training-loop-from-first-principles .unnumbered}
 
-#### Exercise 13.1 (Initial loss).
+#### Exercise 13.1.
 
-The loss at one position is $-z_y+\log\sum_u e^{z_u}$. Since $z_y$ has mean zero,
-$\mathbb{E}[\mathcal L]=\mathbb{E}[\log\sum_u e^{z_u}]$. For large $V$ the sum concentrates around
-its mean, $V\,\mathbb{E}[e^{z}]=V e^{\sigma^2/2}$ (log-normal mean), so
-$\mathbb{E}[\mathcal L]\approx\ln V+\sigma^2/2$. For GPT-2 small, the final LayerNorm makes each
-hidden coordinate roughly unit variance and the head weights have standard deviation $0.02$, so each
-logit has variance $\approx768\cdot0.02^2=0.31$. Prediction: $\ln 50{,}257+0.15\approx10.98$ nats.
+Without correction, $m_1=(1-\beta_1)g$ and $v_1=(1-\beta_2)g^2$, so the step is
+$\eta\,(1-\beta_1)|g|/\sqrt{1-\beta_2}\,|g| = \eta\cdot0.1/0.0316\approx3.16\,\eta$ per coordinate.
+With $\beta_2=0.95$ it is $0.1/\sqrt{0.05}\approx0.45\,\eta$. The second-moment correction matters
+more because $\sqrt{1-\beta_2^t}$ stays far below $1-\beta_1^t$ for many steps when $\beta_2$ is
+close to 1. The uncorrected ratio $(1-\beta_1^t)/\sqrt{1-\beta_2^t}$ peaks at about $6.6$ around
+$t=12$ for $(0.9, 0.999)$, so an uncorrected Adam takes steps several times larger than $\eta$
+throughout the first hundreds of steps.
 
-#### Exercise 13.2 (Perplexity across tokenizers).
+#### Exercise 13.2.
 
-Model A: total NLL $=3.10\times10^6$ nats over $4.3\times10^6$ bytes $=0.721$ nats/byte $=1.04$
-bits/byte. Model B is byte-level, so tokens $=$ bytes and $0.95$ nats/byte $=1.37$ bits/byte. Model
-A is better, even though its per-token loss is three times larger.
+Adam + L2: the gradient is $\lambda\theta$, so $\hat m\approx\lambda\theta$ and
+$\sqrt{\hat v}\approx\lambda|\theta|$ once the moments have adapted, giving a step of
+$\eta\,\mathrm{sign}(\theta)$: a *linear* shrink of $\eta$ per step regardless of $\lambda$, until
+$\theta$ reaches $\approx0$ and oscillates at amplitude $\sim\eta$. AdamW: the adaptive term is zero
+($g=0$, so $m=0$) and $\theta_t=(1-\eta\lambda)^t\theta_0$ decays geometrically with rate set by
+$\lambda$. The coupled version's decay strength therefore depends on the gradient statistics, which
+is the problem decoupling fixes.
 
-#### Exercise 13.3 (Training vs. validation).
+#### Exercise 13.3.
 
-Expect the validation minimum within the first few epochs; dropout delays it slightly and keeps the
-validation loss lower afterwards, because it limits how precisely the model can store the training
-windows. Samples near the validation minimum are novel but story-like; late samples reproduce
-training passages verbatim, especially with greedy decoding.
+\(a\) SGD with momentum in fp32: read $p,g,b$ (12 B), write $p,b$ (8 B), 20 B/param, 5.97 ms per
+billion parameters. (b) Lion with fp32 master weights: read bf16 $g$ (2), master (4), $m$ (4); write
+master (4), $m$ (4), bf16 copy (2): 20 B/param, 5.97 ms/B. (c) AdamW with bf16 $m,v$ and fp32
+master: read $g$ (2), master (4), $m$ (2), $v$ (2); write master (4), $m$ (2), $v$ (2), bf16 copy
+(2): 20 B/param, 5.97 ms/B. For comparison, fp32 or standard mixed-precision AdamW is 28 B/param,
+8.36 ms/B.
 
-#### Exercise 13.4 (Temperature limits).
+#### Exercise 13.4.
 
-Let $z_1>z_j$ for $j\neq1$. Then $p_\tau(j)/p_\tau(1)=e^{(z_j-z_1)/\tau}\to0$ as $\tau\to0^+$, so
-$p_\tau\to e_1$. As $\tau\to\infty$, $z_j/\tau\to0$ for all $j$ and $p_\tau(j)\to1/V$. With $k$ tied
-maxima the limit is uniform over the tied set (the ratios between tied tokens are always 1), which
-differs from `argmax`, which deterministically returns the first index.
+$310\times10\times5\,\mu$s $=15.5$ ms of launch overhead per step, against a memory-bound time of
+$28\times0.596\times10^9/3.35\times10^{12}\approx5.0$ ms. The loop implementation is launch-bound,
+three times slower than the bandwidth limit, before counting the kernels' own runtime. The `foreach`
+path issues about ten launches per parameter group ($\sim$`<!-- -->`{=html}50 $\mu$s); a fused
+kernel approaches the 5 ms bound.
 
-#### Exercise 13.5 (Do top-$k$ and temperature commute?).
+#### Exercise 13.5.
 
-Yes for top-$k$: dividing by $\tau>0$ preserves the order of the logits, so the same $k$ tokens
-survive, and the softmax over the survivors is the same either way. No for top-$p$: the kept set
-depends on the cumulative probabilities, which temperature changes. A high temperature flattens the
-distribution, so more tokens are needed to reach mass $p$. Applying temperature first (the common
-convention) lets temperature widen the nucleus.
+Qwen3-0.6B: $N\approx0.596\times10^9$, so model state is $16N\approx9.5$ GB. At $T=4096$ in bf16 the
+saved tensors of [@sec:optim:account] give (per sequence): (i) naive attention,
+$\approx1.26$ GB per layer, dominated by the $2HT^2$ score and probability tensors (1.07 GB), so
+$28\times1.26\approx35.2$ GB, plus about 5 GB for fp32 logits and softmax ($T\cdot V\cdot4\cdot2$
+bytes with $V=151{,}936$). That is $\approx40$ GB per sequence: $\text{mem}(B)\approx40.2B+9.5$ GB,
+which does not fit even $B=1$ on a 24 GB GPU. (ii) With FlashAttention, $\approx0.185$ GB per layer,
+so $\approx5.2+5.0=10.2$ GB per sequence: $\text{mem}(B)\approx10.2B+9.5$ GB, and $B=1$ fits. The
+logits are now half the activation memory: computing the loss in chunks ([@ch:distill]) would
+allow $B=2$, and activation checkpointing ([@sec:pretrain:efficiency]) more.
 
-#### Exercise 13.6 (Resume correctness).
+#### Exercise 13.6.
 
-Required: model weights; optimizer state (moments, step counts); scheduler/step counter; CPU and
-CUDA RNG states (dropout); Python `random` and NumPy RNGs if used anywhere; the sampler's generator
-state and the position within the epoch (how many batches have been consumed); worker seeding
-(`worker_init_fn`/base seed) so augmentation inside workers replays; and the `GradScaler` state
-(current scale and growth tracker). Listing 13.5 omits the data-loader position and sampler RNG, the
-Python/NumPy RNGs and the `GradScaler`; autocast itself holds no state.
+Their schedule restarts at step 0: if it has warmup, the learning rate ramps up again from near zero
+to the peak, then follows a complete cosine compressed into the remaining steps. The original run
+was somewhere down its cosine (say at $0.4\,\eta_{\max}$), so the resumed run jumps back to
+$\eta_{\max}$. The loss curve shows a bump or spike shortly after resumption (a "warm restart"),
+then decays again. The final loss is usually worse than the uninterrupted run's, and the run is not
+reproducible. The fix is to construct the schedule with the original `total` and call it with the
+restored global step.
 
-#### Exercise 13.7 (Checkpoint interval).
+#### Exercise 13.7.
 
-Job MTBF $M=50{,}000\,\text{h}/2048=24.4\,\text{h}\approx87{,}900\,\text{s}$. Synchronous
-($\delta=90$ s): $T=\sqrt{2\cdot90\cdot87{,}900}\approx3{,}980$ s ($\approx66$ min). Expected
-overhead $\approx\delta/T+T/(2M)\approx2.3\%+2.3\%=4.5\%$. Asynchronous ($\delta=6$ s):
-$T\approx1{,}030$ s ($\approx17$ min), overhead $\approx0.6\%+0.6\%=1.2\%$ (restart time excluded in
-both).
+The global norm is $\sqrt{3^2+4^2}=5$, so both ranks must scale by $1/5$; the result has norm 1 and
+the original direction. Independent clipping scales rank 0 by $1/3$ and rank 1 by $1/4$: each shard
+has norm 1, the combined norm is $\sqrt2$, and the direction changes (the components' ratio goes
+from $3:4$ to $1:1$). The fix is one scalar collective: each rank computes $s_r=\|g_r\|^2$, then
+`all_reduce(SUM)` over the tensor-parallel group, and every rank uses $\sqrt{\sum_r s_r}$.
+Replicated parameters, such as norm gains that every rank holds, must be counted once, not once per
+rank.
 
-#### Exercise 13.8 (Accumulation is not always exact).
+#### Exercise 13.8.
 
-\(1\) Padding: if each micro-batch's loss is the mean over its *non-padding* tokens and the
-micro-batches contain different numbers of real tokens, averaging the $k$ means weights tokens
-unequally; the exact large-batch loss divides the summed NLL by the total token count. Fix: sum
-token losses and divide by the global token count. (2) Layers with batch statistics (BatchNorm) see
-smaller batches. Also: the last, partial micro-batch of an epoch, and dropout masks that differ
-because the RNG is consumed in a different pattern.
+With $X=U\Sigma V^\top$, $XX^\top=U\Sigma^2U^\top$, hence $(XX^\top)X=U\Sigma^3V^\top$ and
+$(XX^\top)^2X=U\Sigma^5V^\top$. So $p(X)=U(a\Sigma+b\Sigma^3+c\Sigma^5)V^\top=U\,p(\Sigma)\,V^\top$,
+and singular vectors are preserved. The scalar map only pushes values in $(0,1]$ into the band
+near 1. For $\sigma$ much above 1 the $c\sigma^5$ term dominates and iterating diverges, so the
+input is divided by its Frobenius norm, which upper-bounds $\sigma_{\max}$. Muon is restricted to
+2-D hidden matrices because 1-D gains and biases have no singular structure, and because embedding
+and unembedding matrices are lookups or classifiers over tokens: each row belongs to one token and
+receives gradient only when that token appears, and orthogonalising would redistribute update
+magnitude across rare and frequent tokens. The original Muon recipe keeps them on AdamW.
 
-#### Exercise 13.9 (Activation memory, GPT-2 xl).
+#### Exercise 13.9.
 
-Model states: $16\times1.558\text{B}=24.9$ GB; budget $0.9\cdot80-24.9=47.1$ GB. (a) No
-FlashAttention: per sample $48\cdot1024\cdot1600\cdot(34+5\cdot25\cdot1024/1600)=8.97$ GB
-$\Rightarrow b=5$. (b) FlashAttention: $48\cdot1024\cdot1600\cdot34=2.67$ GB $\Rightarrow b=17$. (c)
-Full checkpointing: block inputs $2\cdot1024\cdot1600\cdot48=0.157$ GB plus one layer's full
-activations during recomputation ($0.187$ GB) $\approx0.344$ GB per sample $\Rightarrow b\approx136$
-(in practice temporary buffers and the logits tensor limit this much earlier).
+Number the $n$ valid windows (e.g. disjoint windows $i\cdot T$). Each epoch draws $a$ with
+$\gcd(a,n)=1$ and an offset $c$; the $k$-th sample is window $(a k + c)\bmod n$, a bijection on
+$\{0,\dots,n-1\}$ computed in $O(1)$ without storing a permutation. The state is (epoch, $k$, $a$,
+$c$), or the seed from which $a$ and $c$ are derived. Affine permutations mix poorly (consecutive
+samples are an arithmetic progression of windows), so production samplers use a small keyed Feistel
+network or a block-shuffled order instead; the state has the same shape.
 
-#### Exercise 13.10 (Measure MFU).
+#### Exercise 13.10.
 
-Typical ordering: fp32 lowest (no tensor cores; TF32 if enabled helps); bf16 autocast a large jump;
-SDPA a further gain (no $T\times T$ materialization, fewer memory-bound kernels); compile another
-10--30% from fusing LayerNorm/GELU/residual chains and reducing launches; activation checkpointing
-reduces MFU by roughly a quarter (recompute is not counted in MFU) but allows larger micro-batches,
-which can partly win it back.
-
-#### Exercise 13.11 (Chinchilla planning).
-
-$C=1000\cdot86{,}400\cdot0.4\cdot989\times10^{12}=3.4\times10^{22}$ FLOPs, so
-$N_{\text{opt}}=\sqrt{C/120}\approx16.9$B and $D_{\text{opt}}\approx338$B tokens. Inference over a
-year: $1.2\times10^{13}$ tokens $\times2N$. Option A ($N=16.9$B): $4.1\times10^{23}$ inference
-FLOPs, total $\approx4.4\times10^{23}$. Option B ($N=8.4$B, $D=1.35$T): training
-$6\cdot8.4\text{B}\cdot1.35\text{T}=6.8\times10^{22}$ (2$\times$ the budget), inference
-$2.0\times10^{23}$, total $\approx2.7\times10^{23}$. Option B is about 40% cheaper in total; with
-the Chinchilla loss fit its loss is only slightly higher than option A's, which is the argument for
-over-training models that will be served heavily.
-
-#### Exercise 13.12 (Chunked loss).
-
-Implement an `autograd.Function` whose forward takes the final hidden states $\mathbf{H}$ `(N, d)`,
-the head weight $\mathbf{W}$ `(V, d)` and targets. Loop over chunks of rows: compute
-$\mathbf{Z}_c=\mathbf{H}_c\mathbf{W}^\top$ in fp32, its log-sum-exp, the chunk loss, and immediately
-the gradient
-$\partial\mathcal L/\partial\mathbf{Z}_c=(\operatorname{softmax}(\mathbf{Z}_c)-\text{onehot})/N$;
-accumulate
-$\partial\mathcal L/\partial\mathbf{H}_c=\partial\mathcal L/\partial\mathbf{Z}_c\,\mathbf{W}$ and
-$\partial\mathcal L/\partial\mathbf{W}\mathrel{+}=(\partial\mathcal L/\partial\mathbf{Z}_c)^\top\mathbf{H}_c$.
-Save only these gradients for backward (which just scales them by the incoming gradient). Peak
-memory drops from $N\cdot V$ to $\text{chunk}\cdot V$ floats; verify with `torch.autograd.gradcheck`
-on small sizes in float64.
+Expect the following pattern; exact values depend on your hardware and seeds. With clipping, the
+largest learning rates spike but recover; our run at $\eta=1$ spiked from 5.8 to 7.3 and then
+trained. With clipping disabled, the loss at the highest learning rates becomes non-finite within
+tens of steps, which defines the divergence point $\eta_{\text{div}}$. The best learning rate
+typically sits 3--30$\times$ below $\eta_{\text{div}}$ on a broad plateau. Removing QK-norm lets
+attention logits grow with the weights, which lowers $\eta_{\text{div}}$, often by several times,
+and usually moves the optimum down with it: QK-norm buys stability headroom
+([@sec:archdesign:stability]).

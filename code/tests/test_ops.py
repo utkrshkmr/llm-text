@@ -1,4 +1,4 @@
-"""Tests for llmsys.ops: backend switch and the compiled operators (Chapter 20).
+"""Tests for llmsys.ops: backend switch and the compiled operators (Chapter 21).
 
 The compiled backends are exercised when ``torch.ops.llmsys.rmsnorm`` exists: from the installed
 extension (``pip install -e .``) or, with ``LLMSYS_JIT=1``, from a just-in-time build of the two

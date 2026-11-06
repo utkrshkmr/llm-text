@@ -1,4 +1,4 @@
-"""Looking inside torch.compile: graphs, graph breaks, recompiles, guards, generated code (Chapter 23).
+"""Looking inside torch.compile: graphs, graph breaks, recompiles, guards, generated code (Chapter 26).
 
     capture_graphs(fn, *args)         the FX graph(s) Dynamo produced for one call, via a recording backend
     explain(fn, *args)                graph count, graph-break count and reasons (torch._dynamo.explain)

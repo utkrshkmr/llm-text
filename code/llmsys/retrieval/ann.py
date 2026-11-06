@@ -1,4 +1,4 @@
-"""Approximate nearest-neighbour search: references and cost models (Chapter 30).
+"""Approximate nearest-neighbour search: references and cost models (Chapter 35).
 
 Every index in this module is plain PyTorch, written to be read next to the chapter:
 

@@ -1,44 +1,105 @@
-## Chapter 42: Project 1: A Transformer Language Model from Scratch {#chapter-42-project-1-a-transformer-language-model-from-scratch .unnumbered}
+## Chapter 42: RLHF: Reward Models, Value Functions, and PPO {#chapter-42-rlhf-reward-models-value-functions-and-ppo .unnumbered}
 
-#### Exercise 42.1.
+#### Exercise 42.1
 
-The pre-tokens are `x`, ` `, ` =`, ` 10`, `.`, `5`, `;`, ` `, ` y`. `x` matches the letters
-alternative. Of the two spaces before `=`, the whitespace-with-lookahead alternative takes the
-first, because the greedy `\s+` must give back the last space so that the next character is not a
-non-space. The second space then attaches to `=` through the "optional space + symbols" alternative.
-` 10` is the digits alternative with its leading space. The decimal point and `5` are separate
-pre-tokens: `.` is a symbol and `5` a digit run, so numbers with decimals split into three pieces.
-`;` is a symbol; the next two spaces behave as before, giving ` ` and ` y`.
+The difference of two independent standard Gumbel variables is standard logistic, with CDF
+$\sigma(z)$. Hence $\Pr[u_w>u_l]=\Pr[\epsilon_l-\epsilon_w<r_w-r_l]=\sigma(r_w-r_l)$. With Gaussian
+noise of variance $s^2$ each, the difference is $\mathcal N(0,2s^2)$ and the choice probability is
+$\Phi\big((r_w-r_l)/(\sqrt2 s)\big)$, the Thurstone (probit) model. The fitted rewards change only
+by an approximately constant rescaling, because the logistic and probit curves are close after
+scaling by about $1.7$.
 
-#### Exercise 42.2.
+#### Exercise 42.2
 
-Snapping a guess forward to the next separator moves it by the distance to the next document start.
-For exponential document lengths with mean 4 KB, that distance is itself exponential with mean 4 KB
-(memorylessness), and the largest of $k$ such shifts is about $4\,\text{KB}\cdot\ln k$: about 8 KB
-for $k=8$ and 17 KB for $k=64$. Next to chunk sizes of 1.5 GB or 190 MB, the size imbalance is
-negligible ($<10^{-4}$ relative). What imbalances the workers is *processing time*: text varies in
-regex cost, processes are scheduled unevenly, and there are stragglers. With $k=8$ chunks and 8
-workers, the slowest chunk sets the wall time. With $k=64$ chunks scheduled dynamically
-(`imap_unordered` on a `Pool`), fast workers take more chunks and the tail is at most about one
-small chunk; each task also holds less memory.
+With $\Delta=r_w-r_l$,
+$\partial(-\log\sigma(\Delta))/\partial r_w=-(1-\sigma(\Delta))=-\sigma(-\Delta)$ and
+$\partial/\partial r_l=+\sigma(-\Delta)$. Gradient descent raises $r_w$ and lowers $r_l$ in
+proportion to the probability the model currently assigns to the *wrong* ordering. Late in training,
+correctly ranked pairs with large margins contribute almost nothing, so the gradient is dominated by
+mis-ranked and borderline pairs (including label noise). A margin $m$ replaces $\Delta$ by
+$\Delta-m$: pairs must be separated by at least $m$ before their gradient fades, which keeps
+strong-preference pairs active longer.
 
-#### Exercise 42.3.
+#### Exercise 42.3
 
-Per layer: attention $4d^2=4.19$M, SwiGLU $3dd_{\text{ff}}=8.65$M, so 12.85M; 16 layers give 205.5M.
-Untied embedding and head add $2Vd=65.5$M, for 271.1M in total (plus $\sim$`<!-- -->`{=html}34K norm
-gains). Forward matmul FLOPs per token, excluding the embedding lookup:
-$2\times(205.5\text{M}+32.8\text{M})\approx0.477$ GFLOPs. The attention-score matmuls ($QK^\top$ and
-$PV$ over the full $T\times T$ square) add $4TdL$ per token: $0.134$ GFLOPs at $T=2048$ (22% of the
-total $0.611$) and $2.15$ GFLOPs at $T=32{,}768$ (82%). A causal kernel that skips the masked half
-cuts the attention term roughly in half.
+Grouped: $K=6$ forward passes per prompt, producing all $\binom{6}{2}=15$ pair terms in one step.
+Independent pairs: $15$ pairs $\times$ 2 responses $=30$ forward passes. Each response appears in
+$K-1=5$ pairs, so with independent shuffling it contributes to 5 separate gradient steps per epoch,
+versus one step when grouped. That repetition is what drives the one-epoch overfitting InstructGPT
+reported.
 
-#### Exercise 42.4.
+#### Exercise 42.4
 
-One feasible E2 + E3 plan in 360 minutes: (1) a coarse sweep of 6 learning rates on a $\sqrt{10}$
-grid with 4-minute runs (24 min); (2) a fine sweep of 4 full-budget runs around the best value,
-including one above the stability limit (80 min); (3) for each of 4 batch sizes, 3 learning rates
-with short runs (48 min), then one full-budget confirmation per batch size (80 min). That is 232
-minutes, leaving about two hours for a second seed of the most important comparisons and for reruns.
-Every comparison uses the same token budget, so steps $=\lceil
-\text{tokens}/(BT)\rceil$ and the schedule end change with $B$, and every run is logged with step
-and wall-clock time.
+With $\gamma=\lambda=1$,
+$\hat A_t=\sum_{l\ge0}\delta_{t+l}=\sum_{l}\big(r_{t+l}+V_{t+l+1}-V_{t+l}\big)$, which telescopes to
+$\sum_{k\ge t}r_k-V_t$ since $V_{T+1}=0$. With $\lambda=0$ only $l=0$ survives, so
+$\hat A_t=\delta_t$. For $\lambda=0.5$, with $\delta=(0.28,0.40,0.45,0.39)$: $\hat A_4=0.39$,
+$\hat A_3=0.45+0.5\cdot0.39=0.645$, $\hat A_2=0.40+0.5\cdot0.645=0.7225$,
+$\hat A_1=0.28+0.5\cdot0.7225=0.64125$.
+
+#### Exercise 42.5
+
+With $r=\pi/\pi_{\text{ref}}$ and samples from $\pi=\mathrm{Bern}(0.6)$:
+
+::: center
+| $p_{\text{ref}}$ | exact KL | $\mathbb{E}[k_1]$ | $\mathbb{E}[k_2]$ | $\mathbb{E}[k_3]$ | $\mathrm{Var}[k_1]$ / $\mathrm{Var}[k_2]$ / $\mathrm{Var}[k_3]$ |
+|:---|:--:|:--:|:--:|:--:|:--:|
+| 0.5 | 0.02014 | 0.02014 | 0.01993 | 0.02014 | 0.0395 / 0.000016 / 0.000030 |
+| 0.2 | 0.38191 | 0.38191 | 0.45818 | 0.38191 | 0.770 / 0.0317 / 0.0038 |
+:::
+
+$k_1$ and $k_3$ are unbiased because $\mathbb{E}_\pi[\pi_{\text{ref}}/\pi-1]=0$; $k_2$ is biased,
+slightly low when the distributions are close and substantially high when they are far apart. $k_3$
+combines unbiasedness with low variance and is never negative. $k_1$ is unbiased but noisy and takes
+negative values on individual samples.
+
+#### Exercise 42.6
+
+The critic now values the state *after* token $t$, i.e. it has seen the token whose advantage is
+being estimated. Its targets become easier to fit (explained variance can rise), but the advantages
+$\delta_t=r_t+V(s_{t+1})-V(s_t)$ are computed with mismatched states. With $\gamma=1$ the
+telescoping sum no longer cancels correctly at the boundaries. The typical result is a slower and
+noisier reward curve, or a policy that improves early and then stalls. Running the lab with the
+modified slice shows this. The general lesson is to assert the alignment of logits and values in a
+unit test.
+
+#### Exercise 42.7
+
+Assume the policy is trained with LoRA so the reference is free (adapters disabled). Policy base
+weights frozen in bf16: $32\times10^9\cdot2=64$ GB, plus adapter states (negligible for small
+ranks). Critic initialised from the 7B reward model and fully trained: $7\times10^9\cdot16=112$ GB.
+Reward model frozen: $14$ GB. Total $\approx190$ GB, so $\lceil190/56\rceil=4$ GPUs with full
+sharding. If instead the policy is fully fine-tuned with a separate bf16 reference, the total is
+$512+112+14+64=702$ GB, which needs 13 GPUs. LoRA is what makes this configuration fit on a single
+8-GPU node.
+
+#### Exercise 42.8
+
+The best-of-$n$ distribution assigns the $i$-th ranked sample probability proportional to the chance
+that it beats $n-1$ others; integrating $\log\big(n F(r)^{n-1}\big)$ against its density gives
+$\log n-\frac{n-1}{n}$ for continuous rewards, and ties can only reduce it, hence the upper bound.
+The lab's $\beta=0.2$ run settles near $3.5$ nats, which corresponds to $\log n-1\approx3.5$,
+i.e. $n\approx e^{4.5}\approx90$. A run at 8 nats corresponds to $n\approx e^9\approx8{,}000$
+samples per prompt, impractical at inference time, which is why PPO's KL "budget" is cheaper to
+spend through training.
+
+#### Exercise 42.9
+
+Expected outcome: with a small target (1 nat) the controller raises $\beta$ until the policy barely
+moves; the true score improves a little and never degrades. With 3 nats the true score is near its
+best. With 10 nats the controller lets the policy spend KL on the repetition exploit, and the true
+score peaks and then falls while the RM score keeps rising. Plotting true score against final KL
+traces the rise-then-fall curve of Gao et al.
+
+#### Exercise 42.10
+
+With prompt plus rubric $\approx288$ tokens and responses of $512$, each judge call processes
+$\approx800$ tokens: $2\cdot70\times10^9\cdot800\cdot512\approx5.7\times10^{16}$ FLOPs per
+iteration. For the 8B policy ($T\approx768$ tokens per sequence): generation
+$\approx6.3\times10^{15}$, scoring with policy, reference and value $\approx1.9\times10^{16}$, and
+two PPO epochs over actor and critic $\approx7.5\times10^{16}$. The judge is therefore about $36\%$
+of the FLOPs, and since it sits between generation and learning it adds directly to the iteration
+time. Two remedies: (i) score asynchronously, sending each response to a separate judge pool as soon
+as it finishes so judging overlaps with ongoing generation (and with the previous iteration's
+learning, at one step of staleness, [@sec:rlsys:async]); (ii) distil the judge into a small
+reward model trained on its labels, and call the judge only on a sample to monitor drift.

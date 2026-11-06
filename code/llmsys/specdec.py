@@ -1,4 +1,4 @@
-"""Speculative decoding (Chapter 28).
+"""Speculative decoding (Chapter 33).
 
 A cheap *draft* model proposes ``gamma`` tokens autoregressively; the expensive *target*
 model scores all of them in a single forward pass; a modified rejection-sampling rule

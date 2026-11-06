@@ -1,119 +1,93 @@
-## Chapter 37: Reinforcement Learning with Verifiable Rewards: GRPO {#chapter-37-reinforcement-learning-with-verifiable-rewards-grpo .unnumbered}
+## Chapter 37: Evaluating LLMs and Reasoning Models {#chapter-37-evaluating-llms-and-reasoning-models .unnumbered}
 
 #### Exercise 37.1
 
-With partial credit the rewards of [@fig:grpo:step] become $(1,1,0.5,0)$: mean $0.625$,
-unbiased std $0.479$, advantages $(+0.783,+0.783,-0.261,-1.305)$. The unboxed "7" is still pushed
-down, but by a third of its previous weight, and the wrong boxed "8" is now pushed down hardest. The
-loss is $-\frac14[0.783(-2.269)+0.783(-3.059)-0.261(-1.299)-1.305(-3.400)]=-0.151$. Partial credit
-makes *correctness* the dominant signal early (correct-but-unboxed answers are no longer lumped with
-wrong ones), which helps when the model is rarely correct. It weakens the pressure to adopt the
-format, since an unboxed correct answer is only mildly penalised, so format adoption is slower. A
-common compromise is to anneal the partial credit to 0.
+Typical findings: (i) *false negative* for unordered answers ("2, 3" vs. "3, 2" for "all
+solutions"), because tuples are compared in order; fixing it globally would break ordered pairs, so
+make it opt-in per problem (Exercise 31.2). (ii) *false negative* for units the reference keeps
+("5 \\text{ cm}" vs. "5" unwraps the `\text`, leaving "5 cm", which SymPy parses as $5\,c\,m$);
+stripping known unit words fixes it but risks deleting variables named $m$. (iii) *false positive*
+from the assignment rule: "$y = 5$" accepted for a question about $x$; restricting the rule to the
+variable named in the problem fixes it at the cost of parsing the problem. Every fix is a policy
+change --- add a regression test for each.
 
 #### Exercise 37.2
 
-With identical rewards, $r-\bar r=0$ for every rollout, the advantages are exactly 0, the loss is
-$-0\cdot\sum\log\pi=0$ and autograd propagates zeros to every parameter (the optimiser step is still
-taken; AdamW's weight decay is the only change, and it is zero in our loop). This is desirable
-because the group carries no information about *which* behaviour is better. For $p\sim U[0,1]$,
-$\mathbb{E}[p^G+(1-p)^G]=\frac2{G+1}$: 40% wasted for $G=4$ and 11.8% for $G=16$.
+Normalize both sides, split into components, then match as a multiset: for each gold component find
+an unused predicted component with `equality_check`. Naively that is $O(k^2)$ SymPy calls. Cheaper:
+first bucket components by a canonical numeric key (evaluate each with `sympy.N` to, say, 12
+significant digits, or use the normalized string), match identical keys in $O(k \log k)$, and fall
+back to pairwise symbolic checks only for the unmatched remainder.
 
 #### Exercise 37.3
 
-With $k$ correct rollouts, $\bar r=p=k/G$ and $\sum_i(r_i-\bar r)^2=k(1-p)^2+(G-k)p^2=Gp(1-p)$, so
-$s^2=\frac{G}{G-1}p(1-p)$, giving $A^+=(1-p)/s$ and $A^-=-p/s$. Then
-$\sum_iA_i=[k(1-p)-(G-k)p]/s=G(p-p)/s=0$, and $\frac1{G-1}\sum_iA_i^2=\frac{Gp(1-p)}{(G-1)s^2}=1$
-exactly (ignoring $\epsilon$). As $p\to1/G$ with $G$ large,
-$A^+=(1-p)/s\approx\sqrt{(1-p)/p}\approx\sqrt{G}$: a single success in a large group receives an
-advantage of order $\sqrt G$.
+Record `hit_eos` (generation ended with EOS before the budget) and `has_box`. Then: `has_box` and
+wrong $\Rightarrow$ the model is wrong; `not hit_eos` and `not has_box` $\Rightarrow$ the budget
+truncated the chain of thought (raise `max_new_tokens`); `hit_eos` and `not has_box` $\Rightarrow$ a
+format failure (adjust the prompt or extraction fallback). Reporting the three rates alongside
+accuracy explains most surprising accuracy changes.
 
 #### Exercise 37.4
 
-$b_i$ is a function of the other samples only, which are independent of $y_i$ given $x$, so
-$\mathbb{E}[b_i\nabla\log\pi(y_i)]=\mathbb{E}[b_i]\,\mathbb{E}[\nabla\log\pi(y_i)]=0$ and the
-estimator is unbiased. Algebra: $r_i-b_i=r_i-\frac{G\bar r-r_i}{G-1}=\frac{G}{G-1}(r_i-\bar r)$. So
-GRPO's mean-centred advantage equals the RLOO advantage times $\frac{G-1}{G}$, a constant that the
-learning rate absorbs. The "bias" of including $r_i$ in its own baseline is therefore only a
-rescaling. Dividing by the std adds a genuine per-prompt reweighting.
+\(a\) A: 205/500, Wilson 95% CI $[0.368, 0.454]$; B: 223/500, CI $[0.403, 0.490]$. The intervals
+overlap, so independent intervals suggest no clear difference. (b) McNemar uses only discordant
+items: $b = 30$, $c = 48$. With continuity correction $\chi^2 = (|b-c|-1)^2/(b+c) = 289/78 = 3.71$,
+$p \approx 0.054$; without correction $\chi^2 = 4.15$, $p \approx 0.042$; the exact binomial test
+gives $p \approx 0.054$. The paired test is the right one and is far more sensitive than comparing
+intervals, because per-item difficulty cancels; here the evidence is borderline, and a second seed
+or more items would be needed before claiming B is better.
 
 #### Exercise 37.5
 
-\(a\) Summed loss: every token of rollout $i$ has gradient weight $A_i/G$, independent of length.
-(b) Per-sequence mean: each token has weight $A_i/(G|y_i|)$. For correct answers of lengths 20 and
-2000, the per-token push ratio is $1:1$ under (a) and $100:1$ under (b). Under (a) the total push on
-a sequence's log-likelihood is the same for both, but because $\log\pi$ of the long sequence is a
-sum of 100 times more terms, raising it is "harder". In practice the summed objective most
-efficiently increases the probability of the *short* correct answer. Under (b), long sequences are
-barely pushed per token, so long *wrong* answers are barely penalised. That is the length bias DAPO
-and Dr. GRPO criticise ([@ch:grpo2]).
+Useful row-steps are $\sum_i \ell_i$ out of $B \max_i \ell_i$, so the wasted fraction is
+$1 - \bar\ell / \max_i \ell_i$. For i.i.d. exponential lengths with mean $\mu = 600$,
+$\mathbb{E}[\max] = \mu H_B$ with $H_{64} \approx 4.744$, i.e. $\approx 2846$ tokens, so waste
+$\approx 1 - 600/2846 \approx 79\%$. Even with a budget cap that truncates the tail, static batching
+of long reasoning traces wastes most of the batch --- the motivation for continuous batching
+([@ch:serving]).
 
 #### Exercise 37.6
 
-PyTorch raises *"Inference tensors cannot be saved for backward"* when the sampled ids (created
-inside inference mode) are fed through `nn.Embedding` in the differentiable pass. The embedding
-saves its index input for backward. Fixes: sample under `no_grad`; or keep inference mode for
-sampling but `.clone()` the ids outside it (cloning outside inference mode produces a normal
-tensor).
+For GPT-2 and Qwen BPE, `"A"` and `" A"` are distinct ids, and `encode("Answer: A")[-1]` is the
+space-prefixed variant. Summing the softmax probability of both variants per letter (computed in
+float32) is the robust choice; on base models the single-variant (no-space) version can disagree on
+a noticeable fraction of questions because almost all of the mass sits on the space-prefixed token.
 
 #### Exercise 37.7
 
-$16\times4096\times151936\times4\,\text{B}\approx39.8$ GB for the log-softmax, and the same again
-for its gradient, so $\approx80$ GB. Chunked version:
-
-``` python
-def sequence_logprob_chunked(model, ids, prompt_len, C=512):
-    h = model_hidden_states(model, ids)          # (T, d) before the LM head
-    total = 0.0
-    for s in range(prompt_len - 1, ids.numel() - 1, C):
-        logits = model.out_head(model.final_norm(h[s:s+C])).float()
-        lp = torch.log_softmax(logits, -1)
-        total = total + lp.gather(1, ids[s+1:s+1+C, None]).sum()
-    return total
-```
-
-Peak memory scales with $C\cdot|\mathcal V|$ instead of $T\cdot|\mathcal V|$. With activation
-checkpointing per chunk the backward is bounded the same way. (Exposing hidden states requires a
-small model hook; `llmsys.rl.logprobs.token_logprobs(chunk=...)` chunks after the LM head, which
-bounds the float32 copy but not the bf16 logits.)
+Sample votes from fixed strengths (e.g. Elo-scale 1000, 1050, 1100, 1200) by drawing random pairs
+and a winner with probability $p_i/(p_i+p_j)$. Online Elo with $K = 32$ produces visibly different
+ratings for different vote orders (spreads of tens of points), most of it driven by the last few
+hundred votes; BT is order-invariant by construction, and its bootstrap interval reflects only
+sampling noise. Lowering $K$ reduces Elo's order dependence but slows convergence.
 
 #### Exercise 37.8
 
-Sequentially, $t_{\text{sample}}$ grows linearly in both $G$ and $T$ (one forward per token per
-rollout); on CPU the toy gives $a$ of the order of milliseconds per token. $t_{\text{train}}$ is
-also linear in $G\cdot T$ but with a smaller constant per token, since a prefill-style forward
-processes all tokens in parallel. With `sample_rollouts` the $G$ rollouts share each decode step, so
-$t_{\text{sample}}\approx a'\,T$ with $a'$ almost independent of $G$ until the batch stops being
-memory-bound. This is the decode roofline: weights are streamed once per step regardless of batch
-size.
+Write $\ell(p) = \sum_i W_i \log p_i - \sum_{i<j} n_{ij}\log(p_i+p_j)$. Since
+$-\log x \ge 1 - \log y - x/y$ for $x, y > 0$ (concavity of $\log$), at the current iterate
+$p^{(k)}$ the function
+$Q(p) = \sum_i W_i\log p_i - \sum_{i<j} n_{ij}\bigl(\log(p^{(k)}_i+p^{(k)}_j) + \frac{p_i+p_j}{p^{(k)}_i+p^{(k)}_j} - 1\bigr)$
+minorizes $\ell$ and touches it at $p^{(k)}$. $Q$ separates over $i$; setting
+$\partial Q/\partial p_i = W_i/p_i - \sum_{j\ne i} n_{ij}/(p^{(k)}_i+p^{(k)}_j) = 0$ gives exactly
+the MM update. Hence $\ell(p^{(k+1)}) \ge Q(p^{(k+1)}) \ge Q(p^{(k)}) = \ell(p^{(k)})$. Rescaling
+does not change $\ell$, which is invariant to multiplying all $p_i$ by a constant.
 
 #### Exercise 37.9
 
-Qwen3-4B: 36 layers, 8 KV heads, head dim 128, so the KV cache is
-$2\cdot36\cdot8\cdot128\cdot2=147$ KB per token. (i) $256$ sequences $\times4352$ tokens
-$\approx1.11\times10^6$ tokens, about 164 GB. (ii) Weights $\approx8.0$ GB in bf16. Each of the 4096
-decode steps streams the weights plus a cache that grows from 9.7 GB to 164 GB, about 95 GB on
-average, so roughly $4096\times95\,\text{GB}/3.35\,\text{TB/s}\approx116$ s. (iii) Training FLOPs
-$6\cdot4.0\times10^9\cdot1.11\times10^6\approx2.7\times10^{16}$, about 68 s at 40% MFU. The cache
-does not fit next to the weights on one 80 GB GPU ($\approx72$ GB free). It needs
-$\lceil164/72\rceil=3$ waves (or 3+ GPUs), which roughly preserves total sampling time, since each
-wave streams the weights 4096 times.
+Position bias appears as verdicts that flip when the order of the two responses is swapped; with
+small local judges flip rates of tens of percent are common. Debias by evaluating both orders and
+(a) counting a win only if it holds in both (ties otherwise), or (b) averaging the two
+scores/probabilities. Report the flip rate as a judge-quality metric.
 
 #### Exercise 37.10
 
-Examples: (1) "`\boxed{7}` ... actually `\boxed{8}`" (first-box readers accept the wrong final
-answer); (2) "`\boxed{17}`" with truth 7 (substring match accepts); (3) "`\boxed{7.0}`" (no
-normalisation rejects a correct answer); (4) "`\boxed{\frac{14}{2}}`" (rejected without fraction
-handling); (5) "`\boxed{1, 2, 3, 4, 5, 6, 7}`" (substring or "contains" accepts). Harden by taking
-the last box, comparing normalised values exactly, and rejecting boxed lists when a scalar is
-expected. RL is most likely to discover the cheap ones (many boxes, lists), because they increase
-reward on *every* prompt without solving anything.
-
-#### Exercise 37.11
-
-With 20 held-out facts, GRPO transfers the *format* almost perfectly (boxing is prompt-independent
-behaviour). Correctness on held-out facts improves little, because a 76k-parameter model trained on
-80 facts has not learned an addition algorithm, and RL with an outcome reward cannot teach a fact it
-never produces. This mirrors the MATH/MATH-500 split: RLVR mostly improves how existing knowledge is
-deployed (format, persistence, self-checking), and held-out evaluation is what separates that from
-memorising the training prompts.
+Work: $20 \times 500 \times 8 = 80000$ generations; at an assumed mean of 2000 tokens that is
+$1.6\times10^8$ decode tokens. A 7B model is 14 GB in bf16 and fits on one GPU, so use data
+parallelism (one replica per GPU; tensor parallelism only adds communication). KV for a Llama-style
+7B with GQA (32 layers, 8 KV heads, head dim 128) is $\approx 131$ KB/token; at batch 128 and
+2000-token average context that is $\approx 34$ GB. Each step moves $\approx 14 + 34 = 48$ GB,
+i.e. $\approx 14$ ms on an H100, producing 128 tokens: $\approx 9$k tokens/s per GPU, $\approx 72$k
+tokens/s for 8 GPUs, so $\approx 37$ minutes at the roofline; with realistic 2--3$\times$ overheads,
+1.5--2 hours. That fits in 6 hours. Grading 80k answers at $\sim$`<!-- -->`{=html}10 ms per SymPy
+check is $\sim$`<!-- -->`{=html}800 CPU-seconds --- a few cores keep up easily, provided grading
+runs concurrently with generation.

@@ -1,7 +1,7 @@
 """Helper so every lab's tests can target either the starter or the reference solution.
 
-    LAB_IMPL=starter  pytest labs/lab04_attention     # default: grade your own work
-    LAB_IMPL=solution pytest labs/lab04_attention     # check the reference solution
+    LAB_IMPL=starter  pytest labs/lab05_attention     # default: grade your own work
+    LAB_IMPL=solution pytest labs/lab05_attention     # check the reference solution
 """
 import importlib.util
 import os

@@ -1,4 +1,4 @@
-# Project 5: Reasoning RL and Alignment (Chapter 46)
+# Project 5: Reasoning RL and Alignment (Chapter 53)
 
 Infrastructure for the capstone project. Your own implementation goes in `p5/`, which you
 create next to these files; your tests go in `tests/`.
@@ -26,4 +26,4 @@ Example grid for `run_matrix.py`:
  "vary": {"normalizer": ["std", "none", "mean"], "seed": [0, 1, 2, 3]}}
 ```
 The tools only expand configurations, check the environment and aggregate logs. The project's
-algorithms are yours to implement; Chapter 34 and Lab 34 teach the building blocks.
+algorithms are yours to implement; Chapter 41 and Lab 41 teach the building blocks.

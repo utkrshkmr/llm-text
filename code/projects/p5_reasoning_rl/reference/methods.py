@@ -1,9 +1,9 @@
-"""The maths of every post-training method in Project 5, written out (Chapter 46).
+"""The maths of every post-training method in Project 5, written out (Chapter 53).
 
 Every function here is a pure tensor function so that it can be checked against the book's
 library on fixed inputs (``test_p5_acceptance.py`` does exactly that against ``llmsys.rl``,
 ``llmsys.rlhf.losses``, ``llmsys.prefopt`` and ``llmsys.distill``). Shapes follow the
-convention of Chapters 37-38: per-token tensors are (N, T) for N sequences, ``mask`` is a
+convention of Chapters 44-45: per-token tensors are (N, T) for N sequences, ``mask`` is a
 float (N, T) selecting completion tokens, and sequence-level quantities are (N,).
 
     sft            cross-entropy over completion tokens

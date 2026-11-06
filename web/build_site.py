@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the website of *LLM Systems from Scratch* from its Markdown sources.
+"""Build the website of *Big Book of LLMs* from its Markdown sources.
 
     python3 web/build_site.py --book book --out site
     python3 -m http.server -d site 8000
@@ -31,6 +31,10 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from figtheme import check_svg, dark_svg  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
@@ -165,6 +169,34 @@ def number_page(body: str, it: dict, labels: dict):
     return texts
 
 
+def renumber_source(md: str, num) -> str:
+    """Numbers written into headings follow the book order: '## Lab 7:' takes the chapter's number."""
+    if num is None:
+        return md
+    return re.sub(r"^## Lab [0-9A-Z]+:", "## Lab %s:" % num, md, flags=re.M)
+
+
+def renumber_solutions(md: str, num) -> str:
+    """A solutions file's 'Chapter N' heading and 'Exercise N.k' headings follow the book order."""
+    if num is None:
+        return md
+    md = re.sub(r"^## (Chapter|Appendix) [0-9A-Z]+:", lambda m: "## %s %s:" % (m.group(1), num), md, flags=re.M)
+    md = re.sub(r"\{#(chapter|appendix)-[0-9a-z]+-", lambda m: "{#%s-%s-" % (m.group(1), str(num).lower()), md)
+    return re.sub(r"^(#{3,4} Exercise )[0-9A-Z]+\.", lambda m: "%s%s." % (m.group(1), num), md, flags=re.M)
+
+
+def add_lab_labels(labels: dict):
+    """[@lab:x] renders 'Lab N' for the chapter or appendix labelled ch:x / app:x, linking to its lab section."""
+    for lid, info in list(labels.items()):
+        kind = info.get("kind")
+        if kind in ("chapter", "appendix") and ":" in lid:
+            slug = lid.split(":", 1)[1]
+            sec = "sec:%s:lab" % slug
+            anchor = sec if sec in labels else lid
+            labels.setdefault("lab:" + slug, dict(kind="lab", num=info["num"], file=labels.get(anchor, info)["file"],
+                                                  anchor=anchor))
+
+
 def fill_markers(body: str, texts):
     it = iter(texts)
 
@@ -186,7 +218,7 @@ def resolve_xrefs(body: str, page_file: str, labels: dict, unresolved: dict):
         if not info:
             unresolved.setdefault(lid, set()).add(page_file)
             return '<span class="xref-missing">??</span>'
-        target = ("" if info["file"] == page_file else info["file"]) + "#" + lid
+        target = ("" if info["file"] == page_file else info["file"]) + "#" + info.get("anchor", lid)
         return '<a href="%s">%s</a>' % (html.escape(target), text)
 
     def rep(m):
@@ -230,6 +262,34 @@ def size_figures(body: str, out: Path, px_per_pt: float = 2.1) -> str:
     return re.sub(r'<img [^>]*src="(figures/[^"]+\.svg)"[^>]*>', rep, body)
 
 
+def theme_figures(body: str) -> str:
+    """Each book figure is emitted twice, light and dark; CSS shows the one matching the theme."""
+    def rep(m):
+        tag = m.group(0)
+        src = re.search(r'src="(figures/[^"]+)\.svg"', tag)
+        if not src or 'class="fig"' not in tag:
+            return tag
+        light = tag.replace('class="fig"', 'class="fig fig-light"', 1)
+        dark = (tag.replace('class="fig"', 'class="fig fig-dark" aria-hidden="true"', 1)
+                .replace(src.group(0), 'src="%s-dark.svg"' % src.group(1), 1))
+        return light + dark
+    return re.sub(r"<img [^>]*>", rep, body)
+
+
+def write_dark_figures(out: Path) -> list:
+    """Write <name>-dark.svg next to every figure; return figures with colours the converter cannot read."""
+    problems = []
+    for f in sorted((out / "figures").glob("*.svg")):
+        if f.stem.endswith("-dark"):
+            continue
+        text = f.read_text(encoding="utf-8")
+        bad = check_svg(text)
+        if bad:
+            problems.append((f.name, bad[:5]))
+        (f.parent / (f.stem + "-dark.svg")).write_text(dark_svg(text), encoding="utf-8")
+    return problems
+
+
 def build_search_index(pages):
     entries = []
     for p in pages:
@@ -265,12 +325,12 @@ def main():
 
     print("[1/3] converting %d pages (%d planned pages not written yet)" % (len(items), len(missing)))
     for it in items:
-        md = read(book / it["src"])
+        md = renumber_source(read(book / it["src"]), it["num"])
         if sol_page and it["src"] == sol_page:
             for other in items:
                 sol = book / "solutions" / (other["stem"].split("_")[0] + "_solutions.md")
                 if other["kind"] != "front" and sol.exists():
-                    md += "\n\n" + read(sol)
+                    md += "\n\n" + renumber_solutions(read(sol), other["num"])
         it["title"] = page_title(md, it["stem"])
         body, err = run_pandoc(md, lua)
         warn = [l for l in err.strip().splitlines() if l.strip() and "Deprecated" not in l]
@@ -285,6 +345,7 @@ def main():
         it["toc_raw"] = m.group(1) if m else ""
         it["body_raw"] = re.sub(r"<!--TOC-->.*?<!--/TOC-->", "", it["raw"], flags=re.S)
         it["texts"] = number_page(it["body_raw"], it, labels)
+    add_lab_labels(labels)
     unresolved = {}
     by_id = {}
     for it in items:
@@ -306,6 +367,11 @@ def main():
         shutil.rmtree(out / "figures")
     if (book / "figures").exists():
         shutil.copytree(book / "figures", out / "figures")
+        fig_problems = write_dark_figures(out)
+        for name, bad in fig_problems:
+            print("  figure colour the dark-mode converter cannot read:", name, bad)
+        if fig_problems and args.strict:
+            raise SystemExit("strict: %d figures use unsupported colour notation" % len(fig_problems))
     template = read(HERE / "template.html")
     chev = ('<svg class="chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
             '<path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" fill="none" '
@@ -331,7 +397,7 @@ def main():
     nav_html = "\n".join(nav)
 
     for i, it in enumerate(items):
-        body = size_figures(it["body"], out)
+        body = theme_figures(size_figures(it["body"], out))
         it["body"] = body
         prev_l = ('<a class="prev" href="%s">&larr; %s</a>' % (items[i - 1]["file"], html.escape(items[i - 1]["title"]))) if i > 0 else "<span></span>"
         next_l = ('<a class="next" href="%s">%s &rarr;</a>' % (items[i + 1]["file"], html.escape(items[i + 1]["title"]))) if i + 1 < len(items) else "<span></span>"
@@ -376,8 +442,16 @@ def main():
         print("unresolved references (%d):" % len(unresolved))
         for lid, files in sorted(unresolved.items()):
             print("  %-40s in %s" % (lid, ", ".join(sorted(files))))
-        if args.strict:
-            raise SystemExit(1)
+        allow = set()
+        allow_file = book / "forward_refs.txt"        # labels of chapters/sections still to be written
+        if allow_file.exists():
+            allow = {l.split("#")[0].strip() for l in read(allow_file).splitlines()} - {""}
+        blocking = sorted(set(unresolved) - allow)
+        stale = sorted(allow - set(unresolved))
+        if stale:
+            print("forward_refs.txt entries that now resolve (remove them):", ", ".join(stale))
+        if args.strict and blocking:
+            raise SystemExit("strict: unresolved references not in book/forward_refs.txt: " + ", ".join(blocking))
 
 
 if __name__ == "__main__":
