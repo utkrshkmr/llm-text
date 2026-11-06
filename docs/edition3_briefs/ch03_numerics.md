@@ -68,3 +68,13 @@ accumulate-in-FP16 vs FP32 error vs K.
 
 Verification: LAB_IMPL=solution pytest -q code/labs/lab03_numerics; pytest -q code/tests; site build --strict
 (allowlist only); figure check in both themes.
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- The DeepSeek-V3 FP8 training recipe in full, as the main case study of section 8: E4M3 for all tensors with
+  fine-grained scaling (1×128 tiles for activations, 128×128 blocks for weights), online (current) scaling,
+  increased accumulation precision by promoting partial sums from tensor cores to FP32 CUDA-core registers every
+  128 elements along K, which components stay in BF16/FP32 (embedding, output head, MoE gating, normalisation,
+  attention), low-precision storage and communication of activations and optimizer states, and the reported loss
+  gap vs BF16. Simulate the tile/block scaling and the promotion interval with the lab's format simulator and
+  measure the error as a function of K and of the promotion interval.

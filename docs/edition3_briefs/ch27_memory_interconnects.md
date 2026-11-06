@@ -48,3 +48,15 @@ Lab 27: implement each collective over send/recv (tests: world 2/4/8 gloo proces
 results; cost-model values), host-memory transfer benchmark harness (CPU-testable parts), topology parser (fixtures),
 overlap scheduler (tests on CPU with gloo for correctness); bench.py on 2 GPUs: pageable vs pinned vs P2P bandwidth
 vs size, NCCL all-reduce/all-gather/all-to-all vs our implementations, overlap fraction. Verification per protocol.
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepSeek's infrastructure papers as case studies: Fire-Flyer AI-HPC (SC 2024: a cost-effective PCIe A100 cluster,
+  HFReduce all-reduce that reduces on the CPU and overlaps with PCIe transfers, network co-design) — directly
+  relevant to this book's 2×A100 PCIe box: implement a two-stage host-assisted all-reduce in the HFReduce style and
+  compare with NCCL; "Insights into DeepSeek-V3: Scaling Challenges and Reflections on Hardware for AI
+  Architectures" (ISCA 2025): multi-plane fat-tree networks, node-limited routing chosen from the NVLink/IB bandwidth
+  ratio, low-precision communication, and the paper's hardware wish list.
+- 3FS (Fire-Flyer File System): disaggregated SSD storage over RDMA with chain replication (CRAQ), used for data
+  loading, checkpointing and KV-cache offload; throughput numbers and what they imply for training I/O.
+- DeepEP from the interconnect side (asymmetric NVLink/RDMA bandwidth domains); detail in [@ch:moe].

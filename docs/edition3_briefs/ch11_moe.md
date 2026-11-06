@@ -60,3 +60,16 @@ tests (`LAB_IMPL=solution python -m pytest -q labs/lab07_qwen3`) and `python -m 
 - Dynamic and ragged computation as a systems theme: dynamic token-to-expert assignment, ragged tensors, grouped GEMM,
   dynamic all-to-all (variable splits), capacity vs dropless; compilation with dynamic token counts ([@ch:compilers]).
 - Research frontier (§7) and Reading-the-research box (e.g. DeepSeekMoE or MegaBlocks).
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepSeek's MoE line in order: DeepSeekMoE (fine-grained + shared experts), DeepSeek-V2 (device-limited routing,
+  communication-balance loss), DeepSeek-V3 (sigmoid gating with normalisation, auxiliary-loss-free bias balancing,
+  sequence-wise balance loss, node-limited routing to at most 4 nodes, no token dropping), with the reason each
+  change was made.
+- DeepEP: normal (high-throughput) dispatch/combine kernels with asymmetric NVLink→RDMA forwarding for training and
+  prefill, low-latency pure-RDMA kernels for decode with hook-based overlap that occupies no SMs, FP8 dispatch;
+  model its bytes and time on PCIe and on NVLink+IB.
+- DeepSeek-V3's inference deployment: prefill and decode units with different parallelism (large expert
+  parallelism for decode), redundant experts for hot experts, overlapping two micro-batches to hide all-to-all;
+  compute its expert-load and communication numbers with our cost model.

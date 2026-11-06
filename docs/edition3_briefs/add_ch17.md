@@ -49,3 +49,9 @@ Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); 
 - Operator taxonomy with memory-traffic accounting: elementwise, reduction, broadcast, layout/permutation (view vs
   copy, contiguity), matmul; how each maps to bytes and FLOPs and which fuse ([@ch:compilers]).
 - CUDA graphs for training steps (static shapes, capture rules, memory pools) and the profiler pointer to [@ch:profiling].
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepSeek-V3's FP8 mixed-precision framework from the practitioner's side (the format analysis is in
+  [@ch:numerics]): where the casts happen in a training step, recomputation of RMSNorm and up-projections to save
+  activations, and what an A100 (no FP8 tensor cores) can and cannot reproduce.

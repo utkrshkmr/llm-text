@@ -43,3 +43,12 @@ Lab 40 (CPU tests): text environments (single-turn verifier, multi-turn, tool wi
 tests on deterministic toy policies), run config validation and YAML round-trip, dataflow shape/mask assertions on a
 tiny model with a fake engine, memory-footprint calculator for role configurations; run.py: one full iteration on a
 tiny model on CPU and a short GPU run. Verification per protocol.
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepSeek's RL setups as worked examples: DeepSeekMath (GRPO introduced, outcome vs process supervision),
+  DeepSeek-R1-Zero (pure RL from a base model with rule-based accuracy + format rewards, no reward model) and
+  DeepSeek-R1 (cold-start SFT, reasoning RL with a language-consistency reward, rejection-sampling SFT, final
+  all-scenario RL), DeepSeek-Prover (Lean 4 proof-assistant verifier as the environment, subgoal decomposition)
+  and DeepSeek-GRM (generative reward models with self-principled critique tuning and inference-time scaling of the
+  reward); for each: environment, reward, models and roles, and the full iteration dataflow in this chapter's terms.

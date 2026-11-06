@@ -49,3 +49,15 @@ Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); 
   cache with RoPE position handling (re-indexing within the cache), measured perplexity of window-only vs sink+window
   on our model. Block-sparse attention masks (BigBird/Longformer patterns, native sparse attention / NSA, MoBA) with
   a block-mask implementation. Serving-side eviction policies live in [@ch:kvcache]; link both ways.
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepSeek Native Sparse Attention (NSA, 2025): three gated branches (compressed coarse-grained tokens, selected
+  top-n blocks chosen from the compressed scores, sliding window), hardware-aligned block selection shared within a
+  GQA group, natively trainable; implement a reference NSA forward and check it against dense attention when the
+  selection covers everything.
+- DeepSeek Sparse Attention (DSA, DeepSeek-V3.2): the lightning indexer (a few low-precision heads scoring every
+  preceding token), top-k token selection per query, how it is trained (dense warm-up that aligns the indexer to the
+  dense attention distribution, then sparse training), its operation on top of MLA, and the resulting long-context
+  cost curve; implement indexer + top-k attention and measure the cost against dense attention on our model.
+  The serving side of both (what the KV cache must still keep) goes to [@ch:kvcache].

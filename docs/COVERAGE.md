@@ -94,3 +94,31 @@ Chapter labels are given in the form `ch:x` (`[@ch:x]` in the text).
 | "Reading the research" box, one per chapter | each stage | planned |
 | At least two research-style exercises per chapter | each stage | planned |
 | Appendix G, *Doing LLM Systems Research* | 8 | planned |
+
+## DeepSeek contributions (owner request, 2026-11-05)
+
+| Contribution | Owner chapter (secondary) | Stage | Status |
+|---|---|---|---|
+| MLA (DeepSeek-V2): latent KV, absorbed projections, decoupled RoPE | ch:anatomy (ch:modern, ch:kvcache) | 2, 6a | existing (brief) |
+| DeepSeekMoE → V2 → V3 routing: fine-grained/shared experts, device/node-limited routing, sigmoid gates, loss-free balancing | ch:moe | 2 | partial code |
+| Multi-token prediction, and its use for speculative decoding | ch:anatomy, ch:efficient (ch:serving) | 2, 6a | existing (brief) |
+| DualPipe | ch:distributed | 3 | existing (brief) |
+| V3 FP8 recipe: tile/block scaling, per-128 promotion, high-precision components | ch:numerics (ch:perf) | 1, 3 | planned |
+| Native Sparse Attention (NSA) | ch:attnalt (ch:kvcache) | 2, 6a | planned |
+| DeepSeek Sparse Attention (DSA, V3.2): lightning indexer, top-k selection | ch:attnalt (ch:kvcache) | 2, 6a | planned |
+| DeepGEMM: FP8 and grouped GEMM, contiguous and masked layouts | ch:cudakernels | 4b | planned |
+| FlashMLA: MLA decode kernel, paged latent cache | ch:cudakernels (ch:kvcache) | 4b, 6a | planned |
+| DeepEP: high-throughput and low-latency expert-parallel all-to-all | ch:moe (ch:memory) | 2, 4b | planned |
+| Fire-Flyer AI-HPC: PCIe A100 cluster, HFReduce | ch:memory | 4b | planned |
+| "Insights into DeepSeek-V3" (ISCA 2025): network and hardware co-design | ch:memory | 4b | planned |
+| 3FS: distributed file system for data, checkpoints and KV cache | ch:memory (ch:kvcache) | 4b, 6a | planned |
+| V3 serving deployment: P/D split, large EP, redundant experts, two-micro-batch overlap | ch:serving (ch:moe) | 6a, 2 | planned |
+| DeepSeek LLM scaling laws: FLOPs/token scale measure, optimal batch size and LR vs compute | ch:scalinglaws | 3 | planned |
+| GRPO and DeepSeekMath | ch:grpo (ch:rlsetup) | 7a | existing |
+| R1-Zero and R1 training pipelines | ch:rlsetup (ch:grpo, ch:distill) | 7a | existing (brief) |
+| V3.2 RL stability fixes | ch:grpo2 | 7a | existing |
+| DeepSeek-Prover: Lean verifier as the RL environment | ch:rlsetup | 7a | planned |
+| DeepSeek-GRM: generative reward models, inference-time reward scaling | ch:rlhf (ch:rlsetup) | 7a | planned |
+| Hyper-connections and mHC | ch:archdesign | 2 | planned |
+| Janus / Janus-Pro, DeepSeek-VL2 | ch:alignment | 7b | planned |
+| DeepSeek-OCR: optical context compression | ch:alignment (ch:kvcache) | 7b | planned |

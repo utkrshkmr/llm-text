@@ -45,3 +45,11 @@ evict against a brute-force model), hash-chain cache, eviction policies (tests: 
 attention maps; StreamingLLM equals windowed attention with sinks), KV quantisation round-trip error bounds,
 sizing formulas vs instantiated tiny caches; bench.py (GPU): prefix-cache hit rate and TTFT on a synthetic
 multi-turn/agent workload in the mini engine, eviction quality vs budget, offload bandwidth. Verification per protocol.
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- Sparse attention at serving time: NSA and DSA keep the full latent cache but read only selected blocks or tokens;
+  what that does to decode bytes per token, and how it interacts with paging and prefix caching.
+- FlashMLA's paged latent cache (block size 64) as a worked example of paging for MLA.
+- 3FS KVCache: offloading prefix KV to distributed SSD storage over RDMA (DeepSeek's context caching on disk) as
+  the bottom tier of the offload hierarchy.

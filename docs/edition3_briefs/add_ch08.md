@@ -31,3 +31,10 @@ Additions (sections inserted at the matching places of the design-space tour, pl
 
 Constraints: keep all existing content and tests; Site check (see BRIEF_conventions.md §2); run
 `LAB_IMPL=solution python -m pytest -q labs/lab08_ablations` and `python -m pytest -q tests`.
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- Hyper-connections and DeepSeek's manifold-constrained hyper-connections (mHC): widening the residual stream into
+  several parallel streams with learned mixing, why unconstrained mixing breaks the identity mapping and destabilises
+  training at scale, and mHC's projection of the mixing matrix onto doubly stochastic matrices (Sinkhorn); implement
+  both as block variants in the ablation workbench and compare with the standard residual.

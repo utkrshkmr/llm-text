@@ -73,3 +73,13 @@ labs/lab24_attn_moe_kernels; python -m pytest -q tests`. Site check (see BRIEF_c
 
 ## Expanded scope (owner, 2026-11; staged plan). Depth rules: BRIEF_conventions.md §7
 - Research frontier (§7) and Reading-the-research box; link MoE kernels to [@ch:moe] and decode attention to [@ch:kvcache].
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepGEMM: FP8 GEMMs with fine-grained scaling on Hopper; grouped GEMMs for MoE in the contiguous layout
+  (prefill/training) and the masked layout (decode with CUDA graphs); JIT compilation of shape-specialised kernels;
+  how the per-128 promotion of [@ch:numerics] is implemented. Read the kernel structure and port the ideas to an
+  A100 BF16 grouped GEMM.
+- FlashMLA: the MLA decode kernel (paged latent cache, absorbed projections, split-KV) read line by line; implement a
+  simplified MLA decode kernel (Triton or CUDA) and compare with the naive path.
+- DeepEP's low-latency kernels are covered in [@ch:moe] and [@ch:memory]; link.

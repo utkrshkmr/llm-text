@@ -47,3 +47,9 @@ Constraints: keep all content/tests; Site check (see BRIEF_conventions.md §2); 
 - Scheduling in full: iteration-level (continuous) batching formalised; chunked prefill with a token budget and its
   effect on TTFT/TPOT; prefill/decode interference; SLO-aware and fairness-aware scheduling; disaggregated serving
   (DistServe/Splitwise/Mooncake) with the KV-transfer cost from [@ch:memory].
+
+
+## DeepSeek contributions (owner request, 2026-11-05). Cover each from the primary paper or repository, at §7 depth
+- DeepSeek-V3's production serving design as a case study: prefill/decode disaggregation with different
+  parallelism per phase, redundant experts, two-micro-batch overlap of attention and MoE communication; the
+  multi-token-prediction module used for speculative decoding at serving time (acceptance rate reported).
