@@ -42,17 +42,26 @@ except Exception:
 
 
 # ----------------------------------------------------------------------------- torch.export
+def _dynamic_shapes(model: nn.Module, arg_name: str, dynamic_seq: bool, dynamic_batch: bool,
+                    max_seq: Optional[int]) -> Optional[dict]:
+    dims = {}
+    if dynamic_batch:
+        dims[0] = Dim("batch", min=1)
+    if dynamic_seq:
+        dims[1] = Dim("seq", min=1, max=max_seq or model.cfg["context_length"])
+    return {arg_name: dims} if dims else None
+
+
 def export_program(model: nn.Module, example_ids: torch.Tensor, max_seq: Optional[int] = None,
-                   dynamic_seq: bool = True, arg_name: str = "in_idx") -> ExportedProgram:
+                   dynamic_seq: bool = True, dynamic_batch: bool = False,
+                   arg_name: str = "in_idx") -> ExportedProgram:
     """Export ``model(ids)`` ahead of time; the sequence dimension is symbolic when ``dynamic_seq``.
 
     ``max_seq`` bounds the symbol (default: the model's ``context_length``); a bound lets the
-    exporter discharge ``start + T > context_length`` statically instead of guarding on it.
+    exporter discharge ``start + T > context_length`` statically instead of guarding on it. Every
+    dimension not marked dynamic is baked in: the program then refuses other shapes at run time.
     """
-    shapes = None
-    if dynamic_seq:
-        max_seq = max_seq or model.cfg["context_length"]
-        shapes = {arg_name: {1: Dim("seq", min=1, max=max_seq)}}
+    shapes = _dynamic_shapes(model, arg_name, dynamic_seq, dynamic_batch, max_seq)
     return torch.export.export(model.eval(), (example_ids,), dynamic_shapes=shapes)
 
 
@@ -75,8 +84,9 @@ def run_exported(ep: ExportedProgram, ids: torch.Tensor) -> torch.Tensor:
 
 # ----------------------------------------------------------------------------- ONNX
 def export_onnx(model: nn.Module, example_ids: torch.Tensor, path: str, dynamic_seq: bool = True,
-                opset: int = 18, dynamo: Optional[bool] = None, arg_name: str = "in_idx") -> str:
-    """Write ``model`` to an ONNX file with a symbolic sequence dimension; return ``path``.
+                dynamic_batch: bool = True, opset: int = 18, dynamo: Optional[bool] = None,
+                arg_name: str = "in_idx") -> str:
+    """Write ``model`` to an ONNX file with symbolic batch and sequence dimensions; return ``path``.
 
     ``dynamo=True`` uses the torch.export-based exporter (needs ``onnxscript``); ``False`` the older
     TorchScript tracer. Default: whichever is available, preferring the new one.
@@ -85,13 +95,14 @@ def export_onnx(model: nn.Module, example_ids: torch.Tensor, path: str, dynamic_
         dynamo = HAS_ONNXSCRIPT
     model = model.eval()
     if dynamo:
-        shapes = {arg_name: {1: Dim("seq", min=1, max=model.cfg["context_length"])}} if dynamic_seq else None
+        shapes = _dynamic_shapes(model, arg_name, dynamic_seq, dynamic_batch, None)
         prog = torch.onnx.export(model, (example_ids,), dynamo=True, dynamic_shapes=shapes,
                                  opset_version=opset, optimize=True)
         prog.save(path)
     else:
         import warnings
-        axes = {arg_name: {0: "batch", 1: "seq"}, "logits": {0: "batch", 1: "seq"}} if dynamic_seq else None
+        dyn = {i: n for i, n, on in ((0, "batch", dynamic_batch), (1, "seq", dynamic_seq)) if on}
+        axes = {arg_name: dyn, "logits": dyn} if dyn else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             torch.onnx.export(model, (example_ids,), path, dynamo=False, input_names=[arg_name],

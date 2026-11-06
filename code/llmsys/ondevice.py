@@ -34,7 +34,7 @@ RAW_FORMATS = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.floa
 FORMAT_BITS = {  # storage bits per weight, scales included
     "q4_0": 4 + 16 / 32,                # 16-byte block + fp16 scale per 32 weights
     "q4_g": 4 + (16 + 8) / 128,         # fp16 scale + uint8 zero point per 128 weights
-    "q4_k": 148 * 8 / 256,              # 128 B codes, 12 B of 6-bit pairs, two fp32, per 256
+    "q4_k": 144 * 8 / 256,              # 128 B codes, 12 B of 6-bit scales/mins, two fp16, per 256
     "q8_0": 8 + 16 / 32,
     "fp16": 16.0,
     "bf16": 16.0,
@@ -256,8 +256,9 @@ def quantize_q4_k(w: torch.Tensor, super_block: int = 256, sub_block: int = 32
                   ) -> Tuple[torch.Tensor, int]:
     """Q4_K-style nested scales; returns (dequantised weight, storage bytes).
 
-    Each sub-block has its own minimum and scale, stored as 6-bit codes relative to two fp32 values
-    per super-block. Finer scales for 0.125 more bits per weight than Q4_0.
+    Each sub-block has its own minimum and scale, stored as 6-bit codes relative to two fp16 values
+    per super-block: 128 + 12 + 4 = 144 bytes per 256 weights, the same 4.5 bits per weight as Q4_0
+    but with a finer grid (per-32 scales *and* minimums) paid for by coarser scale precision.
     """
     n, k = w.shape
     wp = G.pad_to_group(w.float(), super_block)
@@ -272,7 +273,7 @@ def quantize_q4_k(w: torch.Tensor, super_block: int = 256, sub_block: int = 32
     q = torch.clamp(torch.round((blocks + m6[..., None]) / safe[..., None]), 0, 15)
     w_hat = (q * s6[..., None] - m6[..., None]).reshape(n, -1)[:, :k]
     n_super = wp.numel() // super_block
-    return w_hat, n_super * 148
+    return w_hat, n_super * 144
 
 
 # ----------------------------------------------------------------------------- the file

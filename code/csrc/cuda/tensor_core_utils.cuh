@@ -101,6 +101,8 @@ template <>
 __device__ __forceinline__ float to_f32<__half>(__half v) { return __half2float(v); }
 template <>
 __device__ __forceinline__ float to_f32<float>(float v) { return v; }
+template <>
+__device__ __forceinline__ float to_f32<double>(double v) { return static_cast<float>(v); }
 
 template <typename T>
 __device__ __forceinline__ T from_f32(float v);

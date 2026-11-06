@@ -343,7 +343,7 @@ def gpu_stage(args) -> dict:
     if not args.no_7b:
         print("7B decoder shape, T = 128, bf16:")
         big = dict(vocab_size=32000, context_length=4096, emb_dim=4096, n_heads=32, n_layers=32,
-                   drop_rate=0.0, qkv_bias=False, hidden_dim=18022)
+                   drop_rate=0.0, qkv_bias=False, hidden_dim=18048)
         big_batches = [b for b in batches if b <= 128]
         results["decoder_7b"] = batch_sweep(big, 128, big_batches, device)
     return results

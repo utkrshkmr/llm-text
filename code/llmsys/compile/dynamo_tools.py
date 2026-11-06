@@ -174,7 +174,10 @@ _KERNEL_DEF = re.compile(r"^(\w+) = async_compile\.(triton|cpp_pybinding|cpp)\("
 _KIND = {"poi": "pointwise", "red": "reduction", "per": "persistent reduction", "tem": "template",
          "for": "foreach"}
 _COMPOUND = ("_to_copy", "native_layer_norm", "scaled_dot_product", "log_softmax", "_softmax",
-             "_unsafe_view", "silu_backward", "new_zeros")
+             "_unsafe_view", "silu_backward", "new_zeros", "masked_fill", "nan_to_num", "index_select",
+             "index_put", "repeat_interleave", "embedding_dense_backward", "sum_backward",
+             "threshold_backward", "gelu_backward", "sigmoid_backward", "tanh_backward", "mul_backward",
+             "prepare_softmax_online")
 
 
 def kernel_names(code: str) -> List[str]:

@@ -150,6 +150,8 @@ NVLINK_H100 = Link("NVLink 4 (H100 SXM, 450 GB/s per direction)", alpha=10e-6, b
 IB_400G = Link("400 Gb/s InfiniBand", alpha=20e-6, bandwidth=50e9)
 
 COLLECTIVES = ("all_gather", "reduce_scatter", "all_reduce", "all_to_all", "slice")
+# A "slice" is any free local re-layout: keeping one block of a replicated tensor, or zero-padding
+# one block into the summand of a partial tensor (its transpose).
 
 
 def bytes_per_rank(kind: str, nbytes: int, p: int) -> float:
@@ -219,6 +221,7 @@ def reshard_plan(src: ShardSpec, dst: ShardSpec, mesh: Mesh, shape: Sequence[int
     sharded on i -> replicated     all-gather along i
     sharded on i -> sharded on j   all-to-all (each device keeps 1/p of its data, sends the rest)
     replicated -> sharded on j     local slice, no bytes
+    sharded on i -> partial        local zero-pad, no bytes (the transpose of the slice above)
     replicated -> partial          not a layout change anyone wants (raises)
     """
     src.validate(mesh)
@@ -242,7 +245,11 @@ def reshard_plan(src: ShardSpec, dst: ShardSpec, mesh: Mesh, shape: Sequence[int
             cur = cur.without_partial(axis).with_dim(dst_dim, axis) if dst_dim is not None \
                 else cur.without_partial(axis)
         elif not src_part and dst_part:
-            raise ValueError(f"{src} -> {dst}: nothing turns a replicated tensor into a partial sum")
+            if src_dim is None:
+                raise ValueError(f"{src} -> {dst}: nothing turns a replicated tensor into a partial sum")
+            # sharded -> partial: zero-pad my block into a full-size summand (the transpose of slice)
+            steps.append(Collective("slice", axis, name, 0, f"zero-pad dim {src_dim} into a summand"))
+            cur = cur.with_dim(src_dim, None).with_partial(axis)
         elif src_dim is not None and dst_dim is None:
             steps.append(Collective("all_gather", axis, name, other, f"along dim {src_dim}"))
             cur = cur.with_dim(src_dim, None)
@@ -255,6 +262,35 @@ def reshard_plan(src: ShardSpec, dst: ShardSpec, mesh: Mesh, shape: Sequence[int
             cur = cur.with_dim(dst_dim, axis)
     assert cur == dst, (cur, dst)
     return steps
+
+
+def cotangent_spec(spec: ShardSpec, mesh: Mesh) -> ShardSpec:
+    """Layout of the gradient of a tensor with layout ``spec``, axis by axis.
+
+    A sharded dimension stays sharded (each device owns the gradient of its block). A partial sum
+    becomes replicated: the derivative of f(sum_r S_r) with respect to any summand S_r is the same
+    full gradient on every device. A replicated axis becomes partial: the devices along it consumed
+    the tensor in different local programs, so each holds one summand of the total gradient. (When
+    every device ran the same downstream program the gradient is already replicated and the
+    partial -> replicated all-reduce is a no-op; Megatron's ``f``/``g`` operators exploit that.)
+    """
+    sharded = set(spec.shard_axes)
+    return ShardSpec(spec.dims, frozenset(a for a in mesh.axes
+                                          if a not in sharded and a not in spec.partial))
+
+
+def transpose_reshard(src: ShardSpec, dst: ShardSpec, mesh: Mesh, shape: Sequence[int],
+                      dtype_bytes: int = 2, name: str = "dX") -> List[Collective]:
+    """Collectives of the backward pass of a resharding ``src -> dst``.
+
+    The backward moves the gradient from the cotangent layout of ``dst`` to that of ``src``; the
+    chapter's derivation ("transpose the forward program") says nothing else. The result agrees
+    with ``transpose_collective`` step by step: an all-gather (shard -> replicated) becomes a
+    reduce-scatter (partial -> shard), a reduce-scatter becomes an all-gather, an all-reduce and an
+    all-to-all stay what they are, and a free slice becomes a free zero-pad.
+    """
+    return reshard_plan(cotangent_spec(dst, mesh), cotangent_spec(src, mesh), mesh, shape,
+                        dtype_bytes, name)
 
 
 # =========================================================================== the matmul rules
@@ -286,7 +322,7 @@ class MatmulPlan:
 def _finish_partial(out: ShardSpec, axis: str, finish: str, shape_c: Sequence[int], mesh: Mesh,
                     dtype_bytes: int, steps: List[Collective]) -> ShardSpec:
     """Resolve a partial sum over ``axis``: leave it, all-reduce it, or reduce-scatter it."""
-    nbytes = out.local_bytes(shape_c, mesh, dtype_bytes) * (1 if axis in out.partial else 1)
+    nbytes = out.local_bytes(shape_c, mesh, dtype_bytes)      # one summand = the group's view of C
     if finish == "partial":
         return out
     if finish == "all_reduce":
@@ -311,6 +347,10 @@ def matmul_plan(a: ShardSpec, b: ShardSpec, mesh: Mesh, shape_a: Sequence[int],
     dim ``d`` over the axis). ``strategy`` picks the case-II variant: ``"gather"`` the operand that
     is sharded on K, ``"partial"`` slice the other operand and defer the reduction, or ``"auto"``
     take whichever moves fewer bytes (counting the deferred reduction).
+
+    Byte counts are always *the tensor as the communicating group sees it*: the local block times
+    the group size, so that a collective over one axis of a 2-D mesh is not charged for the
+    sharding the other axis already did.
     """
     a.validate(mesh)
     b.validate(mesh)
@@ -322,45 +362,55 @@ def matmul_plan(a: ShardSpec, b: ShardSpec, mesh: Mesh, shape_a: Sequence[int],
         raise ValueError(f"inner dimensions differ: {K} vs {K2}")
     shape_c = (M, N)
     steps: List[Collective] = []
-    bytes_a = M * K * dtype_bytes
-    bytes_b = K * N * dtype_bytes
 
-    # --- partial-sum operands: (sum_r A_r) B = sum_r (A_r B) is fine as long as B is not itself
-    # a partial over the same axes and does not use that axis; otherwise resolve A first.
-    for name, spec, other, nbytes in (("A", a, b, bytes_a), ("B", b, a, bytes_b)):
+    def gbytes(spec: ShardSpec, shape: Sequence[int], axis: str) -> int:
+        return spec.local_bytes(shape, mesh, dtype_bytes) * mesh.size(axis)
+
+    def gather(name: str, dim: int, axis: str, note: str) -> None:
+        """Append the all-gather of operand ``name`` along ``dim`` over ``axis`` and update it."""
+        nonlocal a, b
+        spec, shape = (a, shape_a) if name == "A" else (b, shape_b)
+        steps.append(Collective("all_gather", axis, name, gbytes(spec, shape, axis), note))
+        if name == "A":
+            a = a.with_dim(dim, None)
+        else:
+            b = b.with_dim(dim, None)
+
+    def smaller(axis: str) -> str:
+        """Which operand costs fewer bytes to all-gather over ``axis``."""
+        return "A" if gbytes(a, shape_a, axis) <= gbytes(b, shape_b, axis) else "B"
+
+    # --- partial-sum operands: (sum_r A_r) B = sum_r (A_r B) holds as long as B is not itself a
+    # partial sum and does not use that axis; otherwise resolve the partial operand first.
+    for name in ("A", "B"):
+        spec, other, shape = (a, b, shape_a) if name == "A" else (b, a, shape_b)
         for axis in sorted(spec.partial):
             if other.partial or axis in other.shard_axes:
-                steps.append(Collective("all_reduce", axis, name, nbytes, "resolve partial operand"))
+                steps.append(Collective("all_reduce", axis, name, gbytes(spec, shape, axis),
+                                        "resolve partial operand"))
                 if name == "A":
                     a = a.without_partial(axis)
                 else:
                     b = b.without_partial(axis)
     carried_partial = a.partial | b.partial
 
+    # --- contracting dimension sharded on both operands but over different axes: gather the
+    # cheaper operand along K so that one axis remains
+    if a.dims[1] is not None and b.dims[0] is not None and a.dims[1] != b.dims[0]:
+        if gbytes(a, shape_a, a.dims[1]) <= gbytes(b, shape_b, b.dims[0]):
+            gather("A", 1, a.dims[1], "mismatched K axes")
+        else:
+            gather("B", 0, b.dims[0], "mismatched K axes")
     aM, aK = a.dims
     bK, bN = b.dims
 
-    # --- contracting dimension sharded on both operands but over different axes: re-shard the
-    # smaller operand so that the rule below sees one axis
-    if aK is not None and bK is not None and aK != bK:
-        if bytes_a <= bytes_b:
-            steps.append(Collective("all_gather", aK, "A", bytes_a, "mismatched K axes"))
-            a, aK = a.with_dim(1, None), None
-        else:
-            steps.append(Collective("all_gather", bK, "B", bytes_b, "mismatched K axes"))
-            b, bK = b.with_dim(0, None), None
-
-    # --- case III: both sharded on K over the same axis -> partial products
+    # --- case III: both sharded on K over the same axis -> local partial products
     if aK is not None and aK == bK:
         axis = aK
-        if aM == axis or bN == axis:        # impossible after validate (axis once per tensor)
-            raise AssertionError
-        if aM is not None and aM == bN:     # free dims collide on another axis: gather one
-            steps.append(_gather_smaller(a, b, aM, bytes_a, bytes_b, which=("A", 0) if bytes_a <= bytes_b else ("B", 1)))
-            if bytes_a <= bytes_b:
-                a, aM = a.with_dim(0, None), None
-            else:
-                b, bN = b.with_dim(1, None), None
+        if aM is not None and aM == bN:         # free dims collide on another axis (case IV inside)
+            name = smaller(aM)
+            gather(name, 0 if name == "A" else 1, aM, f"conflict on {aM}: gather {name}")
+            aM, bN = a.dims[0], b.dims[1]
         out = ShardSpec((aM, bN), carried_partial | {axis})
         out = _finish_partial(out, axis, finish, shape_c, mesh, dtype_bytes, steps)
         return MatmulPlan("III", steps, out,
@@ -369,57 +419,46 @@ def matmul_plan(a: ShardSpec, b: ShardSpec, mesh: Mesh, shape_a: Sequence[int],
     # --- case II: exactly one operand sharded on K
     if (aK is None) != (bK is None):
         axis = aK or bK
-        sharded, sharded_name, sharded_bytes = (a, "A", bytes_a) if aK else (b, "B", bytes_b)
+        name = "A" if aK else "B"
         other_free = bN if aK else aM
         if other_free == axis:
             # the other operand's free dim is split over the same axis: no local slice of it
-            # matches our K slice on every rank -> the only option is to gather our operand
-            steps.append(Collective("all_gather", axis, sharded_name, sharded_bytes, "along K"))
-            out = ShardSpec((aM if aK else None, None if aK else bN), carried_partial)
-            out = ShardSpec((aM if aK else aM, bN if not aK else bN), carried_partial)
-            return MatmulPlan("II-gather", steps, out,
-                              f"{sharded_name} is split on K over {axis} and the free dim of the other "
-                              f"operand uses {axis} too: all-gather {sharded_name}")
-        if aM is not None and bN is not None and aM == bN:
-            steps.append(_gather_smaller(a, b, aM, bytes_a, bytes_b, which=("A", 0) if bytes_a <= bytes_b else ("B", 1)))
-            if bytes_a <= bytes_b:
-                a, aM = a.with_dim(0, None), None
-            else:
-                b, bN = b.with_dim(1, None), None
-        gather_cost = bytes_per_rank("all_gather", sharded_bytes, mesh.size(axis))
-        c_bytes = ShardSpec((aM, bN)).local_bytes(shape_c, mesh, dtype_bytes)
-        reduce_kind = "all_reduce" if finish == "all_reduce" else "reduce_scatter"
-        partial_cost = 0.0 if finish == "partial" else bytes_per_rank(reduce_kind, c_bytes, mesh.size(axis))
-        use_gather = strategy == "gather" or (strategy == "auto" and gather_cost <= partial_cost)
-        if use_gather:
-            steps.append(Collective("all_gather", axis, sharded_name, sharded_bytes, "along K"))
+            # matches our K block on every device, so the only option is to gather our operand
+            gather(name, 1 if aK else 0, axis, "along K")
             return MatmulPlan("II-gather", steps, ShardSpec((aM, bN), carried_partial),
-                              f"{sharded_name} is split on K over {axis}: all-gather it, then local")
-        steps.append(Collective("slice", axis, "B" if aK else "A", 0, "take the matching K slice"))
+                              f"{name} is split on K over {axis} and the free dim of the other "
+                              f"operand uses {axis} too: all-gather {name}")
+        if aM is not None and aM == bN:         # free dims collide on another axis
+            n2 = smaller(aM)
+            gather(n2, 0 if n2 == "A" else 1, aM, f"conflict on {aM}: gather {n2}")
+            aM, bN = a.dims[0], b.dims[1]
+        spec, shape = (a, shape_a) if aK else (b, shape_b)
+        gather_cost = bytes_per_rank("all_gather", gbytes(spec, shape, axis), mesh.size(axis))
+        c_group = ShardSpec((aM, bN)).local_bytes(shape_c, mesh, dtype_bytes)
+        reduce_kind = "all_reduce" if finish == "all_reduce" else "reduce_scatter"
+        partial_cost = 0.0 if finish == "partial" else \
+            bytes_per_rank(reduce_kind, c_group, mesh.size(axis))
+        if strategy == "gather" or (strategy == "auto" and gather_cost <= partial_cost):
+            gather(name, 1 if aK else 0, axis, "along K")
+            return MatmulPlan("II-gather", steps, ShardSpec((aM, bN), carried_partial),
+                              f"{name} is split on K over {axis}: all-gather it, then local")
+        steps.append(Collective("slice", axis, "B" if aK else "A", 0, "take the matching K block"))
         out = ShardSpec((aM, bN), carried_partial | {axis})
         out = _finish_partial(out, axis, finish, shape_c, mesh, dtype_bytes, steps)
         return MatmulPlan("II-partial", steps, out,
-                          f"{sharded_name} is split on K over {axis}: slice the other operand, "
+                          f"{name} is split on K over {axis}: slice the other operand, "
                           f"partial products, then {finish}")
 
     # --- no axis on K: case I (local) unless the two free dims collide (case IV)
     if aM is not None and aM == bN:
         axis = aM
-        which = ("A", 0) if bytes_a <= bytes_b else ("B", 1)
-        steps.append(_gather_smaller(a, b, axis, bytes_a, bytes_b, which))
-        out = ShardSpec((None, bN) if which[0] == "A" else (aM, None), carried_partial)
-        return MatmulPlan("IV", steps, out,
-                          f"{axis} splits both M and N: a device would only hold diagonal blocks of C; "
-                          f"all-gather {which[0]} (the smaller operand)")
+        name = smaller(axis)
+        gather(name, 0 if name == "A" else 1, axis, f"conflict on {axis}: gather {name}")
+        return MatmulPlan("IV", steps, ShardSpec((a.dims[0], b.dims[1]), carried_partial),
+                          f"{axis} splits both M and N: a device would only hold diagonal blocks "
+                          f"of C; all-gather {name} (the smaller operand)")
     return MatmulPlan("I", steps, ShardSpec((aM, bN), carried_partial),
                       "no mesh axis touches K: every device multiplies its own blocks")
-
-
-def _gather_smaller(a: ShardSpec, b: ShardSpec, axis: str, bytes_a: int, bytes_b: int,
-                    which: Tuple[str, int]) -> Collective:
-    name, dim = which
-    return Collective("all_gather", axis, name, bytes_a if name == "A" else bytes_b,
-                      f"conflict on {axis}: gather {name} along dim {dim}")
 
 
 # =========================================================================== layer programs
@@ -437,15 +476,17 @@ class ProgramStep:
 
 def mlp_program(x: ShardSpec, w1: ShardSpec, w2: ShardSpec, mesh: Mesh, tokens: int, d_model: int,
                 d_ff: int, dtype_bytes: int = 2, finish2: str = "all_reduce",
-                x_out: Optional[ShardSpec] = None) -> List[ProgramStep]:
+                x_out: Optional[ShardSpec] = None, finish1: str = "all_reduce") -> List[ProgramStep]:
     """The two matmuls of an MLP, ``H = X W1`` then ``Y = act(H) W2``, as a sharded program.
 
-    ``finish2`` resolves the second product's partial sum (``"all_reduce"`` is Megatron TP,
-    ``"reduce_scatter:0"`` is sequence parallelism). ``x_out`` optionally re-shards Y to the
-    layout the next layer expects, so that the per-layer traffic is complete.
+    ``finish1``/``finish2`` resolve each product's partial sum if it has one (``"all_reduce"`` is
+    Megatron TP, ``"reduce_scatter:0"`` is sequence parallelism, and the 2-D weight-stationary
+    layout of the inference section reduce-scatters H over one mesh axis). ``x_out`` optionally
+    re-shards Y to the layout the next layer expects, so that the per-layer traffic is complete.
+    The activation between the two products is elementwise, so it needs no collective of its own.
     """
     steps = []
-    p1 = matmul_plan(x, w1, mesh, (tokens, d_model), (d_model, d_ff), dtype_bytes, finish="all_reduce")
+    p1 = matmul_plan(x, w1, mesh, (tokens, d_model), (d_model, d_ff), dtype_bytes, finish=finish1)
     steps.append(ProgramStep("H = X @ W1", plan=p1))
     p2 = matmul_plan(p1.out, w2, mesh, (tokens, d_ff), (d_ff, d_model), dtype_bytes, finish=finish2)
     steps.append(ProgramStep("Y = act(H) @ W2", plan=p2))

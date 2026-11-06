@@ -1,0 +1,1089 @@
+\chapter{Encoders, Encoder--Decoders and Cross-Attention}\label{ch:encoders}
+
+Every model we have built so far reads from left to right. The causal mask of \cref{ch:attention}
+hides the future from each position, the loss of \cref{ch:gpt} asks every position to predict the
+token after it, and the KV cache of \cref{ch:modern} exists only because that mask makes earlier
+keys and values reusable. Remove the mask and all three change at once: the model can see the whole
+sequence, it can no longer be trained to predict the next token (the answer is in its input), and at
+inference it does one forward pass per sequence with nothing to cache. That is an \emph{encoder}, the
+other half of the original transformer (Vaswani et al., 2017), the shape of BERT (Devlin et al.,
+2019), of the text embedding models that feed every retrieval system, of the rerankers that sort what
+retrieval returns, and of the vision towers that let a language model see.
+
+This chapter builds encoders from the pieces we already have and treats the places where they differ
+from decoders as the interesting ones. We start with the masks, because a single boolean matrix
+decides whether a model is a decoder, an encoder or the prefix-LM hybrid between them. We then make the
+training objectives exact---not ``mask some tokens'' but the precise 80/10/10 rule of BERT and the
+sentinel construction of T5 (Raffel et al., 2020)---and count how many gradient signals each one buys
+per token read. The middle of the chapter joins an encoder to a decoder through cross-attention and
+shows that an encoder--decoder has two caches of different character: a self-attention cache that
+grows and a cross-attention cache that is written once. The second half turns the encoder into the
+tools it is actually used for today: sentence embeddings trained with a contrastive loss, cross-encoder
+rerankers, and vision transformers. We finish where this book always finishes, at the machine: encoder
+inference is compute-bound, uses no KV cache, and is served by batching dynamically over sequences of
+unequal length, a very different serving problem from the one of \cref{ch:inference}.
+
+The lab trains a small encoder with masked prediction on a few kilobytes of text and then converts it
+into a sentence-embedding model with a contrastive loss; the embeddings it produces are the kind that
+\cref{ch:retrieval} will index, and the vision encoder of \cref{sec:encoders:vit} is the tower that
+\cref{ch:alignment} bolts onto a language model.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  stage/.style={draw=sysblue,fill=sysbluebg,rounded corners=2pt,minimum width=2.15cm,
+    minimum height=1.0cm,align=center,font=\small},
+  sysst/.style={stage,draw=napkin,fill=napkinbg},
+  num/.style={circle,fill=sysblue,text=white,font=\scriptsize\bfseries,inner sep=1.2pt},
+  arr/.style={-{Stealth[length=2.2mm]},thick,sysblue!70}]
+\node[stage] (a) {Three masks,\\three models};
+\node[stage,right=0.35cm of a] (b) {MLM\\80/10/10};
+\node[stage,right=0.35cm of b] (c) {Span corruption,\\prefix-LM};
+\node[stage,right=0.35cm of c] (d) {Encoder\\in code};
+\node[stage,right=0.35cm of d] (e) {Cross-attention,\\two caches};
+\node[sysst,below=0.85cm of e] (f) {Serving an\\encoder};
+\node[stage,left=0.35cm of f] (g) {Vision\\transformers};
+\node[stage,left=0.35cm of g] (h) {Cross-encoder\\rerankers};
+\node[stage,left=0.35cm of h] (i) {Embeddings,\\InfoNCE};
+\node[sysst,left=0.35cm of i] (j) {Enc--dec\\serving cost};
+\foreach \s/\n in {a/1,b/2,c/3,d/4,e/5,j/6,i/7,h/8,g/9,f/10} \node[num] at (\s.north west) {\n};
+\draw[arr] (a)--(b); \draw[arr] (b)--(c); \draw[arr] (c)--(d); \draw[arr] (d)--(e); \draw[arr] (e)--(f);
+\draw[arr] (f)--(g); \draw[arr] (g)--(h); \draw[arr] (h)--(i); \draw[arr] (i)--(j);
+\end{tikzpicture}}
+\caption{Roadmap of this chapter: masks and objectives (1--3), the encoder and the encoder--decoder in
+code (4--6), the encoder as an embedding, reranking and vision model (7--9), and how encoders are served
+(10). Amber stages are the systems view.}
+\label{fig:encoders:roadmap}
+\end{figure}
+
+% =====================================================================
+\section{Three masks, three models}\label{sec:encoders:masks}
+
+Attention computes, for every query position $i$, a weighted average over the keys $j$ it is
+\emph{allowed} to see. The set of allowed keys is the whole architecture decision. \Cref{fig:encoders:masks}
+shows the three patterns that matter.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=0.42cm,y=0.42cm]
+\foreach \ox/\name/\pat in {0/causal (decoder)/c, 9/bidirectional (encoder)/b, 18/prefix-LM ($p=3$)/p}{
+  \node[font=\small,anchor=south] at (\ox+3.5,7.4) {\name};
+  \foreach \i in {0,...,6}{
+    \foreach \j in {0,...,6}{
+      \pgfmathsetmacro{\allowed}{0}
+      \ifx\pat c \pgfmathsetmacro{\allowed}{\j<=\i} \fi
+      \ifx\pat b \pgfmathsetmacro{\allowed}{1} \fi
+      \ifx\pat p \pgfmathsetmacro{\allowed}{(\j<3)||(\j<=\i)} \fi
+      \pgfmathparse{\allowed==1 ? "fcompute!35" : "white"}
+      \edef\col{\pgfmathresult}
+      \node[draw=black!40,fill=\col,minimum width=0.42cm,minimum height=0.42cm,inner sep=0] at (\ox+\j+0.5,6.5-\i) {};
+    }
+  }
+  \node[font=\scriptsize,anchor=east] at (\ox-0.1,3.5) {$i$};
+  \node[font=\scriptsize,anchor=north] at (\ox+3.5,-0.1) {$j$};
+}
+\draw[thick,napkin] (18,7)--(18,0); \draw[thick,napkin] (21,7)--(21,0);
+\node[font=\scriptsize,text=napkin,anchor=north] at (19.5,-0.6) {prefix};
+\node[font=\scriptsize,text=napkin,anchor=north] at (23,-0.6) {suffix};
+\end{tikzpicture}
+\caption{The three attention masks for $T=7$ (rows are queries $i$, columns keys $j$; blue cells are
+allowed). The causal mask lets $i$ see $j\le i$; the encoder mask lets everyone see everyone; the
+prefix-LM mask lets every position see the whole prefix of length $p$ and is causal in the suffix,
+so the prefix is read like an encoder and the suffix is generated like a decoder.}
+\label{fig:encoders:masks}
+\end{figure}
+
+\paragraph{Causal.} Query $i$ sees keys $j\le i$. The representation at position $i$ is a function of
+tokens $x_{\le i}$ only, so it can be trained to predict $x_{i+1}$ and, at inference, the keys and
+values of positions $<i$ never change when a new token is appended, which is what makes the KV cache
+possible.
+
+\paragraph{Bidirectional.} Every query sees every key. The representation at position $i$ depends on
+the whole sequence, including $x_i$ itself, so the next-token objective is meaningless: the model
+would copy $x_{i+1}$ from its input. Appending a token changes every representation, so nothing can
+be cached across steps---but there are no steps: an encoder processes a sequence exactly once.
+
+\paragraph{Prefix-LM.} Key $j$ is visible to query $i$ when $j<p$ or $j\le i$. The first $p$ tokens
+(the prefix) are read bidirectionally; the remaining tokens are generated causally and can see the
+whole prefix. This is the mask of the original encoder--decoder flattened into one stack of layers
+(Raffel et al., 2020 compared the two; Tay et al., 2023 mixed it with other denoisers in UL2), and it
+is also, exactly, the mask that a multimodal model uses over an image prefix followed by text
+(\cref{ch:alignment}).
+
+The code for all three is a handful of lines (\cref{lst:encoders:masks}). We follow the convention
+of \cref{ch:attention}: a mask is a boolean tensor broadcastable to $(B,H,T_q,T_k)$ that is
+\code{True} where attention is \emph{forbidden}, and padding is a second mask of real tokens, shape
+$(B,T)$, that is folded in over the key axis.
+
+\begin{lstlisting}[caption={Encoder and prefix-LM masks (cf.\ \ident{llmsys/encoder.py}).},label={lst:encoders:masks}]
+def bidirectional_mask(pad_mask):
+    """Nothing is forbidden except padding keys. pad_mask: (B, T), True = real."""
+    if pad_mask is None:
+        return None
+    return (~pad_mask)[:, None, None, :]          # (B, 1, 1, T): same for every query
+
+def prefix_lm_mask(prefix_len, T, device=None):
+    """Key j is allowed for query i iff j < prefix_len or j <= i. (B|1, 1, T, T)."""
+    if isinstance(prefix_len, int):
+        prefix_len = torch.tensor([prefix_len], device=device)
+    i = torch.arange(T, device=prefix_len.device)[:, None]
+    j = torch.arange(T, device=prefix_len.device)[None, :]
+    allowed = (j[None] < prefix_len[:, None, None]) | (j <= i)[None]
+    return (~allowed)[:, None]
+\end{lstlisting}
+
+\paragraph{Padding queries.} \code{bidirectional\_mask} masks padding \emph{keys} only. A padding
+query (a row of the attention matrix belonging to a pad token) still attends to the real tokens and
+produces some output; we let it, and make every consumer ignore those positions explicitly---the
+pooling in \cref{sec:encoders:embed} averages over real tokens only and the loss carries
+\code{ignore\_index} at pad positions. The alternative, masking entire rows, produces a row of
+$-\infty$ scores whose softmax is NaN; the \code{nan\_to\_num} in \code{\_attend} exists for the
+case where a key mask does mask a whole row, as happens for a fully padded sequence in a batch.
+
+\paragraph{Special tokens.} BERT frames every input as \code{[CLS] a [SEP] b [SEP]}. The
+\code{[CLS]} token has no content of its own; it is a position whose output the model learns to use as
+a summary because the pretraining head reads it there, and it is the natural place to attach a
+classifier (\cref{ch:classify}). \code{[SEP]} marks sentence boundaries, and a learned
+\emph{segment} embedding (0 for $a$, 1 for $b$) tells attention which side of the boundary a token is
+on. None of these needs special treatment in the mask: they are real tokens, attended to and attending
+like any other. They must be excluded from the \emph{objective}, which is the subject of the next
+section.
+
+\begin{keyidea}[A model is its mask]
+Encoder, decoder and prefix-LM share every parameter shape. The difference is one boolean matrix
+and, following from it, what the loss can ask of each position and what can be cached at inference.
+Everything in this chapter is a consequence of letting position $i$ see position $j>i$.
+\end{keyidea}
+
+% =====================================================================
+\section{Masked-token prediction}\label{sec:encoders:mlm}
+
+If the model may see $x_i$, it cannot be asked to predict it, so BERT hides it first: select a
+fraction $\rho$ (15\%) of the positions, corrupt the input at those positions, and ask the model to
+recover the original token there. The loss is a cross-entropy over the vocabulary at the selected
+positions and nothing elsewhere:
+\begin{equation}
+\mathcal{L}_\text{MLM} = -\frac{1}{|M|}\sum_{i\in M}\log p_\theta\!\left(x_i \mid \tilde{\vect x}\right),
+\qquad \tilde{\vect x} = \text{corrupt}(\vect x, M),
+\label{eq:encoders:mlm}
+\end{equation}
+where $M$ is the set of selected positions and $\tilde{\vect x}$ the corrupted sequence.
+
+\paragraph{The 80/10/10 rule.} The obvious corruption, replacing every selected token by
+\code{[MASK]}, creates a mismatch: at pretraining time the model only ever predicts at positions
+holding \code{[MASK]}, a token that never appears in downstream inputs, so it has no incentive to
+build good representations for \emph{real} tokens at positions it must later read. BERT therefore
+replaces a selected token by \code{[MASK]} only 80\% of the time, by a uniformly random token 10\% of
+the time, and leaves it unchanged the remaining 10\%. The label is always the original token.
+The random replacements force the model to doubt every input token (any of them could be wrong); the
+unchanged ones force it to represent real tokens well enough to reproduce them. Special tokens are
+never selected.
+
+\Cref{lst:encoders:mlm} is the complete construction. Two details are easy to get wrong. The labels
+use \code{IGNORE\_INDEX} ($-100$, the value \code{F.cross\_entropy} skips) rather than zero, so an
+unselected position contributes nothing rather than a loss towards token~0. And the three random draws
+($u$ selects, $r$ picks the corruption, and the random replacement tokens) are made with a single
+generator in a fixed order, which is what makes the lab's test able to compare your construction
+with ours bit for bit.
+
+\begin{lstlisting}[caption={BERT's masked-token targets (from \ident{llmsys/encoder.py}).},label={lst:encoders:mlm}]
+IGNORE_INDEX = -100
+
+def mlm_corrupt(ids, mask_token_id, vocab_size, special_ids=(), mask_prob=0.15,
+                generator=None):
+    special = torch.zeros_like(ids, dtype=torch.bool)
+    for s in special_ids:
+        special |= ids == s
+    u = torch.rand(ids.shape, generator=generator, device=ids.device)
+    selected = (u < mask_prob) & ~special
+    labels = torch.where(selected, ids, torch.full_like(ids, IGNORE_INDEX))
+    r = torch.rand(ids.shape, generator=generator, device=ids.device)
+    inputs = ids.clone()
+    inputs[selected & (r < 0.8)] = mask_token_id              # 80%: [MASK]
+    rand_slot = selected & (r >= 0.8) & (r < 0.9)             # 10%: random token
+    random_tokens = torch.randint(0, vocab_size, ids.shape, generator=generator,
+                                  device=ids.device)
+    inputs[rand_slot] = random_tokens[rand_slot]
+    return inputs, labels                                     # 10%: left unchanged
+\end{lstlisting}
+
+\paragraph{The head.} BERT's prediction head is a small MLP (Linear, GELU, LayerNorm) followed by a
+projection to the vocabulary whose weight is \emph{tied} to the input embedding table, plus a bias.
+Since only $|M|\approx0.15\,T$ positions carry a label, we gather those rows \emph{before} the
+vocabulary projection (\cref{lst:encoders:head}). For a small encoder the vocabulary GEMM is the single
+most expensive operator---$2\cdot d\cdot V$ FLOPs per position against $24d^2$ for a block---so
+scoring 15\% of the positions instead of all of them removes most of its cost. (A decoder cannot do
+this: every position has a label.)
+
+\begin{lstlisting}[caption={The MLM head scores only the selected positions.},label={lst:encoders:head}]
+class MLMHead(nn.Module):
+    def __init__(self, emb_dim, tok_emb):
+        super().__init__()
+        self.transform = nn.Sequential(nn.Linear(emb_dim, emb_dim), GELU(), LayerNorm(emb_dim))
+        self.decoder_weight = tok_emb.weight        # tied with the input embedding table
+        self.bias = nn.Parameter(torch.zeros(tok_emb.num_embeddings))
+
+    def forward(self, hidden, labels=None):
+        if labels is not None:
+            keep = labels != IGNORE_INDEX
+            hidden, labels = hidden[keep], labels[keep]   # (sum |M|, d): 15% of the rows
+        logits = F.linear(self.transform(hidden), self.decoder_weight, self.bias)
+        if labels is None:
+            return logits
+        return logits, F.cross_entropy(logits.float(), labels)
+\end{lstlisting}
+
+\begin{pitfall}[Tied heads need a small initialisation]
+With the head tied to the embedding table, the initial logits are $\vect h^\top \mat E^\top$ with
+$\vect h$ of roughly unit norm per coordinate after the LayerNorm. If the embeddings are drawn with
+unit variance (PyTorch's \code{nn.Embedding} default), the logits have standard deviation
+$\sqrt d\approx 28$ for $d=768$ and the initial loss is tens of nats instead of $\log V\approx 10$;
+the first hundreds of steps are spent undoing that. BERT draws every weight from
+$\mathcal N(0,0.02^2)$, and so does our \code{EncoderModel}. The lab's test checks that the loss at
+step zero is within one nat of $\log V$.
+\end{pitfall}
+
+\paragraph{Why bidirectionality helps understanding and hurts generation.} A decoder's
+representation of ``bank'' in ``the bank of the river'' is computed before ``river'' arrives; an
+encoder's sees the whole phrase. For tasks whose output is a judgement about a complete input
+(classification, extractive question answering, retrieval, token tagging) this is pure gain, and for
+years encoders of a given size beat decoders of the same size on such benchmarks (Devlin et al.,
+2019). For generation it is a loss: an encoder has no factorisation of $p(\vect x)$ into a product
+of conditionals, so it cannot sample a sequence left to right, and a masked model fills in each hidden
+token as if the others were fixed, which produces incoherent text when many are hidden at once
+(Wang and Cho, 2019 discuss sampling from BERT as a Markov random field). The 15\% masking rate also
+means that each training sequence yields a loss at only 15\% of its positions, a cost we quantify in
+\cref{sec:encoders:signal}.
+
+% =====================================================================
+\section{Span corruption and the prefix-LM objective}\label{sec:encoders:span}
+
+T5 keeps the idea of corrupting the input and recovering it, but moves the recovery to a decoder,
+which produces a \emph{sequence} rather than one token per masked position. This allows the model to
+hide whole spans, and to learn to generate while still reading its input bidirectionally.
+
+\paragraph{Span corruption with sentinels.} Choose a noise mask over the $T$ positions that marks
+about $\rho T$ of them as noise, grouped into spans of mean length $\mu$ (T5 uses $\rho=0.15$,
+$\mu=3$). Each span of noise in the encoder input is collapsed to a single \emph{sentinel} token,
+numbered in order of appearance (\code{<X>}, \code{<Y>}, \ldots{}, held in reserved vocabulary slots).
+The decoder target lists, for each span, its sentinel followed by the original tokens of the span,
+and ends with one more unused sentinel so the decoder can say ``no more spans''.
+\Cref{fig:encoders:span} shows the worked example that the lab's first span test uses.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=0.95cm,y=0.9cm,
+  tok/.style={draw=black!50,minimum width=0.85cm,minimum height=0.55cm,font=\footnotesize,inner sep=1pt},
+  noise/.style={tok,fill=warnredbg},
+  sent/.style={tok,fill=keygreen!30},
+  clean/.style={tok,fill=white},
+  arr/.style={-{Stealth[length=1.8mm]},thick,black!60}]
+\node[font=\small,anchor=east] at (-0.4,2) {original $\vect x$};
+\foreach \v/\s [count=\i from 0] in {10/clean,11/noise,12/noise,13/clean,14/clean,15/noise,16/clean,17/noise}
+  \node[\s] at (\i,2) {\v};
+\node[font=\small,anchor=east] at (-0.4,0.7) {encoder input};
+\foreach \v/\s [count=\i from 0] in {10/clean,{$\langle 0\rangle$}/sent,13/clean,14/clean,{$\langle 1\rangle$}/sent,16/clean,{$\langle 2\rangle$}/sent}
+  \node[\s] at (\i,0.7) {\v};
+\node[font=\small,anchor=east] at (-0.4,-0.6) {decoder target};
+\foreach \v/\s [count=\i from 0] in {{$\langle 0\rangle$}/sent,11/noise,12/noise,{$\langle 1\rangle$}/sent,15/noise,{$\langle 2\rangle$}/sent,17/noise,{$\langle 3\rangle$}/sent,{eos}/clean}
+  \node[\s] at (\i,-0.6) {\v};
+\draw[arr] (1,1.7)--(1,1.0); \draw[arr] (2,1.7)--(1.3,1.0);
+\draw[arr] (5,1.7)--(4,1.0); \draw[arr] (7,1.7)--(6,1.0);
+\node[font=\scriptsize,align=left,anchor=west] at (8.3,2) {red: noise mask\\(3 spans, 4 tokens)};
+\node[font=\scriptsize,align=left,anchor=west] at (8.3,0.7) {7 tokens: 4 clean\\$+$ 3 sentinels};
+\node[font=\scriptsize,align=left,anchor=west] at (9.3,-0.6) {9 tokens: 4 noise $+$\\4 sentinels $+$ eos};
+\end{tikzpicture}
+\caption{T5 span corruption of an 8-token sequence with the noise mask $01100101$. Each run of noise
+in the input becomes one sentinel; the target spells each span out behind its sentinel and closes with
+an unused sentinel. The encoder reads 7 tokens, the decoder predicts 9, and the model is never shown
+the 4 hidden tokens on the input side.}
+\label{fig:encoders:span}
+\end{figure}
+
+The construction has three steps once the noise mask is fixed (\cref{lst:encoders:span}): find span
+\emph{starts} (noise positions whose predecessor is clean), number them cumulatively to obtain each
+position's sentinel, and then keep the clean positions plus the starts (rewritten as sentinels) for
+the encoder while spelling the noise positions out behind their sentinels for the decoder.
+
+\begin{lstlisting}[caption={Span corruption from a noise mask (from \ident{llmsys/encoder.py}).},label={lst:encoders:span}]
+def span_corrupt(ids, sentinel_start, noise_density=0.15, mean_span_length=3.0,
+                 eos_id=None, generator=None):
+    noise = random_spans_noise_mask(len(ids), noise_density, mean_span_length, generator)
+    prev = torch.cat([torch.zeros(1, dtype=torch.bool), noise[:-1]])
+    starts = noise & ~prev                               # first position of each span
+    span_id = torch.cumsum(starts.long(), 0) - 1         # 0, 0, 1, 1, 1, 2, ... on noise
+    sentinels = sentinel_start + span_id
+    enc = torch.where(starts, sentinels, ids)[~noise | starts]
+    tgt = []
+    for pos in torch.nonzero(noise).flatten().tolist():
+        if starts[pos]:
+            tgt.append(int(sentinels[pos]))
+        tgt.append(int(ids[pos]))
+    tgt.append(sentinel_start + int(starts.sum()))       # the closing, unused sentinel
+    if eos_id is not None:
+        tgt.append(eos_id)
+    return enc, torch.tensor(tgt, dtype=ids.dtype)
+\end{lstlisting}
+
+The noise mask itself (\code{random\_spans\_noise\_mask}, in the module) follows T5: compute the
+number of noise tokens $n=\mathrm{round}(\rho T)$ and the number of spans $k=\mathrm{round}(n/\mu)$,
+split $n$ into $k$ positive lengths and the $T-n$ clean tokens into $k$ positive lengths, and
+interleave them starting with a clean span. Starting with a clean span guarantees that the encoder
+input never begins with a sentinel, and using the same number of clean and noise spans guarantees
+that spans never merge. Because the lengths are exact, a 512-token sequence at $\rho=0.15$, $\mu=3$
+always has 77 noise tokens in about 26 spans: the encoder reads about $435+26=461$ tokens and the
+decoder predicts about $77+27=104$. We measured exactly these averages over 200 draws of the library
+function.
+
+\paragraph{Prefix-LM.} The prefix-LM objective needs no corruption at all. Pick a split point $p$,
+apply the prefix-LM mask of \cref{fig:encoders:masks}, and train with the ordinary next-token loss on
+the suffix only: $\text{labels}_i = x_{i+1}$ for $p-1\le i<T-1$ and \code{IGNORE\_INDEX} elsewhere
+(\cref{lst:encoders:prefix}). Position $p-1$ is the last prefix token; it is the first position that
+predicts, because it is the first whose target ($x_p$) it has not seen. The lab's leakage test
+perturbs each target token in turn and checks that the logits at the position predicting it do not
+move, which is the only test of a mask that matters.
+
+\begin{lstlisting}[caption={Prefix-LM targets.},label={lst:encoders:prefix}]
+def prefix_lm_targets(ids, prefix_len):
+    T = ids.shape[-1]
+    labels = torch.full_like(ids, IGNORE_INDEX)
+    labels[..., prefix_len - 1: T - 1] = ids[..., prefix_len:]
+    return ids, labels, prefix_lm_mask(prefix_len, T, device=ids.device)
+\end{lstlisting}
+
+\begin{deepdive}[UL2: a mixture of denoisers]
+Tay et al.\ (2023) observed that the objectives above are points on a continuum (how much is
+hidden, in how long spans, and whether the hidden part is at the end) and trained one model on a
+mixture: ``R-denoising'' is T5's regular span corruption ($\rho=0.15$, short spans), ``X-denoising''
+hides much more (long spans or $\rho\ge0.5$), and ``S-denoising'' is the prefix-LM objective. A
+\emph{mode token} prepended to the input tells the model which denoiser produced the example, so the
+same weights serve as an encoder-like infiller and as a causal generator. The same recipe trained
+PaLM~2 and the encoder--decoder models of the Flan-UL2 family; in decoder-only training, mixing a
+fraction of prefix-LM examples into the causal mixture is a cheap way to teach a model to use a long
+bidirectionally read context, and it is the mask VLMs use over image tokens (\cref{ch:alignment}).
+\end{deepdive}
+
+% =====================================================================
+\section{Gradient signal per token}\label{sec:encoders:signal}
+
+Each objective pays the same price per token read---one forward and one backward through every
+layer---but they differ sharply in what that pass buys.
+
+\begin{napkinmath}[Loss terms per token processed]
+Let a training sequence have $T=512$ tokens. The \textbf{causal LM} produces $T-1=511$ loss terms:
+a fraction $\approx 1.0$ of positions. \textbf{MLM} at $\rho=0.15$ produces $77$: fraction $0.15$.
+\textbf{Span corruption} ($\rho=0.15$, $\mu=3$) feeds the encoder $461$ tokens and the decoder $104$,
+of which all $104$ carry a loss term (27 of them are sentinels, nearly free to predict); the fraction
+of processed positions with a loss is $104/565=0.18$, and the fraction of \emph{content} predictions
+is $77/565=0.14$. A \textbf{prefix-LM} with a uniformly random split produces $T/2$ terms on average:
+fraction $0.5$. In FLOPs per loss term the causal LM is cheapest by $6$--$7\times$ over MLM; this is
+the usual argument that at equal compute, decoders see more supervision. The counter-argument is that
+an MLM loss term is a harder, more informative prediction (both sides of context are available, so the
+residual uncertainty is lower, and the gradient carries more information per term). ELECTRA (Clark
+et al., 2020) closed most of the gap on the encoder side by replacing the 15\% generation loss with a
+binary ``was this token replaced?'' loss at \emph{every} position, exactly the loss-fraction argument
+turned into a method.
+\end{napkinmath}
+
+\begin{systemslens}[Throughput needed to match a decoder]
+An MLM model and a causal model of the same size and the same FLOPs per token need $1/0.15\approx6.7$
+and $1$ sequences respectively per 511 loss terms. If a decoder pretraining run reaches
+\num{150000} loss terms per second per GPU (a typical BERT-base-size figure on an A100 at bf16), an
+MLM run with the same per-token cost produces \num{22500}. Encoder pretraining is therefore
+dominated by the same question as decoder pretraining---tokens per second per GPU---with the extra
+knowledge that only 15\% of them count. The one saving on the encoder side is real: the vocabulary
+projection runs on 15\% of the positions. For BERT-base ($d=768$, $V=\num{30522}$) the head is
+$2dV=\SI{46.9}{MFLOP}$ per scored position against $24d^2L=\SI{170}{MFLOP}$ for the
+12 blocks; scoring every position would add 28\% to the forward, scoring 15\% adds 4\%.
+\end{systemslens}
+
+% =====================================================================
+\section{A bidirectional encoder in code}\label{sec:encoders:model}
+
+The encoder block is the GPT-2 block of \cref{ch:gpt} with the mask removed and a padding mask
+threaded through; \cref{lst:encoders:attn} gives the attention and \cref{lst:encoders:model} the
+block and model. We keep GPT-2's parameter names (\code{W\_query}, \code{W\_key}, \code{W\_value},
+\code{out\_proj}) so weights move between the causal and bidirectional variants without renaming;
+the state dicts of \code{EncoderModel} and \code{GPTModel} differ only in that the encoder has no
+output head.
+
+\begin{lstlisting}[caption={Bidirectional attention: the causal attention of \cref{ch:attention} without the triangle.},label={lst:encoders:attn}]
+class BidirectionalAttention(nn.Module):
+    def __init__(self, d_in, d_out, num_heads, dropout=0.0, qkv_bias=True, use_sdpa=False):
+        super().__init__()
+        self.d_out, self.num_heads, self.head_dim = d_out, num_heads, d_out // num_heads
+        self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.out_proj = nn.Linear(d_out, d_out)
+        self.dropout, self.use_sdpa = dropout, use_sdpa
+
+    def forward(self, x, pad_mask=None, attn_mask=None):
+        B, T, _ = x.shape
+        q = self.W_query(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.W_key(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.W_value(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        mask = bidirectional_mask(pad_mask)              # None, or padding keys only
+        if attn_mask is not None:                        # e.g. a prefix-LM or packing mask
+            mask = attn_mask if mask is None else (mask | attn_mask)
+        ctx = _attend(q, k, v, mask, self.dropout, self.training, self.use_sdpa)
+        return self.out_proj(ctx.transpose(1, 2).reshape(B, T, self.d_out))
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Encoder block and model (from \ident{llmsys/encoder.py}).},label={lst:encoders:model}]
+class EncoderBlock(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        d = cfg["emb_dim"]
+        self.att = BidirectionalAttention(d, d, cfg["n_heads"], cfg["drop_rate"],
+                                          cfg.get("qkv_bias", True))
+        self.ff = FeedForward(d, cfg.get("hidden_dim"))
+        self.norm1, self.norm2 = LayerNorm(d), LayerNorm(d)
+        self.drop = nn.Dropout(cfg["drop_rate"])
+
+    def forward(self, x, pad_mask=None, attn_mask=None):
+        x = x + self.drop(self.att(self.norm1(x), pad_mask, attn_mask))
+        x = x + self.drop(self.ff(self.norm2(x)))
+        return x
+
+class EncoderModel(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"])
+        self.pos_emb = nn.Embedding(cfg["context_length"], cfg["emb_dim"])
+        self.drop_emb = nn.Dropout(cfg["drop_rate"])
+        self.blocks = nn.ModuleList(EncoderBlock(cfg) for _ in range(cfg["n_layers"]))
+        self.final_norm = LayerNorm(cfg["emb_dim"])
+        self.apply(self._init_weights)                   # N(0, 0.02): see the pitfall above
+
+    def forward(self, ids, pad_mask=None, attn_mask=None, position_ids=None):
+        T = ids.shape[1]
+        if position_ids is None:
+            position_ids = torch.arange(T, device=ids.device)[None]
+        x = self.drop_emb(self.tok_emb(ids) + self.pos_emb(position_ids))
+        for blk in self.blocks:
+            x = blk(x, pad_mask, attn_mask)
+        return self.final_norm(x)                        # (B, T, d): heads attach here
+\end{lstlisting}
+
+Three things are worth noticing. The model returns hidden states, not logits: an encoder has many
+heads (MLM, classification, pooling, pair scoring) and none of them belongs in the trunk. There is a
+\code{position\_ids} argument, which a decoder never needs; it exists for the \emph{packed} batches
+of \cref{sec:encoders:serving}, where several sequences share one row and each restarts its positions
+at zero. And there is a dropout rate in the configuration: BERT, unlike modern decoders, was trained
+for many epochs over a 3.3-billion-word corpus and used dropout 0.1 everywhere.
+
+Original BERT used post-LN blocks (normalise after the residual add); we use the pre-LN layout of the
+rest of the book, which trains more stably at depth (\cref{ch:archdesign}) and is what current
+encoders such as ModernBERT (Warner et al., 2024) use, together with RoPE, GeGLU MLPs and
+unpadded attention. The design space of \cref{ch:archdesign} transfers to encoders almost
+unchanged; the one component that does not transfer is the KV cache.
+
+% =====================================================================
+\section{Encoder--decoder models and cross-attention}\label{sec:encoders:crossattn}
+
+An encoder on its own cannot generate. The original transformer solved this by pairing it with a
+decoder whose every block contains a second attention, \emph{cross-attention}, in which the queries
+come from the decoder's own stream and the keys and values come from the encoder's output. The
+decoder block has three sublayers (\cref{fig:encoders:encdec}): causal self-attention over the target
+so far, cross-attention over the source, and the feed-forward network.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  op/.style={draw,rounded corners=2pt,minimum width=3.9cm,minimum height=0.55cm,font=\footnotesize},
+  att/.style={op,fill=fcompute!20},
+  cache/.style={draw,rounded corners=2pt,minimum height=0.55cm,font=\scriptsize,align=center},
+  growcache/.style={cache,fill=fmemory!30,draw=napkin},
+  fixedcache/.style={cache,fill=fdata!25,draw=keygreen},
+  plus/.style={circle,draw,fill=white,inner sep=0.5pt,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick}]
+% encoder
+\node[font=\bfseries] at (0,6.4) {Encoder (runs once)};
+\node[op] (e0) at (0,0) {source tokens $x_1\ldots x_S$};
+\node[op] (e1) at (0,1.0) {LayerNorm};
+\node[att] (e2) at (0,1.85) {bidirectional self-attention};
+\node[plus] (e3) at (0,2.6) {$+$};
+\node[op] (e4) at (0,3.3) {LayerNorm $\to$ FFN};
+\node[plus] (e5) at (0,4.05) {$+$};
+\node[op,fill=fdata!25] (e6) at (0,5.2) {memory $\mat H\in\mathbb R^{S\times d}$};
+\foreach \a/\b in {e0/e1,e1/e2,e2/e3,e3/e4,e4/e5,e5/e6} \draw[arr] (\a)--(\b);
+\draw[thick,sysblue,rounded corners] (-2.2,0.6) rectangle (2.2,4.45);
+\node[font=\small,text=sysblue] at (-2.6,2.5) {$L_e\times$};
+% decoder
+\begin{scope}[xshift=8.6cm]
+\node[font=\bfseries] at (0,6.4) {Decoder (runs per token)};
+\node[op] (d0) at (0,0) {target tokens so far $y_1\ldots y_t$};
+\node[op] (d1) at (0,0.85) {LayerNorm};
+\node[att] (d2) at (0,1.55) {causal self-attention};
+\node[plus] (d3) at (0,2.2) {$+$};
+\node[op] (d4) at (0,2.8) {LayerNorm};
+\node[att] (d5) at (0,3.5) {cross-attention: $Q$ from $y$, $K,V$ from $\mat H$};
+\node[plus] (d6) at (0,4.15) {$+$};
+\node[op] (d7) at (0,4.75) {LayerNorm $\to$ FFN};
+\node[plus] (d8) at (0,5.4) {$+$};
+\foreach \a/\b in {d0/d1,d1/d2,d2/d3,d3/d4,d4/d5,d5/d6,d6/d7,d7/d8} \draw[arr] (\a)--(\b);
+\draw[thick,sysblue,rounded corners] (-2.9,0.5) rectangle (2.9,5.75);
+\node[font=\small,text=sysblue] at (3.3,3.1) {$L_d\times$};
+\node[growcache,anchor=west] (sc) at (3.9,1.55) {self KV cache\\$(B,H,t,\dhead)$ grows};
+\node[fixedcache,anchor=west] (cc) at (3.9,3.5) {cross KV cache\\$(B,H,S,\dhead)$ fixed};
+\draw[arr,napkin] (d2.east)--(sc.west);
+\draw[arr,keygreen] (cc.west)--(d5.east);
+\end{scope}
+\draw[arr,keygreen,dashed] (e6.east) -- (4.0,5.2) -- (4.0,3.5) -- (d5.west);
+\node[font=\scriptsize,text=keygreen,align=center] at (4.1,4.6) {$K=\mat H\mat W_K$, $V=\mat H\mat W_V$\\projected once per layer};
+\end{tikzpicture}}
+\caption{An encoder--decoder. The encoder reads the source once and emits a memory $\mat H$. Each
+decoder block attends causally to the target so far (its keys and values accumulate in a growing
+cache, as in \cref{ch:modern}) and then attends to $\mat H$ through cross-attention, whose keys and
+values depend only on $\mat H$ and are therefore computed once per layer and reused at every step.}
+\label{fig:encoders:encdec}
+\end{figure}
+
+\paragraph{Derivation.} Let $\mat H\in\mathbb R^{S\times d}$ be the encoder output for a source of
+$S$ tokens and $\mat Y_t\in\mathbb R^{t\times d}$ the decoder stream after self-attention at step
+$t$. Cross-attention in one head is
+\begin{equation}
+\mathrm{CrossAttn}(\mat Y_t,\mat H) = \softmax\!\left(\frac{(\mat Y_t\mat W_Q)(\mat H\mat W_K)^\top}{\sqrt{\dhead}}\right)\mat H\mat W_V ,
+\label{eq:encoders:cross}
+\end{equation}
+which is \cref{ch:attention}'s attention with one substitution: $\mat K$ and $\mat V$ are
+projections of $\mat H$ rather than of $\mat Y_t$. Two consequences follow immediately. There is no
+causal mask---every target position may read the whole source, and that is the point---only a
+padding mask over source keys. And $\mat H\mat W_K$ and $\mat H\mat W_V$ do not depend on $t$: during
+generation the source is fixed, so these two matrices, of shape $(S,d)$ per layer, can be computed
+once at the first decoding step and read at every later one. The per-step cost of cross-attention is
+then one query projection ($2d^2$ FLOPs) and one attention over $S$ keys ($4Sd$ FLOPs); the
+$4Sd^2$ FLOPs of projecting the memory are paid once per sequence, not once per token.
+
+\paragraph{The code.} \Cref{lst:encoders:cross} implements the module with a \code{CrossKVCache}
+that is deliberately \emph{not} the \code{KVCache} of \cref{ch:modern}. The self-attention cache has
+an \code{update} that appends; the cross cache has \code{set} and \code{get} and nothing else, so it
+cannot grow by accident, and its \code{nbytes} is constant over a generation. The attention module
+reads from the cache when the layer's entry exists and otherwise projects \code{memory} and, if a
+cache was handed in, fills it; \code{memory} may therefore be \code{None} at every step after the
+first.
+
+\begin{lstlisting}[caption={Cross-attention with a one-shot cache (from \ident{llmsys/encdec.py}).},label={lst:encoders:cross}]
+class CrossKVCache:
+    """K, V of the encoder output, one (B, H, S, D) pair per decoder layer, written once."""
+    def __init__(self, n_layers):
+        self.k, self.v = [None] * n_layers, [None] * n_layers
+    def has(self, layer_idx):   return self.k[layer_idx] is not None
+    def set(self, layer_idx, k, v):  self.k[layer_idx], self.v[layer_idx] = k, v
+    def get(self, layer_idx):   return self.k[layer_idx], self.v[layer_idx]
+    def nbytes(self):
+        return sum(t.numel() * t.element_size() for t in self.k + self.v if t is not None)
+
+class CrossAttention(nn.Module):
+    def forward(self, x, memory=None, memory_pad_mask=None, cross_cache=None):
+        B, T, _ = x.shape
+        q = self.W_query(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        if cross_cache is not None and cross_cache.has(self.layer_idx):
+            k, v = cross_cache.get(self.layer_idx)      # every step after the first
+        else:
+            k, v = self.project_kv(memory)              # (B, H, S, D) each, from the encoder
+            if cross_cache is not None:
+                cross_cache.set(self.layer_idx, k, v)
+        mask = None if memory_pad_mask is None else (~memory_pad_mask)[:, None, None, :]
+        ctx = _attend(q, k, v, mask, 0.0, self.training, self.use_sdpa)
+        return self.out_proj(ctx.transpose(1, 2).reshape(B, T, self.d_out))
+
+class DecoderBlock(nn.Module):
+    def forward(self, x, memory=None, memory_pad_mask=None, self_cache=None, cross_cache=None):
+        x = x + self.self_att(self.norm1(x), cache=self_cache)        # causal, growing cache
+        x = x + self.cross_att(self.norm2(x), memory, memory_pad_mask, cross_cache)
+        x = x + self.ff(self.norm3(x))
+        return x
+\end{lstlisting}
+
+Greedy decoding (\cref{lst:encoders:greedy}) makes the two caches' roles explicit: the encoder runs
+once, the memory is passed only at step zero, and both caches travel through every step. The lab asks
+you to write this loop and proves it correct the only way that matters---the logits from
+token-by-token decoding with both caches equal those of one full forward pass over the complete
+target, and the key projection of each cross-attention layer runs exactly once.
+
+\begin{lstlisting}[caption={Encode once, decode with two caches.},label={lst:encoders:greedy}]
+@torch.no_grad()
+def greedy_decode(model, src, bos_id, eos_id, max_new, src_pad_mask=None):
+    memory = model.encode(src, src_pad_mask)                     # the only encoder call
+    self_cache = KVCache(model.n_dec_layers)                     # grows by one token per step
+    cross_cache = CrossKVCache(model.n_dec_layers)               # filled at step 0, then read
+    cur = torch.full((src.shape[0], 1), bos_id, dtype=torch.long, device=src.device)
+    out = []
+    for step in range(max_new):
+        logits = model.decode(cur, memory if step == 0 else None, src_pad_mask,
+                              self_cache, cross_cache)
+        cur = logits[:, -1].argmax(-1, keepdim=True)
+        out.append(cur)
+        if bool((cur == eos_id).all()):
+            break
+    return torch.cat(out, dim=1)
+\end{lstlisting}
+
+\paragraph{Relative positions in T5.} T5 has no position embeddings at the input. Instead each
+attention layer adds a learned scalar bias $b_{\beta(j-i)}$ to the logit between query $i$ and key
+$j$, where $\beta$ maps the signed distance into 32 buckets: exact buckets for distances up to 8,
+logarithmically spaced buckets up to a maximum distance of 128, and one bucket for everything
+farther. In the bidirectional encoder half the buckets serve negative and half positive distances;
+the decoder, which looks back only, uses all of them for the past. The function
+\code{relative\_position\_bucket} in \ident{llmsys/encdec.py} reproduces this mapping (the lab tests
+it against hand-computed values: distances $0,-1,-7,-8$ land in buckets $0,1,7,8$, every distance
+beyond 128 in bucket 15, and $+1$ in bucket 17). Cross-attention has no relative bias: source and
+target positions are not on a common axis. \Cref{ch:archdesign} places this scheme among the other
+position encodings; here we only note that because the bias is added \emph{inside} the attention it
+must be recomputed for the new query row at every decoding step, whereas RoPE's rotation is applied
+once to each cached key.
+
+% =====================================================================
+\section{Two caches and the cost of a decoding step}\label{sec:encoders:caches}
+
+Decoding is memory-bound (\cref{ch:inference}): the time of a step is set by the bytes it must read,
+which are the weights it touches plus the caches of every sequence in the batch. For an
+encoder--decoder a step reads
+\begin{equation}
+\text{bytes/step} = b_w N_\text{dec} + B\cdot 2L_d\dmodel\, b_w\,(S + t),
+\label{eq:encoders:stepbytes}
+\end{equation}
+where $N_\text{dec}$ counts the decoder's parameters only (the encoder is idle), $b_w$ is the bytes
+per element, and the second term is the two caches: $2L_d\dmodel b_w$ bytes per cached token (one key
+and one value of width $\dmodel=H\dhead$ per layer), over $S$ source tokens in the cross cache and
+$t$ target tokens in the self cache. A decoder-only model that holds source and target in one context
+reads $b_w N + B\cdot2L\dmodel b_w(S+t)$ with its full parameter count and layer count.
+\Cref{lst:encoders:stepbytes} states the two formulas as code; the lab compares them.
+
+\begin{lstlisting}[caption={Bytes per decoding step (from \ident{llmsys/encdec.py}).},label={lst:encoders:stepbytes}]
+def kv_bytes_per_token(n_layers, n_kv_heads, head_dim, bytes_per_el=2):
+    return 2 * n_layers * n_kv_heads * head_dim * bytes_per_el
+
+def encdec_step_bytes(n_dec_params, n_dec_layers, n_heads, head_dim, src_len, tgt_len,
+                      batch=1, bytes_per_el=2):
+    per_tok = kv_bytes_per_token(n_dec_layers, n_heads, head_dim, bytes_per_el)
+    return n_dec_params * bytes_per_el + batch * per_tok * (tgt_len + src_len)
+
+def decoder_only_step_bytes(n_params, n_layers, n_kv_heads, head_dim, src_len, tgt_len,
+                            batch=1, bytes_per_el=2):
+    per_tok = kv_bytes_per_token(n_layers, n_kv_heads, head_dim, bytes_per_el)
+    return n_params * bytes_per_el + batch * per_tok * (src_len + tgt_len)
+\end{lstlisting}
+
+\begin{systemslens}[Encoder--decoder serving cost against a decoder-only model of equal size]
+Serving an encoder--decoder is one prefill of the source through the \emph{encoder} followed by
+decoding with two attention reads per step. Compare a T5-base-shaped model ($\dmodel=768$, $H=12$,
+$L_e=L_d=12$) with a decoder-only model of equal non-embedding parameter count. A decoder block has
+$16d^2$ parameters (self-attention $4d^2$, cross-attention $4d^2$, MLP $8d^2$) and an encoder block
+$12d^2$, so the encoder--decoder has $(12+16)\cdot12\,d^2=336d^2$ parameters and the equal-size
+decoder-only model has $L=28$ blocks of $12d^2$. Take $S=512$, bf16, batch 1. Per decoding step, the
+encoder--decoder reads its $16d^2\cdot12$ decoder parameters, \SI{226}{\mega\byte}, plus
+$2\cdot12\cdot768\cdot2=\SI{36.9}{\kilo\byte}$ per cached token over $512+t$ tokens:
+\SI{245}{\mega\byte} at $t=1$ and \SI{264}{\mega\byte} at $t=512$. The decoder-only model reads all
+\SI{396}{\mega\byte} of weights plus \SI{86}{\kilo\byte} per cached token (28 layers):
+\SI{440}{\mega\byte} and \SI{484}{\mega\byte}. The encoder--decoder step moves \emph{about half the
+bytes}, for two reasons that compound: the encoder's parameters are not touched during decoding, and
+the cross cache is as deep as the decoder, not as deep as the whole model. At batch 32 and $t=512$
+the figures are \SI{1.43}{\giga\byte} against \SI{3.2}{\giga\byte} (\cref{fig:encoders:stepbytes}).
+The prefill is cheaper too: the source passes through $12\cdot12d^2$ encoder parameters rather than
+$28\cdot12d^2$, i.e.\ $2.3\times$ fewer FLOPs per source token. What the encoder--decoder gives up is
+flexibility: the source is read once, through a fixed encoder, and cannot be re-read or extended as a
+conversation grows; every turn of a dialogue would re-encode the whole history. That, more than any
+quality argument, is why chat assistants are decoder-only while translation, summarisation and
+speech-to-text systems (Whisper is an encoder--decoder) stayed with the two-stack design.
+\end{systemslens}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.88\linewidth,height=5.4cm,xlabel={target tokens generated so far $t$},
+  ylabel={bytes read per decoding step (MB)},xmode=log,log basis x=2,xmin=1,xmax=2048,ymin=0,ymax=8000,
+  xtick={1,8,64,512,2048},xticklabels={1,8,64,512,2048},
+  legend style={font=\scriptsize,at={(0.02,0.98)},anchor=north west},grid=major,grid style={black!10}]
+\addplot[thick,color=sysblue,mark=*] coordinates {(1,245)(8,245)(64,247)(128,250)(512,264)(2048,321)};
+\addlegendentry{encoder--decoder, $B=1$}
+\addplot[thick,color=warnred,mark=square*] coordinates {(1,440)(8,441)(64,446)(128,451)(512,484)(2048,617)};
+\addlegendentry{decoder-only (equal parameters), $B=1$}
+\addplot[thick,dashed,color=sysblue,mark=*] coordinates {(1,832)(8,840)(64,906)(128,981)(512,1434)(2048,3246)};
+\addlegendentry{encoder--decoder, $B=32$}
+\addplot[thick,dashed,color=warnred,mark=square*] coordinates {(1,1808)(8,1827)(64,1980)(128,2158)(512,3215)(2048,7443)};
+\addlegendentry{decoder-only, $B=32$}
+\end{axis}
+\end{tikzpicture}
+\caption{Bytes read per decoding step (analytic, \cref{eq:encoders:stepbytes}) for a T5-base-shaped
+encoder--decoder and a 28-layer decoder-only model with the same 198M non-embedding parameters,
+$S=512$ source tokens, bf16. At every batch size and target length the encoder--decoder reads about
+half as many bytes: idle encoder weights and a shallower cache.}
+\label{fig:encoders:stepbytes}
+\end{figure}
+
+\begin{pitfall}[Padding the source pads the cross cache]
+The cross cache holds $S$ entries per sequence, where $S$ is the \emph{padded} source length of the
+batch. A batch that mixes a 20-token and a 500-token source stores 500 keys and values for both in
+every decoder layer, and every decoding step reads all of them (the padding mask only zeroes their
+weights). Sort or bucket sources by length before batching them for an encoder--decoder exactly as
+\cref{sec:encoders:serving} does for a plain encoder; the waste is paid at every step, not once.
+\end{pitfall}
+
+% =====================================================================
+\section{Encoders as embedding models}\label{sec:encoders:embed}
+
+The most common use of an encoder today is not to predict masked tokens but to map a whole text to
+one vector, so that semantically similar texts land near each other and a nearest-neighbour search
+over millions of such vectors finds the relevant ones. \Cref{ch:retrieval} builds the index; here we
+build the model that fills it.
+
+\paragraph{Pooling.} An encoder returns $T$ vectors; an embedding is one. Three reductions are in use
+(\cref{lst:encoders:pool}). \emph{CLS pooling} reads the output at position 0, the \code{[CLS]}
+token, which BERT's next-sentence objective trained to summarise the pair. \emph{Mean pooling}
+averages the outputs over the real (non-padding) tokens, which Sentence-BERT (Reimers and Gurevych,
+2019) found to work better than CLS once the model is fine-tuned for similarity. \emph{Last-token
+pooling} reads the output at the last real token; it is the only sensible choice for a
+\emph{decoder-based} embedder, because under a causal mask the last position is the only one that has
+seen the whole text. The padding mask matters in two of the three: the mean must divide by the
+number of real tokens, and ``last'' means the last real token, not the last column, which in a padded
+batch is pad for every sequence but the longest.
+
+\begin{lstlisting}[caption={Pooling token states to one vector (from \ident{llmsys/encoder.py}).},label={lst:encoders:pool}]
+def pool(hidden, pad_mask=None, how="mean"):
+    """(B, T, d) -> (B, d). pad_mask: (B, T) bool, True for real tokens."""
+    if pad_mask is None:
+        pad_mask = torch.ones(hidden.shape[:2], dtype=torch.bool, device=hidden.device)
+    if how == "cls":
+        return hidden[:, 0]
+    if how == "mean":
+        m = pad_mask.unsqueeze(-1).to(hidden.dtype)
+        return (hidden * m).sum(1) / m.sum(1).clamp_min(1.0)
+    if how == "last":                                      # decoder-based embedders
+        last = pad_mask.long().cumsum(1).argmax(1)         # index of the last True
+        return hidden[torch.arange(hidden.shape[0], device=hidden.device), last]
+\end{lstlisting}
+
+\paragraph{Pretrained encoders are poor embedders.} A natural expectation is that an MLM-pretrained
+encoder, mean-pooled, already gives useful sentence vectors. It does not. The lab measures this
+directly: on our synthetic paraphrase task, nearest-neighbour accuracy over 200 held-out meanings is
+0.094 for a randomly initialised encoder, falls to 0.013 after masked-prediction pretraining, and
+rises to 1.000 after a few hundred contrastive steps (measured, \cref{sec:encoders:lab}). The drop is
+not a bug. MLM shapes the output space for a different reader---the tied vocabulary head---and the
+resulting token vectors are \emph{anisotropic}: they occupy a narrow cone, so every pair of sentences
+has cosine similarity near one and the differences that matter are drowned out (Ethayarajh, 2019
+documented this for BERT and GPT-2). Reimers and Gurevych found BERT's raw CLS and mean embeddings to
+score below averaged GloVe vectors on semantic similarity benchmarks. A contrastive objective is what
+turns an encoder into an embedder.
+
+\paragraph{The bi-encoder and InfoNCE.} A bi-encoder encodes queries and documents \emph{independently}
+to unit vectors $\vect q_i,\vect d_j\in\mathbb R^D$ and scores them by the dot product, so that document
+vectors can be computed once, stored, and searched. Training uses pairs $(\vect q_i,\vect d_i)$ that
+belong together (a question and the passage that answers it; two paraphrases; a sentence and its
+translation) and treats all other documents in the batch as negatives. The InfoNCE loss
+(van den Oord et al., 2018; in retrieval, DPR by Karpukhin et al., 2020) is a cross-entropy in which
+the ``classes'' are the $B$ documents of the batch:
+\begin{equation}
+\mathcal L_\text{InfoNCE} = -\frac1B\sum_{i=1}^{B}\log
+\frac{\exp(\vect q_i^\top\vect d_i/\tau)}{\sum_{j=1}^{B}\exp(\vect q_i^\top\vect d_j/\tau)} .
+\label{eq:encoders:infonce}
+\end{equation}
+The temperature $\tau$ scales cosine similarities, which live in $[-1,1]$, to a range where softmax
+has useful gradients: with $\tau=0.05$ a similarity gap of $0.1$ becomes a logit gap of 2. Smaller
+$\tau$ sharpens the loss towards the hardest negative in the batch; too small and the gradients
+concentrate on a handful of examples. Values between $0.01$ and $0.1$ are universal. The
+implementation (\cref{lst:encoders:infonce}) is a matrix product and a cross-entropy with the
+identity as target; it also returns the in-batch retrieval accuracy, a free diagnostic.
+
+\begin{lstlisting}[caption={InfoNCE with in-batch and optional hard negatives.},label={lst:encoders:infonce}]
+def info_nce_loss(q, d, temperature=0.05, hard_negatives=None, symmetric=False):
+    """q, d: (B, D) unit vectors, d[i] is the positive of q[i]."""
+    cands = d if hard_negatives is None else torch.cat([d, hard_negatives.reshape(-1, d.shape[-1])])
+    logits = q @ cands.T / temperature                   # (B, B [+ N])
+    target = torch.arange(q.shape[0], device=q.device)
+    loss = F.cross_entropy(logits, target)
+    if symmetric:                                        # documents must also pick their query
+        loss = 0.5 * (loss + F.cross_entropy(logits[:, : q.shape[0]].T, target))
+    acc = (logits.argmax(1) == target).float().mean()
+    return loss, acc
+\end{lstlisting}
+
+\begin{systemslens}[Batch size is the negative sampler]
+In InfoNCE the batch \emph{is} the set of negatives, so a larger batch is not just a throughput knob:
+with $B$ queries and $B$ documents the loss sees $B^2-B$ negative pairs for $2B$ encoder forwards,
+and the hardest negative in a batch of \num{32768} is far harder than the hardest in a batch of 128.
+Contrastive training therefore runs at batch sizes that no language-modelling run would use (CLIP,
+Radford et al., 2021, used \num{32768}; E5 and GTE use tens of thousands). Two systems consequences
+follow. First, the $B\times B$ logit matrix is built across all data-parallel ranks: each rank
+encodes its shard, an all-gather collects every rank's document vectors (cheap: $B\times D$ numbers,
+a few megabytes), and every rank scores its queries against the global set; the gradient flows only
+through the rank's own vectors unless the gather is made differentiable. Second, activation memory
+for $B$ sequences through the encoder at that batch size exceeds any GPU, so GradCache (Gao et al.,
+2021) computes the embeddings once without a graph, obtains the gradient of the loss with respect to
+each embedding, and then re-runs the encoder in small chunks, back-propagating each chunk's
+embedding gradient---a form of checkpointing in which the loss, not the layers, is the boundary.
+\end{systemslens}
+
+\paragraph{Hard negatives.} In-batch negatives are mostly easy: a random passage is obviously
+unrelated to a random question, and after a few hundred steps most of the sum in
+\cref{eq:encoders:infonce} is already negligible. The models that top retrieval benchmarks mine
+\emph{hard} negatives---passages that an earlier model ranked highly but that are not the answer---and
+append them to the candidate set; \code{hard\_negatives} in \cref{lst:encoders:infonce} does
+exactly that (the lab checks that adding near-duplicates of the queries as negatives raises the
+loss). Hard-negative mining is an outer loop over training: train, index the corpus, retrieve
+negatives for every training query, retrain (ANCE, Xiong et al., 2021, does it asynchronously with a
+lagging copy of the encoder). It is also a source of label noise: a mined ``negative'' is often a
+correct answer the annotators missed, which is why many recipes distil from a cross-encoder's scores
+(\cref{sec:encoders:rerank}) instead of using hard labels.
+
+\paragraph{Matryoshka embeddings.} An index of $N$ vectors of dimension $D$ costs $4ND$ bytes in
+fp32, and search cost scales with $D$. Matryoshka representation learning (Kusupati et al., 2022)
+trains the embedding so that its first $m$ coordinates are themselves a good embedding for several
+nested $m$ (say $64,128,256,\ldots,D$), by summing the InfoNCE loss over the truncated-and-renormalised
+prefixes (\code{matryoshka\_loss} in the module). A deployment then stores the full vector and
+searches with the first 128 coordinates, reranking a short list with the full ones---the same
+coarse-to-fine idea as \cref{ch:retrieval}'s index structures, placed inside the embedding itself.
+
+\paragraph{Late interaction.} Between the bi-encoder (one vector per text, no interaction) and the
+cross-encoder (full token interaction, no precomputation) sits ColBERT (Khattab and Zaharia, 2020):
+store one vector \emph{per token} of each document, and score a query against a document by
+\emph{MaxSim}---for every query token, take its best-matching document token and sum:
+\begin{equation}
+s(q,d) = \sum_{i\in q}\max_{j\in d}\ \vect q_i^\top\vect d_j .
+\label{eq:encoders:maxsim}
+\end{equation}
+Document vectors are still precomputed, so the encoder runs once per document, but the index is
+$T_d$ times larger (ColBERTv2 compresses the token vectors to a few bits each to compensate). The
+function \code{late\_interaction\_score} in the module computes \cref{eq:encoders:maxsim} for a batch of
+queries against a batch of documents in one \code{einsum}.
+
+\paragraph{Decoder-only LLMs as embedders.} Since 2023 the top of the embedding leaderboards has been
+occupied not by BERT-style encoders but by 7B-parameter decoders fine-tuned contrastively (E5-Mistral,
+Wang et al., 2024; GritLM, Muennighoff et al., 2024; NV-Embed, Lee et al., 2024). The pretrained
+decoder brings far more knowledge than a 110M encoder; the price is the causal mask, which makes
+every position but the last see only its prefix. Three remedies are in use: last-token pooling with
+an instruction prefix that tells the model what to embed for; removing the causal mask during the
+contrastive fine-tune (the mask is a runtime argument, so this is a one-line change and the model
+adapts quickly---LLM2Vec, BehnamGhader et al., 2024); and a ``latent attention'' pooling layer that
+reads all positions. The systems cost is the one we quantify in \cref{sec:encoders:serving}: embedding
+a passage with a 7B model costs roughly $60\times$ the FLOPs of BERT-base.
+
+% =====================================================================
+\section{Cross-encoders and reranking}\label{sec:encoders:rerank}
+
+A bi-encoder compresses a document to one vector \emph{before} it knows the query. A
+\emph{cross-encoder} encodes the pair together---\code{[CLS] query [SEP] document [SEP]}---so that
+every query token attends to every document token in every layer, and reads a relevance score from
+the \code{[CLS]} output (\cref{fig:encoders:biandcross}). It is more accurate for exactly that reason
+and unusable for first-stage retrieval for exactly that reason: the score of each of $N$ documents
+needs its own forward pass that cannot be precomputed. The standard architecture is therefore a
+pipeline: a bi-encoder (or BM25) retrieves the top $k\approx100$ candidates from $N$ millions, and a
+cross-encoder reranks the $k$ (Nogueira and Cho, 2019). \Cref{lst:encoders:cross-enc} builds the
+pair input and the head. The segment embedding (0 for the query side, 1 for the document) is the one
+BERT-specific ingredient; the document is truncated before the query, because the query is short and
+must survive intact.
+
+\begin{figure}[t]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  enc/.style={draw=sysblue,fill=sysbluebg,rounded corners=2pt,minimum width=2.0cm,minimum height=0.9cm,align=center,font=\footnotesize},
+  vec/.style={draw,fill=fdata!25,rounded corners=1pt,minimum width=0.5cm,minimum height=0.9cm,font=\scriptsize},
+  tokv/.style={draw,fill=fdata!25,minimum width=0.22cm,minimum height=0.9cm,inner sep=0},
+  txt/.style={font=\footnotesize,align=center},
+  arr/.style={-{Stealth[length=1.8mm]},thick}]
+% bi-encoder
+\node[font=\bfseries\small] at (1.6,3.4) {bi-encoder};
+\node[txt] (q1) at (0.5,0) {query};
+\node[txt] (d1) at (2.7,0) {document};
+\node[enc] (eq) at (0.5,1.3) {encoder};
+\node[enc] (ed) at (2.7,1.3) {encoder};
+\node[vec] (vq) at (0.5,2.5) {$\vect q$};
+\node[vec] (vd) at (2.7,2.5) {$\vect d$};
+\draw[arr] (q1)--(eq); \draw[arr] (d1)--(ed); \draw[arr] (eq)--(vq); \draw[arr] (ed)--(vd);
+\node[txt] at (1.6,2.5) {$\vect q^\top\vect d$};
+\node[txt,text=srcgray] at (1.6,-0.7) {$\vect d$ precomputed, ANN search};
+% late interaction
+\begin{scope}[xshift=5.6cm]
+\node[font=\bfseries\small] at (1.6,3.4) {late interaction};
+\node[txt] (q1) at (0.5,0) {query};
+\node[txt] (d1) at (2.7,0) {document};
+\node[enc] (eq) at (0.5,1.3) {encoder};
+\node[enc] (ed) at (2.7,1.3) {encoder};
+\foreach \i in {0,1,2} \node[tokv] at (0.2+0.3*\i,2.5) {};
+\foreach \i in {0,...,5} \node[tokv] at (1.95+0.3*\i,2.5) {};
+\draw[arr] (q1)--(eq); \draw[arr] (d1)--(ed); \draw[arr] (eq)--(0.5,2.05); \draw[arr] (ed)--(2.7,2.05);
+\node[txt] at (1.6,3.0) {MaxSim};
+\node[txt,text=srcgray] at (1.6,-0.7) {$T_d$ vectors per document};
+\end{scope}
+% cross-encoder
+\begin{scope}[xshift=11.2cm]
+\node[font=\bfseries\small] at (1.6,3.4) {cross-encoder};
+\node[txt] (p) at (1.6,0) {[CLS] query [SEP] document [SEP]};
+\node[enc,minimum width=4.2cm] (e) at (1.6,1.3) {encoder (joint attention)};
+\node[vec] (s) at (1.6,2.5) {score};
+\draw[arr] (p)--(e); \draw[arr] (e)--(s);
+\node[txt,text=srcgray] at (1.6,-0.7) {one forward per (query, document)};
+\end{scope}
+\end{tikzpicture}}
+\caption{Three ways to score a query against a document. The bi-encoder precomputes one vector per
+document and compares with a dot product; late interaction precomputes one vector per document token
+and compares with MaxSim; the cross-encoder lets query and document attend to each other and pays one
+forward pass per pair. Accuracy rises and precomputability falls from left to right.}
+\label{fig:encoders:biandcross}
+\end{figure}
+
+\begin{lstlisting}[caption={Pair input and cross-encoder head (from \ident{llmsys/encoder.py}).},label={lst:encoders:cross-enc}]
+def build_pair_input(q_ids, d_ids, cls_id, sep_id, pad_id, max_len):
+    q_ids = list(q_ids)[: max_len - 3]
+    d_ids = list(d_ids)[: max_len - 3 - len(q_ids)]      # truncate the document first
+    ids = [cls_id, *q_ids, sep_id, *d_ids, sep_id]
+    seg = [0] * (len(q_ids) + 2) + [1] * (len(d_ids) + 1)
+    n_pad = max_len - len(ids)
+    ids, seg = ids + [pad_id] * n_pad, seg + [0] * n_pad
+    pad_mask = [True] * (max_len - n_pad) + [False] * n_pad
+    return torch.tensor(ids), torch.tensor(pad_mask), torch.tensor(seg)
+
+class CrossEncoderReranker(nn.Module):
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = encoder
+        self.seg_emb = nn.Embedding(2, encoder.cfg["emb_dim"])   # query side / document side
+        self.score = nn.Linear(encoder.cfg["emb_dim"], 1)
+
+    def forward(self, ids, pad_mask, segment_ids):
+        enc = self.encoder
+        pos = torch.arange(ids.shape[1], device=ids.device)
+        x = enc.drop_emb(enc.tok_emb(ids) + enc.pos_emb(pos)[None] + self.seg_emb(segment_ids))
+        for blk in enc.blocks:
+            x = blk(x, pad_mask)
+        return self.score(enc.final_norm(x)[:, 0]).squeeze(-1)  # read [CLS]: (B,)
+\end{lstlisting}
+
+\begin{napkinmath}[Reranking 100 candidates]
+A BERT-base cross-encoder over a 32-token query and a 224-token passage processes $T=256$ tokens per
+pair: $2\cdot85\cdot10^6\cdot256+4\cdot256^2\cdot768\cdot12=\SI{46}{GFLOP}$. Reranking $k=100$
+candidates is \SI{4.6}{TFLOP}, about \SI{15}{\milli\second} at the A100's bf16 peak and
+\SI{40}{}--\SI{60}{\milli\second} at the utilisation we actually measure in \cref{sec:encoders:serving}.
+A bi-encoder scores the same 100 candidates with a $100\times768$ matrix--vector product---\SI{0.15}{MFLOP}---because
+the documents were encoded in advance. The cross-encoder is $10^7$ times more expensive per
+candidate and still cheap enough to run on every query, which is why the two-stage pipeline is the
+default: retrieval pays per \emph{corpus} document once, reranking pays per \emph{candidate} per
+query.
+\end{napkinmath}
+
+Rerankers are also trained from pairs, usually with a pointwise binary loss (relevant or not) or a
+listwise softmax over the candidates of one query; because they are expensive to run they are
+also the usual \emph{teacher} for bi-encoders, whose student loss matches the teacher's score
+distribution over the candidate list rather than the hard labels (\cref{ch:distill} covers the general
+machinery). Recent rerankers are decoders too: a 7B model asked to output ``yes'' or ``no'' after
+reading a query--document pair, with the logit of ``yes'' as the score, is a cross-encoder in all but
+name.
+
+% =====================================================================
+\section{Vision transformers as encoders}\label{sec:encoders:vit}
+
+Nothing in \cref{lst:encoders:model} knows that its input is text. The embedding table turns integers
+into vectors; everything after it is a sequence model. A vision transformer (ViT, Dosovitskiy et al.,
+2021) replaces the table with a function that turns an image into a sequence of vectors and keeps
+the rest. It is the purest demonstration that an encoder is a set-of-vectors processor with a
+position signal added, and it is the vision tower of nearly every vision--language model
+(\cref{ch:alignment}).
+
+\paragraph{Patchify.} An image of $C$ channels and $H\times W$ pixels is cut into non-overlapping
+$P\times P$ patches, $N=(H/P)(W/P)$ of them, each flattened to a vector of $CP^2$ numbers and
+projected linearly to $\dmodel$ (\cref{fig:encoders:patchify}). With $P=16$ a $224\times224$ image
+becomes $N=196$ tokens of dimension $3\cdot16^2=768$; the ``embedding table'' is a $768\times\dmodel$
+matrix. In code (\cref{lst:encoders:patchify}) patchify is a reshape and a permute, and the lab
+checks it against \code{F.unfold}, the generic sliding-window operator, which produces the same
+layout. A \code{Conv2d} with kernel and stride $P$ computes the same thing; we write the linear
+version because it makes the token view explicit.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=0.55cm,y=0.55cm,
+  px/.style={draw=black!30,inner sep=0,minimum width=0.55cm,minimum height=0.55cm},
+  tok/.style={draw,fill=fdata!25,minimum width=0.5cm,minimum height=1.3cm,inner sep=0,font=\scriptsize},
+  arr/.style={-{Stealth[length=1.8mm]},thick,black!60}]
+\foreach \r in {0,...,3} \foreach \c in {0,...,3} {
+  \pgfmathsetmacro{\sh}{20+8*mod(\r*4+\c,5)}
+  \node[px,fill=fcompute!\sh] at (\c,3-\r) {};
+}
+\draw[very thick,napkin] (-0.5,-0.5) grid[step=2] (3.5,3.5);
+\node[font=\scriptsize,anchor=north] at (1.5,-0.6) {$H\times W=8\times8$ image, $P=4$};
+\draw[arr] (4.0,1.5)--(5.4,1.5);
+\node[font=\scriptsize,anchor=south] at (4.7,1.7) {patchify};
+\foreach \i in {0,...,3} \node[tok] at (6.2+0.7*\i,1.5) {$\vect p_{\i}$};
+\node[font=\scriptsize,anchor=north,align=center] at (7.25,0.7) {$N=4$ patches,\\each $CP^2=48$ numbers};
+\draw[arr] (9.2,1.5)--(10.6,1.5);
+\node[font=\scriptsize,anchor=south,align=center] at (9.9,1.7) {$\mat W\in\mathbb R^{48\times d}$\\$+$ position};
+\node[tok,fill=sysbluebg,draw=sysblue] at (11.3,1.5) {cls};
+\foreach \i in {0,...,3} \node[tok,fill=sysbluebg,draw=sysblue] at (12.0+0.7*\i,1.5) {$\vect x_{\i}$};
+\node[font=\scriptsize,anchor=north,align=center] at (12.9,0.7) {$1+N$ tokens of width $d$\\into the encoder of \cref{lst:encoders:model}};
+\end{tikzpicture}
+\caption{Patchify. The image is cut into $P\times P$ squares in row-major order, each is flattened
+channel-major into a vector of $CP^2$ numbers and projected to $\dmodel$; a learned \code{[CLS]} token
+and a learned position table (one row per patch) are added, and the result is an ordinary encoder
+input. A $224\times224$ image with $P=16$ gives $N=196$ tokens; $P=14$ at $448\times448$ gives 1024.}
+\label{fig:encoders:patchify}
+\end{figure}
+
+\begin{lstlisting}[caption={Patchify and the ViT encoder (from \ident{llmsys/vit.py}).},label={lst:encoders:patchify}]
+def patchify(img, P):
+    """(B, C, H, W) -> (B, N, C*P*P): same layout as F.unfold(img, P, stride=P).transpose(1, 2)."""
+    B, C, H, W = img.shape
+    x = img.reshape(B, C, H // P, P, W // P, P)
+    x = x.permute(0, 2, 4, 1, 3, 5)                       # (B, H/P, W/P, C, P, P)
+    return x.reshape(B, (H // P) * (W // P), C * P * P)
+
+class ViTEncoder(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        d, P = cfg["emb_dim"], cfg["patch"]
+        self.grid = cfg["img_size"] // P
+        self.patch_embed = PatchEmbed(cfg["in_ch"], P, d)               # one Linear(C*P*P, d)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, d))
+        self.pos_emb = nn.Parameter(torch.zeros(1, 1 + self.grid ** 2, d))
+        self.blocks = nn.ModuleList(EncoderBlock(cfg) for _ in range(cfg["n_layers"]))
+        self.final_norm = LayerNorm(d)
+
+    def forward(self, img):
+        x = self.patch_embed(img)                                       # (B, N, d)
+        pos = self.pos_emb
+        if x.shape[1] != self.grid ** 2:                                # another resolution
+            P = self.cfg["patch"]
+            pos = interpolate_pos_embed(pos, self.grid, (img.shape[-2] // P, img.shape[-1] // P))
+        x = torch.cat([self.cls_token.expand(x.shape[0], -1, -1), x], dim=1) + pos
+        for blk in self.blocks:
+            x = blk(x)                                                  # no mask: all tokens real
+        return self.final_norm(x)                                       # (B, 1+N, d)
+\end{lstlisting}
+
+\paragraph{Positions in two dimensions.} The patches arrive in row-major order, but the encoder has
+no notion of ``the patch below this one'' unless the position signal gives it one. The original ViT
+simply learns a table with one row per patch position, exactly like GPT-2's \code{pos\_emb}, and lets
+the model discover the 2-D structure (it does: the learned table's rows are similar for nearby grid
+positions). To run a model trained at $224$ pixels on $384$-pixel images---more patches, a
+different grid---the table is reshaped to its $g\times g$ grid, interpolated bicubically to the new
+grid and flattened back (\code{interpolate\_pos\_embed}), which works because the table is smooth
+over the grid. Later encoders use 2-D RoPE (separate rotations for row and column index) or
+factorised tables, and native-resolution models such as NaViT (Dehghani et al., 2023) pack patches
+from several images of different sizes into one sequence with the block-diagonal attention mask of
+\cref{sec:encoders:serving}, which is where the \code{attn\_mask} and \code{position\_ids}
+arguments of our encoder earn their keep.
+
+\paragraph{CLS or pooled.} For classification ViT reads the \code{[CLS]} output through a linear
+head; for CLIP-style contrastive training against text (Radford et al., 2021) that output is projected
+to the shared embedding space and trained with exactly \cref{eq:encoders:infonce}, with image--caption
+pairs in place of query--document pairs. A VLM instead takes \emph{all} $N$ patch outputs, maps them
+through a small projector to the language model's width, and splices them into the text sequence as
+if they were tokens; the language model then attends to them under the prefix-LM mask of
+\cref{fig:encoders:masks}. The cost of doing so is entirely in $N$.
+
+\begin{napkinmath}[Resolution and patch size set the token count]
+ViT-B/16 has the shape of BERT-base ($d=768$, $L=12$, $85$M non-embedding parameters). At
+$224\times224$ it processes $1+196$ tokens: $2\cdot85\cdot10^6\cdot197+4\cdot197^2\cdot768\cdot12=\SI{35}{GFLOP}$
+per image, 1.5\,ms at the A100's bf16 roof---the figure usually quoted as 17.6\,GMACs. At $384\times384$,
+$N=576$ and the cost is \SI{111}{GFLOP} ($3.2\times$): the GEMMs scale with $N$ and attention
+with $N^2$, and attention is now 11\% of the total. Halving the patch size to 8 at $224$ gives
+$N=784$ and \SI{156}{GFLOP} ($4.4\times$). For a VLM the token count is also what the language
+model has to carry: 1024 image tokens from a $448\times448$, $P=14$ tower occupy 1024 slots of the
+7B decoder's context and its KV cache (\SI{0.5}{\mega\byte} per token for a Llama-7B-shaped model,
+half a gigabyte per image), which is why VLMs pool or merge image tokens $2\times2$ or $4\times4$
+before the language model sees them.
+\end{napkinmath}
